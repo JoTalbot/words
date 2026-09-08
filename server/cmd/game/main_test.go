@@ -3,24 +3,39 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
 func TestHealthz(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	srv := httptest.NewServer(healthzHandler())
+	defer srv.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
 	}
-	if got, want := rec.Body.String(), `{"status":"ok"}`; got != want {
-		t.Fatalf("body = %q, want %q", got, want)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+}
+
+func TestAddrDefault(t *testing.T) {
+	os.Unsetenv("WORDARENA_ADDR")
+	if got, want := addr(), ":8080"; got != want {
+		t.Fatalf("addr() = %q, want %q", got, want)
+	}
+}
+
+func TestAddrFromEnv(t *testing.T) {
+	t.Setenv("WORDARENA_ADDR", "127.0.0.1:18080")
+	if got, want := addr(), "127.0.0.1:18080"; got != want {
+		t.Fatalf("addr() = %q, want %q", got, want)
 	}
 }
