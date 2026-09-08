@@ -52,6 +52,7 @@ type Subscription struct {
 type EventFrame struct {
 	Seat       match.Seat
 	Seq        int
+	ClientSeq  uint32 // echoed client intent sequence (telemetry/ordering aid)
 	Tick       int
 	Result     match.WordResult
 	Word       string
@@ -150,6 +151,12 @@ func (r *Room) Unsubscribe(seat match.Seat) {
 
 // Submit applies one intent under the room lock and fans out the event.
 func (r *Room) Submit(seat match.Seat, cellIDs []int) (EventFrame, error) {
+	return r.SubmitWithSeq(seat, 0, cellIDs)
+}
+
+// SubmitWithSeq is Submit with the client intent sequence echoed back in the
+// resulting event frame so clients can correlate intents to outcomes.
+func (r *Room) SubmitWithSeq(seat match.Seat, clientSeq uint32, cellIDs []int) (EventFrame, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if seat < 0 || int(seat) > 1 {
@@ -160,10 +167,10 @@ func (r *Room) Submit(seat match.Seat, cellIDs []int) (EventFrame, error) {
 	}
 	ev := r.match.Submit(seat, cellIDs)
 	frame := EventFrame{
-		Seat: seat, Seq: ev.Seq, Tick: ev.Tick, Result: ev.Result,
-		Word: ev.Word, ScoreAdded: ev.ScoreAdded, TotalScore: ev.TotalScore,
-		IsSteal: ev.IsSteal, StateVer: ev.StateVersion, CellIDs: ev.CellIDs,
-		ComboMult: ev.ComboMult,
+		Seat: seat, Seq: ev.Seq, ClientSeq: clientSeq, Tick: ev.Tick,
+		Result: ev.Result, Word: ev.Word, ScoreAdded: ev.ScoreAdded,
+		TotalScore: ev.TotalScore, IsSteal: ev.IsSteal,
+		StateVer: ev.StateVersion, CellIDs: ev.CellIDs, ComboMult: ev.ComboMult,
 	}
 	r.broadcastEventLocked(frame)
 	return frame, nil

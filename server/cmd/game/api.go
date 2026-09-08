@@ -267,7 +267,9 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case ev := <-sub.Events:
-				evp := protocol.WordEventToProto(toMatchEvent(ev), room.UserID(ev.Seat))
+				pb := protocol.WordEventToProto(toMatchEvent(ev), room.UserID(ev.Seat))
+				pb.ClientSequence = ev.ClientSeq
+				evp := pb
 				env := protocol.WordEnvelope(id, evp)
 				if err := wsWriteProto(ctx, conn, env); err != nil {
 					return
@@ -303,7 +305,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		for _, v := range sw.LetterIndices {
 			ids = append(ids, int(v))
 		}
-		if _, err := room.Submit(seat, ids); err != nil {
+		if _, err := room.SubmitWithSeq(seat, sw.ClientSequence, ids); err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "submit failed")
 			break
 		}
