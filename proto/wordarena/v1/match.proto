@@ -41,6 +41,9 @@ message WordValidatedEvent {
   uint32 claimed_cell_index = 9;
   bool is_steal = 10;
   uint32 state_version = 11;
+  // The account whose intent produced this event. Clients need it to
+  // attribute scores and steal debits without guessing.
+  uint64 user_id = 12;
 }
 
 message ResumeRequest {
