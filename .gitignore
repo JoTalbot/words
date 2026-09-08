@@ -1,0 +1,64 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+MemoryCaptures/
+Recordings/
+
+# Unity generated
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Go
+bin/
+coverage.out
+
+# Rust / C++
+target/
+build/
+cmake-build-*/
+
+# Generated protocol / dictionary artifacts
+gen/
+dictionary/build/
+*.daWG
+*.dawg
+*.cdawg
+*.bin
+
+# Test / coverage
+.coverage/
+htmlcov/
+coverage/
+
+# Terraform / local state
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# OS package caches
+.Docker/
