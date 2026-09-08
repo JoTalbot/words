@@ -1,0 +1,37 @@
+id: M0-autonomous-bootstrap
+title: Establish autonomous M0 development loop
+owner: orchestrator
+priority: critical
+complexity: medium
+inputs:
+  - AGENTS.md
+  - docs/AGENT-OPERATING-MODE.md
+  - docs/AUTONOMOUS-DEVELOPMENT.md
+  - docs/TASK-PROTOCOL.md
+  - docs/M0.md
+  - docs/ROADMAP.md
+  - docs/PRODUCT-DECISIONS.md
+  - proto/
+dependencies: []
+outputs:
+  - environment inventory
+  - executable task graph
+  - deterministic gameplay test baseline
+  - reproducible server test command
+  - documented blockers only where unavoidable
+acceptance:
+  - repository state and runtime are inventoried
+  - available local LLM and automation tooling is identified
+  - M0 work is decomposed into bounded tasks
+  - at least one independent implementation/test batch is executed
+  - affected tests are run and results recorded
+  - verified work is integrated
+  - next unblocked tasks are selected automatically
+validation:
+  - git status
+  - project build/test commands discovered during environment inspection
+file_ownership:
+  - agent/
+  - docs/
+risk: medium
+escalation: review
