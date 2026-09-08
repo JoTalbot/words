@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    name: Repository sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate repository layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f README.md
+          test -f docs/ARCHITECTURE.md
+          test -f proto/wordarena/v1/match.proto
+
+  proto:
+    name: Protobuf lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.47.2
+      - name: Create temporary buf module config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > proto/buf.yaml <<'EOF'
+          version: v2
+          modules:
+            - path: .
+          EOF
+      - name: Lint protobuf
+        working-directory: proto
+        run: buf lint
+
+  go:
+    name: Go baseline
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('server/go.mod') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - run: go test ./...
+        working-directory: server
