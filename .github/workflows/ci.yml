@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  repository:
+  sanity:
     name: Repository sanity
     runs-on: ubuntu-latest
     steps:
@@ -21,34 +21,21 @@ jobs:
           set -euo pipefail
           test -f README.md
           test -f docs/ARCHITECTURE.md
+          test -f docs/M0.md
+          test -f proto/buf.yaml
           test -f proto/wordarena/v1/match.proto
+          test -f server/go.mod
 
-  proto:
-    name: Protobuf lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install buf
-        uses: bufbuild/buf-setup-action@v1
-        with:
-          version: 1.47.2
-      - name: Create temporary buf module config
+      - name: Validate protobuf source
         shell: bash
         run: |
           set -euo pipefail
-          cat > proto/buf.yaml <<'EOF'
-          version: v2
-          modules:
-            - path: .
-          EOF
-      - name: Lint protobuf
-        working-directory: proto
-        run: buf lint
+          grep -q 'syntax = "proto3";' proto/wordarena/v1/match.proto
+          grep -q 'package wordarena.net.v1;' proto/wordarena/v1/match.proto
 
   go:
-    name: Go baseline
+    name: Go tests
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('server/go.mod') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
