@@ -28,6 +28,13 @@ curl http://localhost:8080/healthz
 | Session/reconnect | next batch |
 | Network fault sim / load baseline | next batch |
 
+Regenerate protocol code after editing `proto/` (committed output keeps CI
+free of protoc):
+
+```bash
+protoc -I proto --go_out=server --go_opt=module=github.com/JoTalbot/words/server proto/wordarena/v1/match.proto
+```
+
 Run all checks:
 
 ```bash

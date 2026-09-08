@@ -62,3 +62,6 @@ coverage/
 
 # OS package caches
 .Docker/
+
+# Generated protocol bindings ARE committed (reproducible CI without protoc)
+!server/gen/

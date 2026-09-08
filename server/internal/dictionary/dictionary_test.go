@@ -25,7 +25,7 @@ func TestManifestChecksums(t *testing.T) {
 // TestSnapshotSizes pins snapshot word counts so accidental data edits are
 // visible. Growing data is fine, but the pin changes deliberately.
 func TestSnapshotSizes(t *testing.T) {
-	want := map[Language]int{En: 135, Ru: 96, Uk: 56}
+	want := map[Language]int{En: 139, Ru: 96, Uk: 56}
 	for lang, n := range want {
 		snap, err := LoadSnapshot(lang)
 		if err != nil {

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package wordarena.net.v1;
 
-option go_package = "github.com/JoTalbot/words/gen/wordarena/net/v1;wordarenav1";
+option go_package = "github.com/JoTalbot/words/server/gen/wordarena/net/v1;wordarenav1";
 
 message InputCoordinate {
   float x = 1;
