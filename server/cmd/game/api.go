@@ -53,9 +53,12 @@ func randomSeed() (uint64, error) {
 		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7]), nil
 }
 
-// createMatchRequest mirrors the JSON body of POST /v1/matches.
+// createMatchRequest mirrors the JSON body of POST /v1/matches. Seed is
+// optional: fixed seeds create reproducible matches for tools and E2E
+// tests; random seeds are used when absent.
 type createMatchRequest struct {
-	Language string `json:"language"`
+	Language string  `json:"language"`
+	Seed     *uint64 `json:"seed,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
@@ -99,10 +102,16 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
-	seed, err := randomSeed()
-	if err != nil {
-		httpError(w, http.StatusInternalServerError, "rng failure")
-		return
+	var seed uint64
+	if req.Seed != nil {
+		seed = *req.Seed
+	} else {
+		s, err := randomSeed()
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "rng failure")
+			return
+		}
+		seed = s
 	}
 	tok0, err := randomHex(16)
 	if err != nil {
