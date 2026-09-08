@@ -4,10 +4,10 @@
 
 Focus: prove the core competitive loop.
 
-- [ ] deterministic board generator
-- [ ] deterministic scoring engine
-- [ ] dictionary compiler + validator benchmark
-- [ ] authoritative 1v1 match simulation
+- [x] deterministic board generator (server/internal/match + prng golden)
+- [x] deterministic scoring engine (server/internal/scoring golden)
+- [~] dictionary compiler + validator benchmark (validator + en/ru/uk snapshots done; compiler pending)
+- [x] authoritative 1v1 match simulation (waves/claims/locks/steals/replay)
 - [ ] WebSocket transport adapter
 - [ ] Protobuf encode/decode compatibility tests
 - [ ] prediction/reconciliation
