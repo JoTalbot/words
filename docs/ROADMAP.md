@@ -8,12 +8,12 @@ Focus: prove the core competitive loop.
 - [x] deterministic scoring engine (server/internal/scoring golden)
 - [~] dictionary compiler + validator benchmark (validator + en/ru/uk snapshots done; compiler pending)
 - [x] authoritative 1v1 match simulation (waves/claims/locks/steals/replay)
-- [ ] WebSocket transport adapter
-- [ ] Protobuf encode/decode compatibility tests
-- [ ] prediction/reconciliation
-- [ ] reconnect/resume
-- [ ] network fault simulation
-- [ ] Unity swipe prototype
+- [x] WebSocket transport adapter (binary protobuf envelopes, HTTP create endpoint)
+- [x] Protobuf encode/decode compatibility tests (round-trip + byte stability)
+- [~] prediction/reconciliation (server convergence proven headless; Unity client pending)
+- [x] reconnect/resume (token reconnect inside grace; canonical snapshot reconciliation)
+- [x] network fault simulation (RTT/loss matrix over real WebSocket)
+- [ ] Unity swipe prototype (blocked: no Unity Editor for Linux/ARM64 on the dev host)
 
 Exit gate: two remote clients can complete repeated matches with identical final state and reproducible event logs.
 

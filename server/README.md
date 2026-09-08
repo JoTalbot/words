@@ -21,12 +21,14 @@ curl http://localhost:8080/healthz
 | Area | Status |
 |---|---|
 | Deterministic PRNG (`internal/prng`) | xoshiro256** + splitmix64, golden vectors |
-| Dictionary snapshots (`internal/dictionary`) | en/ru/uk embedded snapshots v1, normalization, sha256 manifest |
+| Dictionary snapshots (`internal/dictionary`) | en/ru/uk v2 snapshots (~642k words), normalization, sha256 manifest, cached loads |
 | Scoring (`internal/scoring`) | letter tables data v1, combo, bonuses, integer scoring |
 | Match simulation (`internal/match`) | waves, claims, locks, cross-steal, replay, snapshots |
-| Transport adapter | next batch (WebSocket + Protobuf) |
-| Session/reconnect | next batch |
-| Network fault sim / load baseline | next batch |
+| Match rooms (`internal/matchroom`) | 30 Hz tick loop, fan-out, tokens |
+| Transport adapter (`cmd/game`) | HTTP create + WebSocket binary protobuf envelopes |
+| Session/reconnect | reconnect with the same token inside the match lifetime |
+| Network fault sim | RTT 50/100/150 ms x loss 0/1/3% matrix green |
+| Load baseline | docs/LOAD-BASELINE.md |
 
 Regenerate protocol code after editing `proto/` (committed output keeps CI
 free of protoc):
