@@ -11,7 +11,9 @@ This file records decisions that materially affect implementation. Open question
 | PD-003 | Competitive scoring is deterministic | Accepted | Enables replay, auditing and desync diagnosis |
 | PD-004 | Dictionary is versioned data with immutable runtime snapshot + deltas | Accepted | Enables safe LiveOps word corrections |
 | PD-005 | Core match path must not depend on analytics availability | Accepted | Analytics outages must never stop a match |
-| PD-006 | M0 match server starts in Go | Proposed | Keeps the first production path simple; optimize only after profiling |
+| PD-006 | M0 match server starts in Go | Accepted | Keeps the first production path simple; optimize only after profiling |
+| PD-007 | M0 match rules v0.1 (see docs/M0-MATCH-RULES.md) | Accepted (prototype) | Engineering defaults so the deterministic core can ship; numbers are calibration candidates per Q1/Q2 |
+| PD-008 | Supported languages at M0: en, ru, uk (match dictionaries + UI localization scope) | Accepted | Product requirement: game must be playable in Russian, Ukrainian and English |
 
 ## Questions requiring product validation
 
