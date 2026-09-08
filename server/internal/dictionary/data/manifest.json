@@ -1,19 +1,22 @@
 {
   "schema": 1,
-  "version": "2026-09-08.v1",
-  "note": "M0 fixture snapshots: small curated word lists used to prove the deterministic match core. Full-size dictionary artifacts supersede these through the dictionary pipeline.",
+  "version": "2026-09-08.v2",
+  "note": "M0 playable snapshots v2: en=SCOWL-derived (en_US, LibreOffice 2020.12.07), ru=danakt/russian-words (MIT), uk=dict_uk-derived (uk_UA, GPLv3+; pre-production, legal review before distribution). Filtered to language alphabet, lowercase, length 3..9 (ru: ё->е).",
   "languages": {
     "en": {
       "file": "en.words",
-      "sha256": "fe5adcaac8a75752eeec37581e2eb72afe42f78b3056cbc9fb483c4571c4c762"
+      "sha256": "758894787f344988947af8bd01d27ccf466bf2edabf77c72894c8319604eafe3",
+      "words": 35502
     },
     "ru": {
       "file": "ru.words",
-      "sha256": "49b1c41104e04a7e58a0183f79c5572922d322c247c256607372d2b223050363"
+      "sha256": "91a50bf5ab6e11694f2b7d3cc160a3d3dc444b4197a9c119e9337ed7b38bbafa",
+      "words": 482731
     },
     "uk": {
       "file": "uk.words",
-      "sha256": "0d13e4d4a8e8794ff8541a006b316ebecd3ee4e385417bbfc90ed92360ff6a8d"
+      "sha256": "a37758e928b9b5c86231d1721db4c68a0732b54f00d56ddfbab4c0e95ce6137b",
+      "words": 123595
     }
   }
 }

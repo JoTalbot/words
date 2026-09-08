@@ -34,14 +34,22 @@ func ParseLanguage(tag string) (Language, error) {
 	}
 }
 
-// letters returns the alphabet membership table for the language.
-func (l Language) letters() map[rune]bool {
-	m := map[rune]bool{}
-	for _, r := range alphabet(l) {
-		m[r] = true
+// letterSets is a process-lifetime membership table per language so the
+// hot validation path never allocates.
+var letterSets = func() map[Language]map[rune]bool {
+	out := map[Language]map[rune]bool{}
+	for _, l := range SupportedLanguages {
+		m := map[rune]bool{}
+		for _, r := range alphabet(l) {
+			m[r] = true
+		}
+		out[l] = m
 	}
-	return m
-}
+	return out
+}()
+
+// letters returns the alphabet membership table for the language.
+func (l Language) letters() map[rune]bool { return letterSets[l] }
 
 func alphabet(l Language) string {
 	switch l {

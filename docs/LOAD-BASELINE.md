@@ -18,6 +18,16 @@ The event log dominates per-match heap at this depth (≈237 B/event);
 production rooms will bound retained replay depth (deterministic replay can
 re-stream from compact event sinks).
 
+## Dictionary validation
+
+`go test ./internal/dictionary/ -bench BenchmarkContains` (in-process,
+en_US snapshot, includes normalization; ARM host above):
+
+| Metric | Value |
+|---|---|
+| Contains (normalize + lookup) | ~382 ns/op (~2.6M validations/s/core) |
+| Cold load of 123k-word uk snapshot | not measured separately (cached after first load) |
+
 ## Methodology notes
 
 - In-process domain benchmark; transport and network are excluded by

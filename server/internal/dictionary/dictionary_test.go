@@ -23,9 +23,9 @@ func TestManifestChecksums(t *testing.T) {
 }
 
 // TestSnapshotSizes pins snapshot word counts so accidental data edits are
-// visible. Growing data is fine, but the pin changes deliberately.
+// visible (v2 playable snapshots: en=SCOWL, ru=danakt, uk=dict_uk).
 func TestSnapshotSizes(t *testing.T) {
-	want := map[Language]int{En: 139, Ru: 96, Uk: 56}
+	want := map[Language]int{En: 35502, Ru: 482731, Uk: 123595}
 	for lang, n := range want {
 		snap, err := LoadSnapshot(lang)
 		if err != nil {
@@ -34,6 +34,24 @@ func TestSnapshotSizes(t *testing.T) {
 		if got := snap.Size(); got != n {
 			t.Errorf("%s snapshot size = %d, want %d", lang, got, n)
 		}
+	}
+}
+
+// TestSnapshotCached ensures repeated loads share one immutable snapshot.
+func TestSnapshotCached(t *testing.T) {
+	a, err := LoadSnapshot(En)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadSnapshot(En)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Fatal("LoadSnapshot must return the shared cached snapshot")
+	}
+	if !a.Contains("table") || !b.Contains("TABLE") {
+		t.Fatal("cached snapshot lookup broken")
 	}
 }
 

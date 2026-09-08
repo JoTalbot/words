@@ -9,13 +9,14 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+	"sync"
 )
 
 //go:embed data
 var dataFS embed.FS
 
 // SnapshotVersion is the shipped data set version (see data/manifest.json).
-const SnapshotVersion = "2026-09-08.v1"
+const SnapshotVersion = "2026-09-08.v2"
 
 // manifest mirrors data/manifest.json.
 type manifest struct {
@@ -36,10 +37,19 @@ type Snapshot struct {
 	words   map[string]struct{}
 }
 
+// cache holds one immutable Snapshot per language. Snapshots are read-only
+// after construction, so every match in the process shares the same
+// dictionary (v1 rule: validation is local, deterministic and cheap).
+var cache sync.Map // Language -> *Snapshot
+
 // LoadSnapshot reads the embedded data snapshot for a language and validates
 // every line against the language normalization rules. Any malformed line is
-// an error: data files are versioned artifacts and must stay clean.
+// an error: data files are versioned artifacts and must stay clean. Results
+// are cached for the process lifetime.
 func LoadSnapshot(lang Language) (*Snapshot, error) {
+	if v, ok := cache.Load(lang); ok {
+		return v.(*Snapshot), nil
+	}
 	if _, ok := manifestData.Languages[string(lang)]; !ok {
 		return nil, fmt.Errorf("dictionary: no snapshot data for %s", lang)
 	}
@@ -68,7 +78,9 @@ func LoadSnapshot(lang Language) (*Snapshot, error) {
 	if len(words) == 0 {
 		return nil, fmt.Errorf("dictionary: snapshot %s is empty", lang)
 	}
-	return &Snapshot{Lang: lang, Version: SnapshotVersion, words: words}, nil
+	snap := &Snapshot{Lang: lang, Version: SnapshotVersion, words: words}
+	cache.Store(lang, snap)
+	return snap, nil
 }
 
 // LoadSnapshotFromReader builds a Snapshot from an explicit reader
