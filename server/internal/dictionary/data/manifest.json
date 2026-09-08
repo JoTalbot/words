@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "version": "2026-09-08.v1",
+  "note": "M0 fixture snapshots: small curated word lists used to prove the deterministic match core. Full-size dictionary artifacts supersede these through the dictionary pipeline.",
+  "languages": {
+    "en": {
+      "file": "en.words",
+      "sha256": "aaf949fbfb6d9a70fe07782882ee3ce7e8fe24e5a8accf9edff50ae2d29e3d67"
+    },
+    "ru": {
+      "file": "ru.words",
+      "sha256": "49b1c41104e04a7e58a0183f79c5572922d322c247c256607372d2b223050363"
+    },
+    "uk": {
+      "file": "uk.words",
+      "sha256": "0d13e4d4a8e8794ff8541a006b316ebecd3ee4e385417bbfc90ed92360ff6a8d"
+    }
+  }
+}
