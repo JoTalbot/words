@@ -91,7 +91,7 @@ func (c *testClient) readEnvelope(t *testing.T) (*wordarenav1.ServerEnvelope, pr
 	if env.GetSnapshot() != nil {
 		return &env, env.GetSnapshot()
 	}
-	t.Fatalf("unknown envelope %v", env)
+	t.Fatalf("unknown envelope %s", env.String())
 	return nil, nil
 }
 

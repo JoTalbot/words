@@ -158,7 +158,7 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 			return
 		case <-tick.C:
 			room.Tick()
-			if room.Match().IsOver() {
+			if room.IsOver() {
 				// keep serving final state briefly so late readers catch up
 				select {
 				case <-time.After(3 * time.Second):
@@ -251,10 +251,9 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	// Immediate canonical snapshot anchors the client (resume semantics:
 	// the client reconciles against this snapshot regardless of prior state).
-	room.Tick() // no-op ordering aid is not needed; send current state:
 	sendSnapshot := func() {
 		userIDs := [2]uint64{room.UserID(0), room.UserID(1)}
-		snap := protocol.SnapshotToProto(room.Match().Snapshot(), userIDs)
+		snap := protocol.SnapshotToProto(room.Snapshot(), userIDs)
 		env := protocol.SnapshotEnvelope(id, snap)
 		_ = wsWriteProto(ctx, conn, env)
 	}

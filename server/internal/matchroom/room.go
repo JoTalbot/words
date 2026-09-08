@@ -94,8 +94,23 @@ func New(cfg Config) (*Room, error) {
 	return r, nil
 }
 
-// Match exposes the underlying simulation (read-only by convention).
+// Match exposes the underlying simulation (read-only by convention; do not
+// call mutating methods without going through the room).
 func (r *Room) Match() *match.Match { return r.match }
+
+// Snapshot returns the canonical state under the room lock.
+func (r *Room) Snapshot() match.Snapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.match.Snapshot()
+}
+
+// IsOver reports match completion under the room lock.
+func (r *Room) IsOver() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.match.IsOver()
+}
 
 // UserID returns the account id for a seat.
 func (r *Room) UserID(s match.Seat) uint64 { return r.userIDs[s] }
