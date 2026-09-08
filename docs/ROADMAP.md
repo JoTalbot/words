@@ -1,0 +1,68 @@
+# Implementation Roadmap
+
+## M0 — Prototype
+
+Focus: prove the core competitive loop.
+
+- [ ] deterministic board generator
+- [ ] deterministic scoring engine
+- [ ] dictionary compiler + validator benchmark
+- [ ] authoritative 1v1 match simulation
+- [ ] WebSocket transport adapter
+- [ ] Protobuf encode/decode compatibility tests
+- [ ] prediction/reconciliation
+- [ ] reconnect/resume
+- [ ] network fault simulation
+- [ ] Unity swipe prototype
+
+Exit gate: two remote clients can complete repeated matches with identical final state and reproducible event logs.
+
+## M1 — Vertical Slice
+
+- [ ] production-shaped match service
+- [ ] shared board UX
+- [ ] Claim / Lock / Cross-Steal
+- [ ] combo and Sudden Death
+- [ ] basic matchmaking
+- [ ] player profile
+- [ ] telemetry baseline
+
+## M2 — Alpha Core
+
+- [ ] 60-player mode
+- [ ] bot strategy and disclosure policy
+- [ ] anti-snowball mechanics
+- [ ] first PvE content
+- [ ] guild foundation
+- [ ] infrastructure load testing
+
+## M3 — Feature Complete Beta
+
+- [ ] seasons and battle pass
+- [ ] cosmetics
+- [ ] behavioral anti-cheat signals
+- [ ] dictionary hotfix pipeline
+- [ ] appeals/moderation tooling
+- [ ] economy simulation
+
+## M4 — Soft Launch
+
+- [ ] release pipeline
+- [ ] crash and performance monitoring
+- [ ] FTUE instrumentation
+- [ ] retention/cohort dashboards
+- [ ] economy tuning
+- [ ] server capacity validation
+
+## M5 — Global Launch
+
+- [ ] multi-region production
+- [ ] first season
+- [ ] guild territory layer
+- [ ] world boss
+- [ ] tournament operations
+- [ ] LiveOps calendar
+
+## Gate philosophy
+
+A milestone is complete when its exit criteria are measurable, not when all planned code exists. Features may be cut or delayed when experiments show they do not improve player value or operational safety.
