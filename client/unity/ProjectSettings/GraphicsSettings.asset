@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!30 &1
+GraphicsSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 14
+  m_Deferred: {fileID: 0}
+  m_DeferredReflections: {fileID: 0}
+  m_ScreenSpaceShadows: {fileID: 0}
+  m_LegacyDeferred: {fileID: 0}
+  m_DepthNormals: {fileID: 0}
+  m_LightHalo: {fileID: 0}
+  m_LensFlare: {fileID: 0}
+  m_AlwaysIncludedShaders: []
+  m_PreloadedShaders: []
+  m_PreloadShadersBatchTimeLimit: 0
+  m_TransparencySortMode: 0
+  m_TransparencySortAxis: {x: 0, y: 0, z: 1}
+  m_DefaultRenderingPath: 1
+  m_DefaultMobileRenderingPath: 1
+  m_TierSettings: []
+  m_LightmapStripping: 0
+  m_FogStripping: 0
+  m_InstancingStripping: 0
+  m_LightmapKeepPlain: 1
+  m_LightmapKeepDirCombined: 1
+  m_LightmapKeepDynamicPlain: 1
+  m_LightmapKeepDynamicDirCombined: 1
+  m_AlbedoSwatchInfos: []
+  m_AnyRenderPipeline: {fileID: 0}
+  m_RenderPipeline: {fileID: 0}
+  m_FallbackRenderers: []
