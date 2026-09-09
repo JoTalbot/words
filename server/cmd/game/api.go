@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -48,7 +49,13 @@ type API struct {
 	// (telemetry baseline, M1 prep).
 	m        metrics
 	stopOnce sync.Once
+
+	// mm pairs waiting players into matches (basic matchmaking, M1).
+	mm *matchmaker
 }
+
+// errRoomCapacity is returned by createRoom when the room cap is reached.
+var errRoomCapacity = errors.New("room capacity reached")
 
 // metrics are atomic counters for the telemetry baseline. They are cheap to
 // update on the hot path and expose a coarse health/throughput signal.
@@ -63,16 +70,32 @@ type metrics struct {
 // matchResult is the persisted post-match outcome served by
 // GET /v1/matches/{id}/result.
 type matchResult struct {
-	MatchID    uint64    `json:"match_id"`
-	Seed       uint64    `json:"seed"`
-	Language   string    `json:"language"`
-	Over       bool      `json:"over"`
-	WinnerSeat int       `json:"winner_seat"` // -1 on tie
-	IsTie      bool      `json:"is_tie"`
-	Scores     [2]int64  `json:"scores"`
-	StateVer   int       `json:"state_version"`
-	ServerTick int       `json:"server_tick"`
-	recordedAt time.Time `json:"-"`
+	MatchID    uint64        `json:"match_id"`
+	Seed       uint64        `json:"seed"`
+	Language   string        `json:"language"`
+	Over       bool          `json:"over"`
+	WinnerSeat int           `json:"winner_seat"` // -1 on tie
+	IsTie      bool          `json:"is_tie"`
+	Scores     [2]int64      `json:"scores"`
+	StateVer   int           `json:"state_version"`
+	ServerTick int           `json:"server_tick"`
+	Events     []replayEvent `json:"events,omitempty"`
+	recordedAt time.Time     `json:"-"`
+}
+
+// replayEvent is a compact, JSON-friendly event-log record for audit and
+// deterministic-replay tooling (GET /v1/matches/{id}/replay).
+type replayEvent struct {
+	Seq        int    `json:"seq"`
+	Tick       int    `json:"tick"`
+	Seat       int    `json:"seat"`
+	CellIDs    []int  `json:"cell_ids"`
+	Word       string `json:"word"`
+	Result     string `json:"result"`
+	ScoreAdded int64  `json:"score_added"`
+	TotalScore int64  `json:"total_score"`
+	IsSteal    bool   `json:"is_steal"`
+	StateVer   int    `json:"state_version"`
 }
 
 // resultTTL is how long finished match results are kept in memory.
@@ -87,6 +110,7 @@ func NewAPI() *API {
 		maxRooms:   envInt("WORDARENA_MAX_ROOMS", 128),
 		maxWSBytes: int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
 		results:    map[uint64]matchResult{},
+		mm:         newMatchmaker(),
 	}
 	return a
 }
@@ -156,6 +180,9 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/match/ws", a.handleWS)
 	mux.HandleFunc("GET /v1/match/{id}/snapshot", a.handleSnapshot)
 	mux.HandleFunc("GET /v1/matches/{id}/result", a.handleResult)
+	mux.HandleFunc("GET /v1/matches/{id}/replay", a.handleReplay)
+	mux.HandleFunc("POST /v1/queue", a.handleQueueCreate)
+	mux.HandleFunc("GET /v1/queue/{id}", a.handleQueuePoll)
 	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	return requestLogger(mux)
 }
@@ -187,63 +214,70 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	if lang == "" {
 		lang = "en"
 	}
-	// validate language by attempting a match build later; cheap check here
 	switch lang {
 	case "en", "ru", "uk":
 	default:
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
-	var seed uint64
-	if req.Seed != nil {
-		seed = *req.Seed
-	} else {
-		s, err := randomSeed()
-		if err != nil {
-			httpError(w, http.StatusInternalServerError, "rng failure")
+	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed)
+	if err != nil {
+		if errors.Is(err, errRoomCapacity) {
+			httpError(w, http.StatusTooManyRequests, "too many active matches")
 			return
 		}
-		seed = s
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, createMatchResponse{
+		MatchID: id, Seed: seed, Language: lang,
+		Tokens: tokens, UserIDs: userIDs,
+	})
+}
+
+// createRoom provisions a new live room and returns its public join info.
+// It is shared by the direct-create endpoint and the matchmaker.
+func (a *API) createRoom(lang string, seed *uint64) (uint64, uint64, [2]string, [2]uint64, error) {
+	var s uint64
+	if seed != nil {
+		s = *seed
+	} else {
+		var err error
+		if s, err = randomSeed(); err != nil {
+			return 0, 0, [2]string{}, [2]uint64{}, err
+		}
 	}
 	tok0, err := randomHex(16)
 	if err != nil {
-		httpError(w, http.StatusInternalServerError, "rng failure")
-		return
+		return 0, 0, [2]string{}, [2]uint64{}, err
 	}
 	tok1, err := randomHex(16)
 	if err != nil {
-		httpError(w, http.StatusInternalServerError, "rng failure")
-		return
+		return 0, 0, [2]string{}, [2]uint64{}, err
 	}
 	id := a.counter.Add(1)
+	userIDs := [2]uint64{id*2 + 1, id*2 + 2} // deterministic synthetic ids
 	room, err := matchroom.New(matchroom.Config{
 		MatchID:  id,
-		Seed:     seed,
+		Seed:     s,
 		Language: lang,
-		UserIDs:  [2]uint64{id*2 + 1, id*2 + 2}, // deterministic synthetic ids
+		UserIDs:  userIDs,
 		Token0:   tok0,
 		Token1:   tok1,
 	})
 	if err != nil {
-		httpError(w, http.StatusInternalServerError, err.Error())
-		return
+		return 0, 0, [2]string{}, [2]uint64{}, err
 	}
 	a.mu.Lock()
 	if a.maxRooms > 0 && len(a.rooms) >= a.maxRooms {
 		a.mu.Unlock()
-		httpError(w, http.StatusTooManyRequests, "too many active matches")
-		return
+		return 0, 0, [2]string{}, [2]uint64{}, errRoomCapacity
 	}
 	a.rooms[id] = room
 	a.mu.Unlock()
 	a.m.matchesCreated.Add(1)
 	go a.runRoomTicker(id, room)
-
-	resp := createMatchResponse{
-		MatchID: id, Seed: seed, Language: lang,
-		Tokens: [2]string{tok0, tok1}, UserIDs: [2]uint64{id*2 + 1, id*2 + 2},
-	}
-	writeJSON(w, http.StatusCreated, resp)
+	return id, s, [2]string{tok0, tok1}, userIDs, nil
 }
 
 // runRoomTicker advances a room at 30 Hz until shortly after match end.
@@ -327,6 +361,72 @@ func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// handleReplay serves the full deterministic event log of a finished match
+// (audit + replay tooling).
+func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid match id")
+		return
+	}
+	a.resultsMu.Lock()
+	res, ok := a.results[id]
+	a.resultsMu.Unlock()
+	if !ok {
+		httpError(w, http.StatusNotFound, "replay not found or match still active")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"match_id": res.MatchID,
+		"seed":     res.Seed,
+		"language": res.Language,
+		"over":     res.Over,
+		"scores":   res.Scores,
+		"events":   res.Events,
+	})
+}
+
+// handleQueueCreate enqueues a player for basic 1v1 matchmaking.
+func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	lang := req.Language
+	if lang == "" {
+		lang = "en"
+	}
+	switch lang {
+	case "en", "ru", "uk":
+	default:
+		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
+		return
+	}
+	e := a.mm.enqueue(lang, func(l string) (uint64, uint64, [2]string, [2]uint64, error) {
+		return a.createRoom(l, nil)
+	})
+	writeJSON(w, http.StatusAccepted, e)
+}
+
+// handleQueuePoll returns the current queue entry state (waiting / matched /
+// expired).
+func (a *API) handleQueuePoll(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	e, ok := a.mm.poll(id)
+	if !ok {
+		httpError(w, http.StatusNotFound, "queue entry not found")
+		return
+	}
+	if e.Status == "expired" {
+		httpError(w, http.StatusGone, "queue entry expired")
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
+}
+
 // recordResult captures the final outcome of an over match and reaps stale
 // entries. It is idempotent: the first record for a match wins.
 func (a *API) recordResult(room *matchroom.Room) {
@@ -348,6 +448,13 @@ func (a *API) recordResult(room *matchroom.Room) {
 		StateVer:   snap.StateVersion,
 		ServerTick: snap.ServerTick,
 		recordedAt: time.Now(),
+	}
+	for _, ev := range m.Events() {
+		res.Events = append(res.Events, replayEvent{
+			Seq: ev.Seq, Tick: ev.Tick, Seat: int(ev.Seat), CellIDs: ev.CellIDs,
+			Word: ev.Word, Result: ev.WordResultString, ScoreAdded: ev.ScoreAdded,
+			TotalScore: ev.TotalScore, IsSteal: ev.IsSteal, StateVer: ev.StateVersion,
+		})
 	}
 	a.resultsMu.Lock()
 	if _, exists := a.results[res.MatchID]; !exists {

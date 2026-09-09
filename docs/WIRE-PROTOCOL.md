@@ -111,7 +111,43 @@ The dev service enforces two limits, both configurable via environment:
 All HTTP handlers are wrapped in request logging (method, path, status,
 bytes, duration); WebSocket upgrades are logged on handshake.
 
-## 5. Reconnect / resume
+## 5. Matchmaking (basic, M1 stub)
+
+Two players are paired FIFO per language via a poll-based queue:
+
+```
+POST /v1/queue          { "language": "en" }   -> 202 {"queue_id":"..","status":"waiting"}
+GET  /v1/queue/{id}                             -> 200 {"status":"waiting"}
+                                                -> 200 {"status":"matched","match_id":..,"seed":..,"token":"..","user_id":..}
+                                                -> 410 Gone when expired
+```
+
+The second player to enqueue for a language triggers pairing immediately; the
+matched entry is delivered exactly once and carries the same join info a
+direct `POST /v1/matches` would return. Entries expire after 2 minutes.
+
+## 6. Replay
+
+```
+GET /v1/matches/{id}/replay
+```
+
+Returns the finished match's deterministic event log for audit and replay
+tooling:
+
+```json
+{
+  "match_id": 1, "seed": 1512, "language": "en", "over": true,
+  "scores": [42, 21],
+  "events": [
+    {"seq":1,"tick":3,"seat":0,"cell_ids":[9,1,0],"word":"cat",
+     "result":"accepted","score_added":5,"total_score":5,
+     "is_steal":false,"state_version":2}
+  ]
+}
+```
+
+## 7. Reconnect / resume
 
 - Reconnect = open the WebSocket again with the same token while the match
   is alive. The server immediately sends the canonical snapshot; the client
