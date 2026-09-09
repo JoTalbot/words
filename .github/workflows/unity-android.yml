@@ -1,0 +1,168 @@
+name: Unity Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Build flavor
+        required: true
+        type: choice
+        options:
+          - debug
+          - release
+        default: debug
+      run_smoke_tests:
+        description: Install and launch the APK on a hosted x86_64 Android emulator
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: unity-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UNITY_VERSION: 6000.0.59f2
+  PROJECT_PATH: client/unity
+
+jobs:
+  preflight:
+    name: Validate Unity project
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tracked project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$PROJECT_PATH/ProjectSettings/ProjectVersion.txt"
+          grep -q '^m_EditorVersion: 6000.0.59f2$' "$PROJECT_PATH/ProjectSettings/ProjectVersion.txt"
+          test -f "$PROJECT_PATH/Packages/manifest.json"
+          test -f "$PROJECT_PATH/Packages/packages-lock.json"
+          test -f "$PROJECT_PATH/Assets/Editor/BuildCommand.cs"
+          test -f "$PROJECT_PATH/Assets/Scenes/Main.unity"
+          test -f docs/unity-ci.md
+          test -f docs/android-build.md
+          test -f docs/unity-server-architecture.md
+
+      - name: Validate JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m json.tool "$PROJECT_PATH/Packages/manifest.json" >/dev/null
+          python3 -m json.tool "$PROJECT_PATH/Packages/packages-lock.json" >/dev/null
+
+  build:
+    name: Build Android ${{ inputs.build_type }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Validate Unity activation secrets
+        shell: bash
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        run: |
+          set -euo pipefail
+          test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
+          test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
+          if [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; then
+            echo 'Set UNITY_LICENSE for Unity Personal or UNITY_SERIAL for Unity Pro/Plus';
+            exit 1;
+          fi
+
+      - name: Validate release signing secrets
+        if: ${{ inputs.build_type == 'release' }}
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEYALIAS_NAME: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          ANDROID_KEYALIAS_PASS: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASS ANDROID_KEYALIAS_NAME ANDROID_KEYALIAS_PASS; do
+            [[ -n "${!name:-}" ]] || { echo "Missing $name GitHub Secret for release build"; exit 1; }
+          done
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PROJECT_PATH }}/Library
+          key: unity-library-${{ env.UNITY_VERSION }}-android-${{ hashFiles('client/unity/Assets/**', 'client/unity/Packages/**', 'client/unity/ProjectSettings/**') }}
+          restore-keys: |
+            unity-library-${{ env.UNITY_VERSION }}-android-
+
+      - name: Build APK with Unity
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          unityVersion: ${{ env.UNITY_VERSION }}
+          targetPlatform: Android
+          buildMethod: Words.BuildCommand.BuildAndroid
+          customParameters: >-
+            -buildType ${{ inputs.build_type }}
+            -buildPath Builds/Android/words-${{ inputs.build_type }}.apk
+          androidExportType: androidPackage
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: words-android-${{ inputs.build_type }}
+          if-no-files-found: error
+          path: |
+            ${{ env.PROJECT_PATH }}/Builds/Android/*.apk
+
+  smoke:
+    name: Android emulator smoke test
+    if: ${{ inputs.run_smoke_tests == true }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: words-android-${{ inputs.build_type }}
+          path: artifact
+
+      - name: Install and launch on hosted emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            export ANDROID_BACKEND=github-hosted-emulator
+            apk=$(find artifact -name '*.apk' -type f | head -1)
+            test -n "$apk"
+            adb install -r "$apk"
+            adb shell monkey -p com.jotalbot.words 1
+            adb shell pm path com.jotalbot.words

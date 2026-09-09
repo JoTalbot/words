@@ -1,6 +1,6 @@
 # Unity Client
 
-The Unity project will live here once the M0 client prototype starts.
+The Unity project lives in [`client/unity`](unity/).
 
 ## Responsibilities
 
@@ -25,6 +25,6 @@ The client must not be authoritative for:
 
 ## Unity project conventions
 
-Recommended starting packages should be pinned in the Unity project and updated deliberately, not floating with automatic package upgrades.
+Unity version, packages and build settings are pinned under `client/unity/`. The Android build entry point is `Words.BuildCommand.BuildAndroid`; CI details are documented in [`docs/unity-ci.md`](../docs/unity-ci.md) and [`docs/android-build.md`](../docs/android-build.md).
 
 Keep networking, gameplay state and presentation separated so the simulation can be exercised without rendering.
