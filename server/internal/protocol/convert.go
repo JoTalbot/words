@@ -89,6 +89,7 @@ func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStat
 		RemainingTimeMs: uint32(s.RemainingTimeMs),
 		CurrentWave:     uint32(s.CurrentWave),
 		StateVersion:    uint32(s.StateVersion),
+		Over:            s.Phase == "over",
 	}
 	for _, p := range s.Players {
 		uid := userIDs[p.Seat]

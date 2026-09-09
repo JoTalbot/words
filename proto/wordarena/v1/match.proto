@@ -60,6 +60,10 @@ message MatchStateSnapshot {
   uint32 state_version = 5;
   repeated PlayerState players = 6;
   repeated BoardCell cells = 7;
+  // Terminal flag: true once the match has finished. The transport sends
+  // exactly one final snapshot with over=true so clients can deterministically
+  // stop play and render the result; afterwards the room is removed.
+  bool over = 8;
 }
 
 message PlayerState {

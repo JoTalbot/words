@@ -42,7 +42,10 @@ Upgrade to WebSocket. All frames are **binary protobuf**:
 - Server → client:
   - immediately on connect: one `MatchStateSnapshot` (canonical anchor);
   - `WordValidatedEvent` after every evaluated intent (accepted or not);
-  - a `MatchStateSnapshot` once per second (every 30 ticks at 30 Hz).
+  - a `MatchStateSnapshot` once per second (every 30 ticks at 30 Hz);
+  - when the match finishes: exactly one terminal `MatchStateSnapshot` with
+    `over=true` (final scores included), so clients can deterministically
+    stop play and render the result; the room is removed ~3 s later.
 
 ### Word submission
 
@@ -72,8 +75,9 @@ canonical state (M0 acceptance 3).
   is alive. The server immediately sends the canonical snapshot; the client
   reconciles from it (no scene reload needed — M0 acceptance 4).
 - A seat may reconnect any number of times; the simulation never pauses for
-  a disconnected player. After the match ends the room is removed ~3 s
-  later; further connects get 404.
+  a disconnected player. After the match ends subscribers first receive the
+  terminal `over=true` snapshot, then the room is removed ~3 s later;
+  further connects get 404.
 - Ranked/account session semantics (expiry, rotation) are post-M0 work.
 
 

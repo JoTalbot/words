@@ -35,6 +35,9 @@ type Room struct {
 
 	subs    map[match.Seat]*Subscription
 	stopped bool
+	// overSent records that the terminal (phase "over") snapshot was already
+	// fanned out, so it is broadcast exactly once.
+	overSent bool
 }
 
 // Subscription delivers canonical state to one connected client.
@@ -177,7 +180,9 @@ func (r *Room) SubmitWithSeq(seat match.Seat, clientSeq uint32, cellIDs []int) (
 }
 
 // Tick advances the simulation by one 30 Hz step and fans out a canonical
-// snapshot once per second (30 ticks).
+// snapshot once per second (30 ticks). When the match finishes, exactly one
+// terminal snapshot with phase "over" is fanned out immediately so transports
+// can signal match end deterministically to all subscribers.
 func (r *Room) Tick() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -185,6 +190,11 @@ func (r *Room) Tick() {
 		return
 	}
 	r.match.AdvanceTicks(1)
+	if r.match.IsOver() && !r.overSent {
+		r.overSent = true
+		r.broadcastSnapshotLocked(r.match.Snapshot())
+		return
+	}
 	if r.match.Tick()%match.TicksPerSecond == 0 {
 		snap := r.match.Snapshot()
 		r.broadcastSnapshotLocked(snap)

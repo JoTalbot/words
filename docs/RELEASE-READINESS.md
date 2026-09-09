@@ -14,6 +14,10 @@ Evidence (verified by code and tests on the dev host):
 - load baseline documented (docs/LOAD-BASELINE.md)
 - protocol byte stability + round-trip verified
 - regression test: TestSubmitWithSeqEchosClientSequence (matchroom)
+- repeated complete matches over the real transport verified
+  (TestExitGateRepeatedFullMatches: 2 rounds x seeds 1512/1513/1517,
+  identical terminal state on both clients, live scores reproduce the
+  offline replay; protocol carries a terminal over=true snapshot)
 - web client proof: client/web-m0/index.html + test-smoke.py (Playwright)
 
 Validation commands (all green on the dev host, 2026-09-09):
