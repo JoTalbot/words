@@ -1,17 +1,49 @@
 project: words
 milestone: M0
-status: ready_for_resume
-completed_tasks: []
+status: server_side_verified_integrated
+completed_tasks:
+  - Deterministic board generator (server/internal/prng golden vectors)
+  - Dictionary snapshots en/ru/uk v2 (server/internal/dictionary/data; B2 legal note)
+  - Deterministic scoring engine (server/internal/scoring golden)
+  - Authoritative 1v1 match simulation (waves/claims/locks/steals/replay property)
+  - Match rooms + 30 Hz tick loop (server/internal/matchroom)
+  - WebSocket transport + protobuf envelopes + HTTP create endpoint (server/cmd/game)
+  - Protocol round-trip + byte stability tests (server/internal/protocol)
+  - Reconnect/resume inside GraceTicks=300 with canonical snapshot
+  - Network fault matrix RTT 50/100/150ms + loss 0/1/3% green (cmd/game netsim)
+  - Load baseline measured (docs/LOAD-BASELINE.md)
+  - Client_sequence echo regression test (server/internal/matchroom/room_test.go)
+  - Replay fixture archive seed 1512 (tests/fixtures/replay-m0-seed-1512.md)
+  - Headless-bot docs + replay curl script (tools/headless-bot/)
+  - Web client proof + smoke test (client/web-m0/)
+  - M1 architecture prep doc (docs/M1-ARCH-PREP.md)
 active_tasks: []
-blocked_tasks: []
+blocked_tasks:
+  - B1: Unity swipe prototype + client prediction/rollback + Android AVD — no Unity
+    Editor for linux/arm64 on the dev host; no local emulator image/KVM verified
+  - B2: uk dictionary GPL-3.0+ derivative — legal review required before distribution
+    (dictionary/NOTICE.md)
 failed_tasks: []
 next_tasks:
-  - M0-autonomous-bootstrap
-last_commit: "451890d57b4c8c44cec6d8e336b30547a571017b"
+  - Push integrated main (origin/main + verified server work, spam commits removed);
+    confirm GitHub CI green on the new tip
+  - Exit-gate automation: repeated two-client deterministic matches over a real
+    WebSocket with identical final state and reproducible replay event logs
+  - Dictionary compiler + validator benchmark (ROADMAP item: compiler pending)
+  - Android backend discovery probe (bounded, authorized): remote/online emulator
+    availability check; report ANDROID_BACKEND in state
+  - M1 vertical-slice prep that does not require Unity
+last_commit: PENDING_PUSH
 tests:
-  status: unknown
-android_backend: auto-discover
+  server: green on dev host 2026-09-09 (go vet ./...; go test ./... all pkgs pass;
+    cmd/game 14.4s includes TestNetworkConditionsMatrix + TestLoadBaseline)
+  ci: green through c0c23e6; re-running after integration push
+android_backend: unavailable-local (no emulator binary/image, no KVM probe yet);
+  remote discovery pending
 workers:
-  active: []
-resume_from: "Run the short Arena resume prompt. Read AGENTS.md, docs/AUTONOMOUS-DEVELOPMENT-MASTER.md and current.yml, inspect the actual server, recover the existing work, then execute the next M0 batch."
+  - /tmp/words-game pid 1556490, 127.0.0.1:18080, healthz ok
+resume_from: "Recover: read agent/state/current.yml, pull JoTalbot/words main on the
+  OCI host (/opt/words), run `cd server && go vet ./... && go test ./...`, then
+  execute next_tasks in order. Do not trust old '10000 batches' state notes: that
+  was a stuck-agent artifact, removed 2026-09-09."
 updated_at: "2026-09-09"
