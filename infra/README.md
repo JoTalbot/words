@@ -20,6 +20,22 @@ infra/
 
 Run only the minimum services required for feature development. Local game simulation should not require Kubernetes.
 
+The M0 game service ships a self-contained static binary (dictionary data is
+embedded), so the local environment is a single container:
+
+```bash
+docker compose -f infra/docker-compose.yml up --build
+# http://127.0.0.1:18080/healthz   -> {"status":"ok"}
+# http://127.0.0.1:18080/metrics   -> telemetry counters (JSON)
+# POST http://127.0.0.1:18080/v1/matches  -> create a match
+# ws://127.0.0.1:18080/v1/match/ws        -> live play
+```
+
+`infra/Dockerfile` builds the binary with a multi-stage Go 1.24 → Alpine
+(nonroot) pipeline; build context is the repository root. Runtime limits are
+configurable via `WORDARENA_MAX_ROOMS` / `WORDARENA_MAX_WS_BYTES` (see
+`docs/WIRE-PROTOCOL.md`).
+
 ### Staging
 
 Production-like protocol, service boundaries and persistence behavior. Agones should be used here before validating scale claims.
