@@ -119,11 +119,13 @@ jobs:
 
           ATTEMPTS=4
           DELAY=20
+          ACTIVATED=0
           for ATTEMPT in $(seq 1 "$ATTEMPTS"); do
             echo "=== Activating Unity Personal (attempt $ATTEMPT/$ATTEMPTS) ==="
             if "$LIC_CLIENT" --activate-all --include-personal \
                  --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" 2>&1 | tee /tmp/activation.log; then
               echo "Personal activation succeeded."
+              ACTIVATED=1
               break
             fi
 
@@ -144,14 +146,24 @@ jobs:
             fi
           done
 
-          # Verify a license actually landed.
-          LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
-            \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
-          if [ -z "$LIC" ]; then
-            echo "No license file was produced. See activation output above."
+          if [ "$ACTIVATED" -ne 1 ]; then
+            echo "Unity Personal activation failed after $ATTEMPTS attempts."
+            tail -40 /tmp/activation.log || true
             exit 1
           fi
-          echo "License produced: $LIC"
+
+          # Verify a license landed. GitHub Actions container jobs run with
+          # HOME=/github/home, so the entitlement file lives under $HOME, not
+          # /root. The client's exit code is authoritative (same as game-ci);
+          # this check is informational only.
+          LIC=$(find "$HOME" /root /usr/share/unity3d \
+            \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
+          if [ -n "$LIC" ]; then
+            echo "License file present: $LIC"
+          else
+            echo "NOTE: licensing client reported success; no .ulf/.xml found in the"
+            echo "searched paths (HOME=$HOME). Proceeding - the build step is the gate."
+          fi
 
           echo "=== Completing license binding in batchmode ==="
           unity-editor -batchmode -nographics -quit -logFile /tmp/unity_init.log || true
