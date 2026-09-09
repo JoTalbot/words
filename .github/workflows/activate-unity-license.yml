@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   actions: write
+  secrets: write
 
 jobs:
   activate:
@@ -16,34 +17,45 @@ jobs:
       image: unityci/editor:ubuntu-6000.0.59f2-android-3.2.2
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Activate Unity Personal
         shell: bash
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses /usr/share/unity3d/unity
-          echo "=== Requesting License Activation via Unity Licensing Client ==="
+          echo "=== Step 1: Activating via Unity Licensing Client ==="
           /opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client \
             --activate-all --include-personal \
             --username "$UNITY_EMAIL" \
             --password "$UNITY_PASSWORD" || true
 
-          echo "=== Checking generated license files ==="
+          echo "=== Step 2: Running Unity batchmode to complete license binding ==="
+          unity-editor -batchmode -nographics -quit -logFile /tmp/unity_init.log || true
+
+          echo "=== Step 3: Finding all license and entitlement files ==="
+          mkdir -p "$GITHUB_WORKSPACE/license_export"
           find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d -type f || true
 
-          echo "=== Running Unity in batchmode to verify ==="
-          unity-editor -batchmode -nographics -quit -logFile /tmp/unity_test.log || true
-          cat /tmp/unity_test.log | grep -Ei "license|entitlement|activation|version|MonoManager" | head -30 || true
+          cp -rv /root/.local/share/unity3d "$GITHUB_WORKSPACE/license_export/" 2>/dev/null || true
+          cp -rv /root/.config/unity3d "$GITHUB_WORKSPACE/license_export/" 2>/dev/null || true
+          cp -rv /usr/share/unity3d "$GITHUB_WORKSPACE/license_export/" 2>/dev/null || true
 
-          mkdir -p /tmp/exported_license
-          cp -r /root/.local/share/unity3d /tmp/exported_license/ 2>/dev/null || true
-          cp -r /root/.config/unity3d /tmp/exported_license/ 2>/dev/null || true
-          cp -r /usr/share/unity3d /tmp/exported_license/ 2>/dev/null || true
+          echo "=== Step 4: Exporting UNITY_LICENSE content if .ulf found ==="
+          ULF_FILE=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d -name "*.ulf" -o -name "*.xml" | head -1)
+          if [ -n "$ULF_FILE" ]; then
+            echo "Found license file: $ULF_FILE"
+            cp "$ULF_FILE" "$GITHUB_WORKSPACE/license_export/Unity_lic.ulf"
+          fi
 
       - name: Upload License Artifact
         uses: actions/upload-artifact@v4
         with:
           name: unity-activated-license
-          path: /tmp/exported_license
+          path: license_export
+          include-hidden-files: true
