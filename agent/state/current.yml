@@ -28,6 +28,10 @@ completed_tasks:
   - Unity CI pipeline fixed: in-container unity-editor build + email/password
     activation (dropped game-ci license gap + env-context container.image
     validation error + project CWD); documented in docs/unity-ci.md
+  - Basic matchmaking (M1 stub): POST /v1/queue + GET /v1/queue/{id}
+    poll-based FIFO pairing per language, 2-min TTL, one-shot delivery
+  - Deterministic replay endpoint: GET /v1/matches/{id}/replay (event log
+    persisted in matchResult)
 active_tasks: []
 blocked_tasks:
   - B1: Unity/Android build — pipeline is CORRECT now, but Unity Licensing
@@ -44,11 +48,11 @@ next_tasks:
     shared, heavily loaded host): reset /opt/words to origin/main, rebuild
     dev service (healthz on 127.0.0.1:18080), re-verify go test ./...
   - Re-run Unity Android dispatch once UNITY credentials are fixed
-  - M1 vertical-slice: shared board UX, claim/lock/steal UI, basic
-    matchmaking, player profile + durable result persistence (PostgreSQL)
-  - Post-M0: session-token rotation, telemetry export, per-match replay
-    archive endpoint
-last_commit: "944a425"
+  - M1 vertical-slice: shared board UX, claim/lock/steal UI, combo + Sudden
+    Death rules, player profile + durable result persistence (PostgreSQL)
+  - Post-M0: session-token rotation, per-seat intent rate limiting, telemetry
+    export, queue pruning/reaping sweep
+last_commit: "3f983d3"
 tests:
   server: green on x86_64 sandbox (go1.27.1, go vet ./...; go test -count=1
     ./... all packages; cmd/game 36 s incl. exit-gate suite) and on OCI arm64
@@ -64,7 +68,7 @@ android_backend: unavailable for QA until APK exists — local emulator absent
 workers:
   - ollama on OCI host (qwen2.5:0.5b etc.) — host currently unreachable; use
     only for micro-tasks when it returns
-resume_from: "Recover: repo state on GitHub (main @ 944a425). On OCI host
+resume_from: "Recover: repo state on GitHub (main @ 3f983d3). On OCI host
   (/opt/words): git fetch origin && git reset --hard origin/main; export
   PATH=/opt/go/bin:$PATH; cd server && go vet ./... && go test ./...; rebuild
   dev service (healthz http://127.0.0.1:18080). Avoid docker build on the
