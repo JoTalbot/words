@@ -33,7 +33,7 @@ next_tasks:
   - Android backend discovery probe (bounded, authorized): remote/online emulator
     availability check; report ANDROID_BACKEND in state
   - M1 vertical-slice prep that does not require Unity
-last_commit: PENDING_PUSH
+last_commit: "2cc74ac17d985e8ceaf8e1635d0f880e9a41af64"
 tests:
   server: green on dev host 2026-09-09 (go vet ./...; go test ./... all pkgs pass;
     cmd/game 14.4s includes TestNetworkConditionsMatrix + TestLoadBaseline)
