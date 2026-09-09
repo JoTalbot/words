@@ -77,18 +77,13 @@ jobs:
       - name: Validate Unity activation secrets
         shell: bash
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${UNITY_LICENSE:-}" ]; then
-            test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_LICENSE or UNITY_EMAIL GitHub Secret'; exit 1; }
-            test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
-            echo 'Will activate via email/password.'
-          else
-            echo 'Will use UNITY_LICENSE (.ulf).'
-          fi
+          test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
+          test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
+          echo 'Personal (free) activation via Unity account (Unity 6: .ulf manual activation was removed for Personal seats).'
 
       - name: Validate release signing secrets
         if: ${{ inputs.build_type == 'release' }}
@@ -112,40 +107,51 @@ jobs:
           restore-keys: |
             unity-library-${{ env.UNITY_VERSION }}-android-
 
-      - name: Acquire Unity license (UNITY_LICENSE preferred, else email/password)
+      - name: Activate Unity Personal license (email/password)
         shell: bash
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -euo pipefail
-          LIC_DIR=/root/.local/share/unity3d/Unity
-          mkdir -p "$LIC_DIR" /root/.config/unity3d/Unity/licenses
+          LIC_CLIENT=/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client
+          mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses
 
-          if [ -n "${UNITY_LICENSE:-}" ]; then
-            echo "=== Writing UNITY_LICENSE (.ulf) ==="
-            printf '%s' "$UNITY_LICENSE" > "$LIC_DIR/Unity_lic.ulf"
-            printf '%s' "$UNITY_LICENSE" > /usr/share/unity3d/Unity_lic.ulf 2>/dev/null || true
-            echo "License file installed at $LIC_DIR/Unity_lic.ulf"
-          else
-            echo "=== Activating personal license via Unity Licensing Client ==="
-            LIC_CLIENT=/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client
-            "$LIC_CLIENT" --activate-ulf --include-personal \
-              --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || \
-            "$LIC_CLIENT" --activate-all --include-personal \
-              --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+          ATTEMPTS=4
+          DELAY=20
+          for ATTEMPT in $(seq 1 "$ATTEMPTS"); do
+            echo "=== Activating Unity Personal (attempt $ATTEMPT/$ATTEMPTS) ==="
+            if "$LIC_CLIENT" --activate-all --include-personal \
+                 --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" 2>&1 | tee /tmp/activation.log; then
+              echo "Personal activation succeeded."
+              break
+            fi
 
-            LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
-              \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
-            if [ -z "$LIC" ]; then
-              echo "No license file was produced. Unity rejected the provided credentials"
-              echo "(see 'Invalid Credential' above). Fix UNITY_EMAIL / UNITY_PASSWORD,"
-              echo "or add a UNITY_LICENSE secret via manual activation."
+            if grep -q "Invalid Credential" /tmp/activation.log; then
+              echo "Unity rejected the credentials (Invalid Credential, code 143.002)."
+              echo "Fix UNITY_EMAIL / UNITY_PASSWORD secrets:"
+              echo "  - correct email + password as on id.unity.com"
+              echo "  - email must be verified"
+              echo "  - account must NOT be Google/Apple-SSO-only (a Unity password must exist)"
+              echo "  - no MFA/2FA on the automation account"
               exit 1
             fi
-            echo "License produced: $LIC"
+
+            if [ "$ATTEMPT" -lt "$ATTEMPTS" ]; then
+              echo "Transient activation failure; retrying in ${DELAY}s..."
+              sleep "$DELAY"
+              DELAY=$((DELAY * 2))
+            fi
+          done
+
+          # Verify a license actually landed.
+          LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
+            \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
+          if [ -z "$LIC" ]; then
+            echo "No license file was produced. See activation output above."
+            exit 1
           fi
+          echo "License produced: $LIC"
 
           echo "=== Completing license binding in batchmode ==="
           unity-editor -batchmode -nographics -quit -logFile /tmp/unity_init.log || true

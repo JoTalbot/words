@@ -33,52 +33,46 @@ GitHub Actions ubuntu-latest (x86_64)
 
 Unity 6000.0.59f2 выбрана как стабильный Unity 6 patch release с Linux и Android build support. Версия закреплена одновременно в `ProjectSettings/ProjectVersion.txt` и workflow.
 
-## Лицензирование
+## Лицензирование (Unity 6, Personal)
 
-Сборка больше не зависит от механизма активации GameCI (который требует
-`UNITY_LICENSE`/`UNITY_SERIAL` и не умеет активировать Personal по
-email/password). Workflow `unity-android.yml` сам активирует лицензию внутри
-`unityci/editor` контейнера через Unity Licensing Client:
+Важно (проверено на 2026-09-09, согласуется с game-ci/cli): **Unity 6 убрал
+офлайн/ручную активацию (`.ulf`) для Personal-мест** — `license.unity3d.com/manual`
+теперь только для Enterprise/Industry. Поэтому:
+
+- `.ulf`, полученный из Unity Hub на Windows, для Personal **не работает**
+  в CI (ошибка «Found 0 entitlement groups / com.unity.editor.headless not
+  found»);
+- `-createManualActivationFile` (.alf) для Personal-аккаунта тоже не даёт
+  результата.
+
+Единственный путь для бесплатного Personal в Unity 6 — **активация по
+email+password** через Unity Licensing Client (метод `personal` в game-ci):
 
 ```bash
 /opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client \
-  --activate-ulf --include-personal --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
-# fallback: --activate-all --include-personal
+  --activate-all --include-personal --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
 ```
 
-Если после активации `.ulf`/`.xml` не найден, шаг завершается ошибкой с
-понятным сообщением (а не молча — как раньше через `|| true`).
-
-### Приоритет: UNITY_LICENSE (ручная активация, работает при MFA)
-
-Workflow `unity-android.yml` теперь использует `UNITY_LICENSE` в первую
-очередь: если секрет задан, его содержимое (`.ulf`) записывается в
-`/root/.local/share/unity3d/Unity/Unity_lic.ulf` и сборка идёт без
-обращения к email/password. Это надёжный путь для аккаунтов с включённым
-MFA/SSO.
-
-Как получить `UNITY_LICENSE` (ручная активация):
-
-1. Запустить workflow «Unity Manual Activation Request» (Actions → Run
-   workflow) — он сгенерирует `.alf` на x86_64 GitHub-раннере.
-2. Скачать артефакт `unity-activation-request` (`.alf`).
-3. Зайти на https://license.unity3d.com/manual под Unity-аккаунтом
-   (MFA допускается), загрузить `.alf`, скачать полученный `.ulf`.
-4. Добавить содержимое `.ulf` как Actions secret `UNITY_LICENSE`
-   (repo → Settings → Secrets and variables → Actions → New repository
-   secret).
-
-Локальный `.ulf` из Unity Hub на Windows (`C:\ProgramData\Unity\Unity_lic.ulf`)
-привязан к железу ПК и для CI не подходит — нужен `.ulf`, полученный через
-`.alf` именно с CI-раннера.
+Workflow `unity-android.yml` делает именно это (с ретраями на transient-сбои
+и понятной диагностикой при `Invalid Credential`).
 
 Требуемые секреты:
 
-| Secret | Назначение | Где получить |
-|---|---|---|
-| `UNITY_LICENSE` | содержимое `.ulf` (приоритет) | ручная активация: `.alf` → license.unity3d.com/manual → `.ulf` |
-| `UNITY_EMAIL` | email Unity account | Unity account (нужен только если `UNITY_LICENSE` не задан) |
-| `UNITY_PASSWORD` | пароль Unity account | Unity account (нужен только если `UNITY_LICENSE` не задан) |
+| Secret | Назначение |
+|---|---|
+| `UNITY_EMAIL` | email Unity-аккаунта (обязательно) |
+| `UNITY_PASSWORD` | пароль Unity-аккаунта (обязательно) |
+
+Требования к аккаунту (иначе `Invalid Credential` 143.002):
+
+- email подтверждён;
+- у аккаунта есть обычный Unity ID с паролем (не только вход через
+  Google/Apple SSO);
+- на аккаунте автоматизации выключен MFA/2FA;
+- в Unity Hub на любой машине активирован план **Unity Personal**
+  (Licenses → Add → Get a free personal license).
+
+Secret `UNITY_LICENSE` для Personal-сборки больше не нужен.
 
 Проверка на 2026-09-09: Unity Licensing API отвечает
 `{"message": "Invalid Credential", "code": "143.002"}` на текущие значения
