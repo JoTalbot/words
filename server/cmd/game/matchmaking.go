@@ -122,3 +122,36 @@ func removeWaiting(q []*queueEntry, target *queueEntry) []*queueEntry {
 	}
 	return q
 }
+
+// reap purges entries that clients abandoned without polling: waiting
+// entries past their deadline and matched entries whose join info was never
+// collected. Without this, an enqueue-only client leaks a queueEntry forever.
+// The API calls reap periodically from its reaper goroutine.
+func (mm *matchmaker) reap() {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+	now := time.Now()
+
+	for lang, q := range mm.waiting {
+		kept := q[:0]
+		for _, e := range q {
+			if e.Status == "waiting" && now.After(e.deadline) {
+				e.Status = "expired"
+				delete(mm.entries, e.ID)
+				continue
+			}
+			kept = append(kept, e)
+		}
+		if len(kept) == 0 {
+			delete(mm.waiting, lang)
+		} else {
+			mm.waiting[lang] = kept
+		}
+	}
+
+	for id, e := range mm.entries {
+		if e.Status == "matched" && now.After(e.deadline) {
+			delete(mm.entries, id)
+		}
+	}
+}

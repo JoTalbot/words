@@ -120,6 +120,50 @@ func TestMatchmakingDifferentLanguagesDoNotPair(t *testing.T) {
 	}
 }
 
+func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
+	mm := newMatchmaker()
+	mm.ttl = 20 * time.Millisecond
+
+	// A waiting entry that is never polled must not leak.
+	e := mm.enqueue("en", func(string) (uint64, uint64, [2]string, [2]uint64, error) {
+		return 0, 0, [2]string{}, [2]uint64{}, errRoomCapacity
+	})
+	if e.Status != "waiting" {
+		t.Fatalf("entry should be waiting: %+v", e)
+	}
+	time.Sleep(60 * time.Millisecond)
+	mm.reap()
+
+	if _, ok := mm.poll(e.ID); ok {
+		t.Fatalf("abandoned waiting entry survived reap")
+	}
+	if len(mm.entries) != 0 {
+		t.Fatalf("entries map not purged: %d left", len(mm.entries))
+	}
+	if len(mm.waiting["en"]) != 0 {
+		t.Fatalf("waiting queue not purged: %d left", len(mm.waiting["en"]))
+	}
+}
+
+func TestMatchmakerReaperPurgesMatchedUnpolled(t *testing.T) {
+	mm := newMatchmaker()
+	mm.ttl = 30 * time.Millisecond
+	mk := func(string) (uint64, uint64, [2]string, [2]uint64, error) {
+		return 7, 99, [2]string{"a", "b"}, [2]uint64{1, 2}, nil
+	}
+	a := mm.enqueue("en", mk)
+	b := mm.enqueue("en", mk)
+	if b.Status != "matched" {
+		t.Fatalf("second entry should be matched: %+v", b)
+	}
+	time.Sleep(80 * time.Millisecond)
+	mm.reap()
+	if len(mm.entries) != 0 {
+		t.Fatalf("matched-but-unpolled entries not purged: %d", len(mm.entries))
+	}
+	_ = a
+}
+
 func TestMatchmakingExpiry(t *testing.T) {
 	api := NewAPI()
 	api.mm.ttl = 20 * time.Millisecond

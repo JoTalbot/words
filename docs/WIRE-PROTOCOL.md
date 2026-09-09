@@ -107,6 +107,14 @@ The dev service enforces two limits, both configurable via environment:
   A frame larger than this terminates the connection (oversized-message
   protection). `0` disables the room cap; the read limit is always applied
   when positive.
+- `WORDARENA_INTENTS_PER_SEC` (default `60`): per-seat word-intent budget.
+  Exceeding it closes the WebSocket with a policy-violation status. This is a
+  transport-level abuse guard (event-log flooding); it never influences match
+  determinism. `0` disables the limit.
+
+Abandoned state is reaped automatically: matchmaking queue entries expire
+after their TTL (2 min) whether or not the client polls, and finished match
+results/event logs are dropped after 5 min.
 
 All HTTP handlers are wrapped in request logging (method, path, status,
 bytes, duration); WebSocket upgrades are logged on handshake.

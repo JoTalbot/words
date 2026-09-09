@@ -52,6 +52,13 @@ type API struct {
 
 	// mm pairs waiting players into matches (basic matchmaking, M1).
 	mm *matchmaker
+
+	// intentsPerSec caps word intents per seat per second (transport-level
+	// abuse guard; does not affect match determinism). 0 disables the limit.
+	intentsPerSec int
+	// seatWindows holds recent intent timestamps per seat (matchID<<1|seat).
+	seatWindows map[uint64][]time.Time
+	seatWinMu   sync.Mutex
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -105,14 +112,33 @@ const resultTTL = 5 * time.Minute
 // (WORDARENA_MAX_ROOMS, WORDARENA_MAX_WS_BYTES) with safe defaults.
 func NewAPI() *API {
 	a := &API{
-		rooms:      map[uint64]*matchroom.Room{},
-		stopCh:     make(chan struct{}),
-		maxRooms:   envInt("WORDARENA_MAX_ROOMS", 128),
-		maxWSBytes: int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
-		results:    map[uint64]matchResult{},
-		mm:         newMatchmaker(),
+		rooms:         map[uint64]*matchroom.Room{},
+		stopCh:        make(chan struct{}),
+		maxRooms:      envInt("WORDARENA_MAX_ROOMS", 128),
+		maxWSBytes:    int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
+		results:       map[uint64]matchResult{},
+		mm:            newMatchmaker(),
+		intentsPerSec: envInt("WORDARENA_INTENTS_PER_SEC", 60),
+		seatWindows:   map[uint64][]time.Time{},
 	}
+	go a.runReaper()
 	return a
+}
+
+// runReaper periodically purges abandoned queue entries and stale match
+// results so an idle server does not leak memory.
+func (a *API) runReaper() {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		case <-t.C:
+			a.mm.reap()
+			a.reapResults()
+		}
+	}
 }
 
 // envInt parses an integer environment variable with a default.
@@ -136,6 +162,56 @@ func (a *API) activeRooms() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.rooms)
+}
+
+// allowIntent implements the per-seat intent rate limit. It records the
+// intent timestamp and reports whether the seat is still within its
+// per-second budget. The limit is transport-level abuse protection and never
+// influences match determinism (the server remains authoritative either way).
+func (a *API) allowIntent(matchID uint64, seat int) bool {
+	if a.intentsPerSec <= 0 {
+		return true
+	}
+	key := matchID<<1 | uint64(seat)
+	now := time.Now()
+	cutoff := now.Add(-time.Second)
+
+	a.seatWinMu.Lock()
+	defer a.seatWinMu.Unlock()
+	w := a.seatWindows[key]
+	kept := w[:0]
+	for _, ts := range w {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) >= a.intentsPerSec {
+		a.seatWindows[key] = kept
+		return false
+	}
+	a.seatWindows[key] = append(kept, now)
+	return true
+}
+
+// clearSeatWindows drops the rate-limit state for a finished match.
+func (a *API) clearSeatWindows(matchID uint64) {
+	a.seatWinMu.Lock()
+	delete(a.seatWindows, matchID<<1)
+	delete(a.seatWindows, matchID<<1|1)
+	a.seatWinMu.Unlock()
+}
+
+// reapResults removes match results older than resultTTL. Called by the
+// reaper and after each result is recorded.
+func (a *API) reapResults() {
+	a.resultsMu.Lock()
+	defer a.resultsMu.Unlock()
+	cutoff := time.Now().Add(-resultTTL)
+	for id, old := range a.results {
+		if old.recordedAt.Before(cutoff) {
+			delete(a.results, id)
+		}
+	}
 }
 
 func randomHex(n int) (string, error) {
@@ -303,6 +379,7 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 				a.mu.Lock()
 				delete(a.rooms, id)
 				a.mu.Unlock()
+				a.clearSeatWindows(id)
 				room.Close()
 				return
 			}
@@ -460,14 +537,8 @@ func (a *API) recordResult(room *matchroom.Room) {
 	if _, exists := a.results[res.MatchID]; !exists {
 		a.results[res.MatchID] = res
 	}
-	// reap stale results
-	cutoff := time.Now().Add(-resultTTL)
-	for id, old := range a.results {
-		if old.recordedAt.Before(cutoff) {
-			delete(a.results, id)
-		}
-	}
 	a.resultsMu.Unlock()
+	a.reapResults()
 	a.m.matchesFinished.Add(1)
 
 	log.Printf("match lifecycle=%s id=%d seed=%d lang=%s winner=%d tie=%v scores=%d:%d ticks=%d",
@@ -618,6 +689,10 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		ids := make([]int, 0, len(sw.LetterIndices))
 		for _, v := range sw.LetterIndices {
 			ids = append(ids, int(v))
+		}
+		if !a.allowIntent(id, int(seat)) {
+			_ = conn.Close(websocket.StatusPolicyViolation, "intent rate limit exceeded")
+			break
 		}
 		frame, err := room.SubmitWithSeq(seat, sw.ClientSequence, ids)
 		if err != nil {

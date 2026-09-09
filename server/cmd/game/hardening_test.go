@@ -178,6 +178,75 @@ func TestMetricsCounters(t *testing.T) {
 	check("active_matches", 1)
 }
 
+func TestResultsReaperRemovesStaleEntries(t *testing.T) {
+	api := NewAPI()
+	stale := matchResult{MatchID: 1, recordedAt: time.Now().Add(-10 * time.Minute)}
+	fresh := matchResult{MatchID: 2, recordedAt: time.Now()}
+	api.resultsMu.Lock()
+	api.results[1] = stale
+	api.results[2] = fresh
+	api.resultsMu.Unlock()
+
+	api.reapResults()
+
+	api.resultsMu.Lock()
+	defer api.resultsMu.Unlock()
+	if _, ok := api.results[1]; ok {
+		t.Fatal("stale result not removed")
+	}
+	if _, ok := api.results[2]; !ok {
+		t.Fatal("fresh result wrongly removed")
+	}
+}
+
+func TestIntentRateLimitClosesConnection(t *testing.T) {
+	api := NewAPI()
+	api.intentsPerSec = 3
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	seed := uint64(1)
+	id, tokens, _ := createMatch(t, srv, "en", &seed)
+	c := dial(t, srv, id, tokens[0])
+	defer c.close()
+	_ = c.readSnapshot(t)
+
+	// Three intents fit in the per-second budget; the fourth is refused.
+	for i := uint32(1); i <= 3; i++ {
+		c.submit(t, id, []uint32{0, 1, 2}, i)
+	}
+	c.submit(t, id, []uint32{0, 1, 2}, 4)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, _, err := c.conn.Read(t.Context()); err != nil {
+			return // expected: server closed the connection
+		}
+	}
+	t.Fatal("connection stayed open past the intent rate limit")
+}
+
+func TestIntentRateLimitDisabledWhenZero(t *testing.T) {
+	api := NewAPI()
+	api.intentsPerSec = 0
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	seed := uint64(1)
+	id, tokens, _ := createMatch(t, srv, "en", &seed)
+	c := dial(t, srv, id, tokens[0])
+	defer c.close()
+	_ = c.readSnapshot(t)
+
+	// With the limiter disabled, several intents in a burst must be accepted.
+	for i := uint32(1); i <= 5; i++ {
+		c.submit(t, id, []uint32{0, 1, 2}, i)
+	}
+	if ev := c.readWordEvent(t); ev == nil {
+		t.Fatal("expected a word event when limiter is disabled")
+	}
+}
+
 func TestWSRejectsOversizedFrame(t *testing.T) {
 	api := NewAPI()
 	api.maxWSBytes = 4096
