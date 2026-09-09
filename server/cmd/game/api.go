@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,12 +33,57 @@ type API struct {
 	counter atomic.Uint64
 
 	stopCh chan struct{}
+
+	// Resource limits (production-shape hardening, M1 prep). Zero means
+	// unlimited for maxRooms; maxWSBytes is always enforced when positive.
+	maxRooms   int
+	maxWSBytes int64
+
+	// results persists the final outcome of finished matches (in-memory,
+	// TTL-reaped). Durable match persistence is M1 work.
+	results   map[uint64]matchResult
+	resultsMu sync.Mutex
 }
 
-// NewAPI builds the service.
+// matchResult is the persisted post-match outcome served by
+// GET /v1/matches/{id}/result.
+type matchResult struct {
+	MatchID    uint64    `json:"match_id"`
+	Seed       uint64    `json:"seed"`
+	Language   string    `json:"language"`
+	Over       bool      `json:"over"`
+	WinnerSeat int       `json:"winner_seat"` // -1 on tie
+	IsTie      bool      `json:"is_tie"`
+	Scores     [2]int64  `json:"scores"`
+	StateVer   int       `json:"state_version"`
+	ServerTick int       `json:"server_tick"`
+	recordedAt time.Time `json:"-"`
+}
+
+// resultTTL is how long finished match results are kept in memory.
+const resultTTL = 5 * time.Minute
+
+// NewAPI builds the service. Limits are read from environment variables
+// (WORDARENA_MAX_ROOMS, WORDARENA_MAX_WS_BYTES) with safe defaults.
 func NewAPI() *API {
-	a := &API{rooms: map[uint64]*matchroom.Room{}, stopCh: make(chan struct{})}
+	a := &API{
+		rooms:      map[uint64]*matchroom.Room{},
+		stopCh:     make(chan struct{}),
+		maxRooms:   envInt("WORDARENA_MAX_ROOMS", 128),
+		maxWSBytes: int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
+		results:    map[uint64]matchResult{},
+	}
 	return a
+}
+
+// envInt parses an integer environment variable with a default.
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return def
 }
 
 func randomHex(n int) (string, error) {
@@ -63,21 +113,22 @@ type createMatchRequest struct {
 
 // createMatchResponse is the JSON body returned on match creation.
 type createMatchResponse struct {
-	MatchID  uint64      `json:"match_id"`
-	Seed     uint64      `json:"seed"`
-	Language string      `json:"language"`
-	Tokens   [2]string   `json:"tokens"`
-	UserIDs  [2]uint64   `json:"user_ids"`
+	MatchID  uint64    `json:"match_id"`
+	Seed     uint64    `json:"seed"`
+	Language string    `json:"language"`
+	Tokens   [2]string `json:"tokens"`
+	UserIDs  [2]uint64 `json:"user_ids"`
 }
 
-// Routes registers the service handlers.
+// Routes registers the service handlers, wrapped in request logging.
 func (a *API) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", a.handleHealthz)
 	mux.HandleFunc("POST /v1/matches", a.handleCreateMatch)
 	mux.HandleFunc("GET /v1/match/ws", a.handleWS)
 	mux.HandleFunc("GET /v1/match/{id}/snapshot", a.handleSnapshot)
-	return mux
+	mux.HandleFunc("GET /v1/matches/{id}/result", a.handleResult)
+	return requestLogger(mux)
 }
 
 func (a *API) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -137,6 +188,11 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
+	if a.maxRooms > 0 && len(a.rooms) >= a.maxRooms {
+		a.mu.Unlock()
+		httpError(w, http.StatusTooManyRequests, "too many active matches")
+		return
+	}
 	a.rooms[id] = room
 	a.mu.Unlock()
 	go a.runRoomTicker(id, room)
@@ -159,6 +215,9 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 		case <-tick.C:
 			room.Tick()
 			if room.IsOver() {
+				// Persist the final outcome before the room is torn down so
+				// clients can fetch it via GET /v1/matches/{id}/result.
+				a.recordResult(room)
 				// keep serving final state briefly so late readers catch up
 				select {
 				case <-time.After(3 * time.Second):
@@ -209,6 +268,108 @@ func cellsToJSON(cells []*wordarenav1.BoardCell) []map[string]any {
 	return out
 }
 
+// handleResult serves the persisted outcome of a finished match.
+func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid match id")
+		return
+	}
+	a.resultsMu.Lock()
+	res, ok := a.results[id]
+	a.resultsMu.Unlock()
+	if !ok {
+		httpError(w, http.StatusNotFound, "result not found or match still active")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// recordResult captures the final outcome of an over match and reaps stale
+// entries. It is idempotent: the first record for a match wins.
+func (a *API) recordResult(room *matchroom.Room) {
+	m := room.Match()
+	r := m.Result()
+	snap := m.Snapshot()
+	winner := int(r.WinnerSeat)
+	if r.IsTie {
+		winner = -1
+	}
+	res := matchResult{
+		MatchID:    m.ID,
+		Seed:       m.Seed,
+		Language:   m.Lang,
+		Over:       r.Over,
+		WinnerSeat: winner,
+		IsTie:      r.IsTie,
+		Scores:     [2]int64{m.Score(0), m.Score(1)},
+		StateVer:   snap.StateVersion,
+		ServerTick: snap.ServerTick,
+		recordedAt: time.Now(),
+	}
+	a.resultsMu.Lock()
+	if _, exists := a.results[res.MatchID]; !exists {
+		a.results[res.MatchID] = res
+	}
+	// reap stale results
+	cutoff := time.Now().Add(-resultTTL)
+	for id, old := range a.results {
+		if old.recordedAt.Before(cutoff) {
+			delete(a.results, id)
+		}
+	}
+	a.resultsMu.Unlock()
+
+	log.Printf("match lifecycle=%s id=%d seed=%d lang=%s winner=%d tie=%v scores=%d:%d ticks=%d",
+		"over", res.MatchID, res.Seed, res.Language, res.WinnerSeat, res.IsTie,
+		res.Scores[0], res.Scores[1], res.ServerTick)
+}
+
+// requestLogger emits one structured line per HTTP request (method, path,
+// status, bytes, duration). WebSocket upgrades are logged on handshake.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("http method=%s path=%s status=%d bytes=%d dur=%s",
+			r.Method, r.URL.Path, rec.status, rec.bytes, time.Since(start).Round(time.Microsecond))
+	})
+}
+
+// statusRecorder captures the response status and byte count for logging
+// while still supporting WebSocket hijacking and streaming flush.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *statusRecorder) WriteHeader(c int) {
+	r.status = c
+	r.ResponseWriter.WriteHeader(c)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	return n, err
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("http: ResponseWriter does not support hijacking")
+	}
+	return h.Hijack()
+}
+
 func playersToJSON(ps []*wordarenav1.PlayerState) []map[string]any {
 	out := make([]map[string]any, 0, len(ps))
 	for _, p := range ps {
@@ -245,6 +406,9 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
 	if err != nil {
 		return
+	}
+	if a.maxWSBytes > 0 {
+		conn.SetReadLimit(a.maxWSBytes)
 	}
 	sub := room.Subscribe(seat)
 	ctx := r.Context()

@@ -69,7 +69,49 @@ Upgrade to WebSocket. All frames are **binary protobuf**:
 predictions older than the latest snapshot/event version and reconcile to
 canonical state (M0 acceptance 3).
 
-## 3. Reconnect / resume
+## 3. Match result
+
+After a match finishes, its final outcome is persisted in-memory (TTL 5 min)
+and served as JSON:
+
+```
+GET /v1/matches/{id}/result
+```
+
+```json
+{
+  "match_id": 1,
+  "seed": 1512,
+  "language": "en",
+  "over": true,
+  "winner_seat": 0,
+  "is_tie": false,
+  "scores": [42, 21],
+  "state_version": 14,
+  "server_tick": 210
+}
+```
+
+`winner_seat` is `-1` when the match is a draw. `404` means the match is
+still active, unknown, or its result has expired. Durable (PostgreSQL-backed)
+match persistence is M1 work; this endpoint is the M0-adequate persistence
+surface and the hook clients/tools use to read final outcomes.
+
+## 4. Resource limits
+
+The dev service enforces two limits, both configurable via environment:
+
+- `WORDARENA_MAX_ROOMS` (default `128`): concurrent live matches. Creating a
+  match beyond the cap returns `429 Too Many Requests`.
+- `WORDARENA_MAX_WS_BYTES` (default `65536`): maximum WebSocket message size.
+  A frame larger than this terminates the connection (oversized-message
+  protection). `0` disables the room cap; the read limit is always applied
+  when positive.
+
+All HTTP handlers are wrapped in request logging (method, path, status,
+bytes, duration); WebSocket upgrades are logged on handshake.
+
+## 5. Reconnect / resume
 
 - Reconnect = open the WebSocket again with the same token while the match
   is alive. The server immediately sends the canonical snapshot; the client
