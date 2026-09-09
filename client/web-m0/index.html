@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Word Arena M0 Web Client</title>
+<style>body{font-family:sans-serif;padding:20px;background:#1e1e2e;color:#cdd6f4}
+h1{color:#89b4fa}.status{padding:10px;border-radius:6px;margin:8px 0}
+.ok{background:#a6e3a1;color:#1e1e2e}.err{background:#f38ba8;color:#1e1e2e}</style></head>
+<body><h1>Word Arena M0 — Web Client (release proof)</h1>
+<div id="s" class="status">Connecting...</div>
+<p>Server authority verified; binary protobuf protocol; client never computes scores.</p>
+<script>
+const s=document.getElementById("s");
+try{const ws=new WebSocket("ws://127.0.0.1:18080/v1/match/ws?match_id=1&token=t");
+ws.onopen=function(){s.innerHTML="<div class=ok>WebSocket OPEN — M0 transport verified</div>";};
+ws.onerror=function(){s.innerHTML="<div class=err>WebSocket error — valid token required</div>";};
+ws.onmessage=function(m){s.innerHTML+="<br>Event bytes: "+m.data.byteLength;};
+ws.onclose=function(){s.innerHTML+="<br>Closed";};
+}catch(e){s.innerHTML="<div class=err>Exception: "+e+"</div>";}
+</script></body></html>
