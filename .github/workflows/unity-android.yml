@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$PROJECT_PATH/ProjectSettings/ProjectVersion.txt"
-          grep -q ^m_EditorVersion: 6000.0.59f2 "$PROJECT_PATH/ProjectSettings/ProjectVersion.txt"
+          grep -q '^m_EditorVersion: 6000.0.59f2$' "$PROJECT_PATH/ProjectSettings/ProjectVersion.txt"
           test -f "$PROJECT_PATH/Packages/manifest.json"
           test -f "$PROJECT_PATH/Packages/packages-lock.json"
           test -f "$PROJECT_PATH/Assets/Editor/BuildCommand.cs"
@@ -79,12 +79,15 @@ jobs:
           UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
           set -euo pipefail
-          test -n "${UNITY_EMAIL:-}" || { echo "Missing UNITY_EMAIL GitHub Secret"; exit 1; }
-          test -n "${UNITY_PASSWORD:-}" || { echo "Missing UNITY_PASSWORD GitHub Secret"; exit 1; }
-          echo "Unity credentials configured for build."
+          test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
+          test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
+          if [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; then
+            echo 'Set UNITY_LICENSE for Unity Personal or UNITY_SERIAL for Unity Pro/Plus';
+            exit 1;
+          fi
 
       - name: Validate release signing secrets
-        if: ${{ inputs.build_type == release }}
+        if: ${{ inputs.build_type == 'release' }}
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -101,7 +104,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PROJECT_PATH }}/Library
-          key: unity-library-${{ env.UNITY_VERSION }}-android-${{ hashFiles(client/unity/Assets/**, client/unity/Packages/**, client/unity/ProjectSettings/**) }}
+          key: unity-library-${{ env.UNITY_VERSION }}-android-${{ hashFiles('client/unity/Assets/**', 'client/unity/Packages/**', 'client/unity/ProjectSettings/**') }}
           restore-keys: |
             unity-library-${{ env.UNITY_VERSION }}-android-
 
@@ -158,7 +161,7 @@ jobs:
           script: |
             set -euo pipefail
             export ANDROID_BACKEND=github-hosted-emulator
-            apk=$(find artifact -name "*.apk" -type f | head -1)
+            apk=$(find artifact -name '*.apk' -type f | head -1)
             test -n "$apk"
             adb install -r "$apk"
             adb shell monkey -p com.jotalbot.words 1
