@@ -19,13 +19,16 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M1 — Vertical Slice
 
-- [ ] production-shaped match service
+- [~] production-shaped match service (in progress: resource limits, request
+  logging, match result persistence, /metrics counters, graceful shutdown,
+  Docker/compose — 2026-09-09)
 - [ ] shared board UX
 - [ ] Claim / Lock / Cross-Steal
 - [ ] combo and Sudden Death
 - [ ] basic matchmaking
 - [ ] player profile
-- [ ] telemetry baseline
+- [~] telemetry baseline (in progress: lifecycle + per-action counters via
+  /metrics; export/pipeline still TODO)
 
 ## M2 — Alpha Core
 

@@ -1,6 +1,6 @@
 project: words
 milestone: M0
-status: server_gate_verified; exit_gate_automated
+status: server_gate_verified; exit_gate_automated; server_hardening_batch1_2_done
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -17,41 +17,57 @@ completed_tasks:
     EXIT-GATE: PASS on the dev server 2026-09-09 (6/6 matches)
   - Dictionary compiler server/cmd/dictcompile (+ canonicality test)
   - Replay fixture seed 1512; web-m0 client proof; M1-ARCH-PREP doc
-  - GitHub CI green on integrated main (last: 1a3d377)
+  - GitHub CI green on integrated main
+  - M1-prep hardening batch 1: GET /v1/matches/{id}/result (match result
+    persistence, TTL 5 min), WORDARENA_MAX_ROOMS cap (429), WS read limit
+    (WORDARENA_MAX_WS_BYTES), structured request logging; hardening tests
+  - M1-prep hardening batch 2: GET /metrics telemetry counters, graceful
+    shutdown (SIGINT/SIGTERM + bounded server.Shutdown + API.Stop()),
+    infra/Dockerfile (static nonroot image) + infra/docker-compose.yml;
+    TestMetricsCounters; local smoke test (healthz/metrics/create/logging)
+  - Unity CI pipeline fixed: in-container unity-editor build + email/password
+    activation (dropped game-ci license gap + env-context container.image
+    validation error + project CWD); documented in docs/unity-ci.md
 active_tasks: []
 blocked_tasks:
-  - B1: Unity swipe prototype + client prediction/rollback + Android AVD —
-    no Unity Editor for linux/arm64 on dev host; no Android backend
-    automatable without credentials (local: no emulator package, no
-    system-images, no /dev/kvm; remote: myandroid.org/appetize.io reachable
-    but interactive/API-key only — not bypassed)
+  - B1: Unity/Android build — pipeline is CORRECT now, but Unity Licensing
+    API returns {"message":"Invalid Credential","code":"143.002"} for the
+    current UNITY_EMAIL/UNITY_PASSWORD GitHub secrets (verified fresh
+    2026-09-09 runs 34390832207, 34392443246). Fix = valid Unity account:
+    verified email, correct password, no MFA/SSO on the automation account.
+    Once creds work, build + hosted-emulator smoke test are unblocked.
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
 failed_tasks: []
 next_tasks:
-  - CI watch on 1a3d377 (pushed 2026-09-09)
-  - M1 vertical-slice prep that does not require Unity (docs/M1-ARCH-PREP.md)
-  - Android backend: requires authorized device-farm credentials (human
-    input) or an x86_64 KVM host with emulator + system image
-  - Post-M0: session-token rotation, match result persistence, telemetry
-last_commit: "ca536ea"
+  - Recover OCI host (was unreachable after a docker build attempt on the
+    shared, heavily loaded host): reset /opt/words to origin/main, rebuild
+    dev service (healthz on 127.0.0.1:18080), re-verify go test ./...
+  - Re-run Unity Android dispatch once UNITY credentials are fixed
+  - M1 vertical-slice: shared board UX, claim/lock/steal UI, basic
+    matchmaking, player profile + durable result persistence (PostgreSQL)
+  - Post-M0: session-token rotation, telemetry export, per-match replay
+    archive endpoint
+last_commit: "944a425"
 tests:
-  server: green on dev host 2026-09-09 (go vet ./...; go test ./... all
-    packages; cmd/game 33 s incl. exit-gate suite); race clean in sandbox
-    (cmd/game + internal/...)
-  ci: green through 1a3d377 (GitHub Actions)
-android_backend: unavailable — local emulator absent (no emulator pkg /
-  system-images / /dev/kvm on ARM64 VM); remote options reachable but
-  require credentials/API keys (appetize, Google Test Lab) or are
-  interactive-only (myandroid.org). No bypass attempted. Android QA stays
-  part of B1 until an authorized backend is provisioned.
+  server: green on x86_64 sandbox (go1.27.1, go vet ./...; go test -count=1
+    ./... all packages; cmd/game 36 s incl. exit-gate suite) and on OCI arm64
+    host (go1.27.1) 2026-09-09; race clean on cmd/game
+  ci: green through 944a425 (GitHub Actions, go1.24)
+  docker: image NOT built — build attempt on OCI host destabilized the shared
+    server (SSH unreachable); local static-binary smoke test passed instead
+android_backend: unavailable for QA until APK exists — local emulator absent
+  on ARM64 host (no emulator pkg / system-images / /dev/kvm); GitHub-hosted
+  x86_64 emulator (reactivecircus, API 35) is wired and will run the smoke
+  test once the APK builds; remote providers (myandroid.org etc.) remain
+  interactive-only and were not bypassed
 workers:
-  - /tmp/words-game (dev service, 127.0.0.1:18080, rebuilt at 4c21c50+,
-    healthz ok)
-  - ollama qwen2.5:0.5b on dev host verified responsive (WORKER-OK) — host
-    RAM ~3 GiB free; use only for micro-tasks
-resume_from: "Recover: read this file; on OCI host (/opt/words) run
-  git pull/reset origin/main, cd server && go vet ./... && go test ./...
-  healthz http://127.0.0.1:18080. Next: M1 prep (non-Unity) or CI watch.
-  Exit-gate evidence: tests/fixtures/exit-gate-live-2026-09-09.md."
+  - ollama on OCI host (qwen2.5:0.5b etc.) — host currently unreachable; use
+    only for micro-tasks when it returns
+resume_from: "Recover: repo state on GitHub (main @ 944a425). On OCI host
+  (/opt/words): git fetch origin && git reset --hard origin/main; export
+  PATH=/opt/go/bin:$PATH; cd server && go vet ./... && go test ./...; rebuild
+  dev service (healthz http://127.0.0.1:18080). Avoid docker build on the
+  shared host until load drops. Unity path: wait for valid UNITY credentials,
+  then dispatch Unity Android build. Continue M1 vertical-slice server work."
 updated_at: "2026-09-09"
