@@ -49,12 +49,36 @@ email/password). Workflow `unity-android.yml` сам активирует лиц
 Если после активации `.ulf`/`.xml` не найден, шаг завершается ошибкой с
 понятным сообщением (а не молча — как раньше через `|| true`).
 
+### Приоритет: UNITY_LICENSE (ручная активация, работает при MFA)
+
+Workflow `unity-android.yml` теперь использует `UNITY_LICENSE` в первую
+очередь: если секрет задан, его содержимое (`.ulf`) записывается в
+`/root/.local/share/unity3d/Unity/Unity_lic.ulf` и сборка идёт без
+обращения к email/password. Это надёжный путь для аккаунтов с включённым
+MFA/SSO.
+
+Как получить `UNITY_LICENSE` (ручная активация):
+
+1. Запустить workflow «Unity Manual Activation Request» (Actions → Run
+   workflow) — он сгенерирует `.alf` на x86_64 GitHub-раннере.
+2. Скачать артефакт `unity-activation-request` (`.alf`).
+3. Зайти на https://license.unity3d.com/manual под Unity-аккаунтом
+   (MFA допускается), загрузить `.alf`, скачать полученный `.ulf`.
+4. Добавить содержимое `.ulf` как Actions secret `UNITY_LICENSE`
+   (repo → Settings → Secrets and variables → Actions → New repository
+   secret).
+
+Локальный `.ulf` из Unity Hub на Windows (`C:\ProgramData\Unity\Unity_lic.ulf`)
+привязан к железу ПК и для CI не подходит — нужен `.ulf`, полученный через
+`.alf` именно с CI-раннера.
+
 Требуемые секреты:
 
 | Secret | Назначение | Где получить |
 |---|---|---|
-| `UNITY_EMAIL` | email Unity account | Unity account |
-| `UNITY_PASSWORD` | пароль Unity account | Unity account |
+| `UNITY_LICENSE` | содержимое `.ulf` (приоритет) | ручная активация: `.alf` → license.unity3d.com/manual → `.ulf` |
+| `UNITY_EMAIL` | email Unity account | Unity account (нужен только если `UNITY_LICENSE` не задан) |
+| `UNITY_PASSWORD` | пароль Unity account | Unity account (нужен только если `UNITY_LICENSE` не задан) |
 
 Проверка на 2026-09-09: Unity Licensing API отвечает
 `{"message": "Invalid Credential", "code": "143.002"}` на текущие значения

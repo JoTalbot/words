@@ -77,12 +77,18 @@ jobs:
       - name: Validate Unity activation secrets
         shell: bash
         env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
-          test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
+          if [ -z "${UNITY_LICENSE:-}" ]; then
+            test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_LICENSE or UNITY_EMAIL GitHub Secret'; exit 1; }
+            test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
+            echo 'Will activate via email/password.'
+          else
+            echo 'Will use UNITY_LICENSE (.ulf).'
+          fi
 
       - name: Validate release signing secrets
         if: ${{ inputs.build_type == 'release' }}
@@ -106,42 +112,47 @@ jobs:
           restore-keys: |
             unity-library-${{ env.UNITY_VERSION }}-android-
 
-      - name: Activate Unity Personal license (email/password)
+      - name: Acquire Unity license (UNITY_LICENSE preferred, else email/password)
         shell: bash
         env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -euo pipefail
-          LIC_CLIENT=/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client
-          mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses
+          LIC_DIR=/root/.local/share/unity3d/Unity
+          mkdir -p "$LIC_DIR" /root/.config/unity3d/Unity/licenses
 
-          echo "=== Activating personal license via Unity Licensing Client ==="
-          "$LIC_CLIENT" --activate-ulf --include-personal \
-            --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || \
-          "$LIC_CLIENT" --activate-all --include-personal \
-            --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+          if [ -n "${UNITY_LICENSE:-}" ]; then
+            echo "=== Writing UNITY_LICENSE (.ulf) ==="
+            printf '%s' "$UNITY_LICENSE" > "$LIC_DIR/Unity_lic.ulf"
+            printf '%s' "$UNITY_LICENSE" > /usr/share/unity3d/Unity_lic.ulf 2>/dev/null || true
+            echo "License file installed at $LIC_DIR/Unity_lic.ulf"
+          else
+            echo "=== Activating personal license via Unity Licensing Client ==="
+            LIC_CLIENT=/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client
+            "$LIC_CLIENT" --activate-ulf --include-personal \
+              --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || \
+            "$LIC_CLIENT" --activate-all --include-personal \
+              --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+
+            LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
+              \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
+            if [ -z "$LIC" ]; then
+              echo "No license file was produced. Unity rejected the provided credentials"
+              echo "(see 'Invalid Credential' above). Fix UNITY_EMAIL / UNITY_PASSWORD,"
+              echo "or add a UNITY_LICENSE secret via manual activation."
+              exit 1
+            fi
+            echo "License produced: $LIC"
+          fi
 
           echo "=== Completing license binding in batchmode ==="
           unity-editor -batchmode -nographics -quit -logFile /tmp/unity_init.log || true
 
-          echo "=== Locating license files ==="
-          LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
-            \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
-          if [ -z "$LIC" ]; then
-            echo "No license file was produced. Unity rejected the provided credentials"
-            echo "(see 'Invalid Credential' above). Update UNITY_EMAIL / UNITY_PASSWORD"
-            echo "and re-run. Aborting the build to avoid a meaningless editor run."
-            exit 1
-          fi
-          echo "License produced: $LIC"
-
       - name: Build APK with Unity editor (in-container)
         working-directory: ${{ env.PROJECT_PATH }}
         shell: bash
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           set -euo pipefail
           APK_PATH="Builds/Android/words-${{ inputs.build_type }}.apk"
