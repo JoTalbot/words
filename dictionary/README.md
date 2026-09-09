@@ -23,19 +23,34 @@ Source word lists / corpora
  dynamic whitelist / tombstones
 ```
 
-## M0 snapshot location
+## M0 snapshot location and compiler
 
-While the dictionary compiler does not exist yet, M0 fixture snapshots live
-at `server/internal/dictionary/data/` (embedded into the server binary via
-`go:embed`):
+M0 snapshot artifacts live at `server/internal/dictionary/data/` (embedded
+into the server binary via `go:embed`):
 
-- `en.words`, `ru.words`, `uk.words` — curated fixture word lists (small but
-  real; adequate to prove the deterministic core);
-- `manifest.json` — versioned manifest with per-file sha256; tests enforce
-  the checksums, so data edits must refresh the manifest deliberately.
+- `en.words`, `ru.words`, `uk.words` — canonical compiled word lists;
+- `manifest.json` — versioned manifest with per-file sha256 and counts.
 
-The full compiler pipeline below supersedes these snapshots; the runtime
-loader (`internal/dictionary.LoadSnapshotFromReader`) already accepts any
+The M0 compiler is `server/cmd/dictcompile` (Go, deterministic pipeline:
+trim -> per-language normalization (lowercase, alphabet filter, ru ё->е) ->
+length filter 3..9 -> dedupe -> byte-wise sort -> one word per line).
+Usage:
+
+```bash
+cd server
+go run ./cmd/dictcompile -lang en -src internal/dictionary/data/en.words \
+    -out internal/dictionary/data/en.words      # canonical? (verify-only)
+go run ./cmd/dictcompile -lang ru -src /tmp/upstream-ru.txt \
+    -out internal/dictionary/data/ru.words -write -version 2026-09-08.v2
+```
+
+Tests in `cmd/dictcompile` lock reproducibility: `TestShippedSnapshotsCanonical`
+recompiles every shipped artifact and enforces byte-identical output plus
+manifest sha256/counts, so hand edits of data files now fail CI.
+
+The full graph-compiler pipeline below (DAWG artifacts, dynamic tombstones)
+supersedes the flat text format later; the runtime loader
+(`internal/dictionary.LoadSnapshotFromReader`) already accepts any
 deterministic source format that follows the normalization rules.
 
 ## Requirements
