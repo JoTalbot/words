@@ -1,6 +1,6 @@
 project: words
 milestone: M0
-status: server_gate_verified; exit_gate_automated; server_hardening_batch1_2_done
+status: server_gate_verified; exit_gate_automated; m1_server_slice_batches_1-5_done
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -18,20 +18,22 @@ completed_tasks:
   - Dictionary compiler server/cmd/dictcompile (+ canonicality test)
   - Replay fixture seed 1512; web-m0 client proof; M1-ARCH-PREP doc
   - GitHub CI green on integrated main
-  - M1-prep hardening batch 1: GET /v1/matches/{id}/result (match result
-    persistence, TTL 5 min), WORDARENA_MAX_ROOMS cap (429), WS read limit
-    (WORDARENA_MAX_WS_BYTES), structured request logging; hardening tests
-  - M1-prep hardening batch 2: GET /metrics telemetry counters, graceful
-    shutdown (SIGINT/SIGTERM + bounded server.Shutdown + API.Stop()),
-    infra/Dockerfile (static nonroot image) + infra/docker-compose.yml;
-    TestMetricsCounters; local smoke test (healthz/metrics/create/logging)
+  - Batch 1 (M1-prep): GET /v1/matches/{id}/result (persistence, TTL 5 min),
+    WORDARENA_MAX_ROOMS cap (429), WS read limit, request logging + tests
+  - Batch 2 (M1-prep): GET /metrics counters, graceful shutdown, Dockerfile +
+    docker-compose.yml, TestMetricsCounters, local binary smoke test
+  - Batch 3 (M1): basic matchmaking (POST /v1/queue, GET /v1/queue/{id},
+    FIFO pairing per language, 2-min TTL, one-shot delivery) + replay
+    endpoint (GET /v1/matches/{id}/replay, deterministic event log)
+  - Batch 4 (M1-prep): background reaper (matchmaker queue + result store
+    TTL sweep) + per-seat intent rate limiting (WORDARENA_INTENTS_PER_SEC,
+    default 60/s, policy-violation close) + tests
+  - Batch 5 (M1): player profiles (POST /v1/players, GET /v1/players/{id})
+    + stats folding from finished matches via optional player_ids on match
+    creation (wins/losses/draws/total_score) + tests
   - Unity CI pipeline fixed: in-container unity-editor build + email/password
-    activation (dropped game-ci license gap + env-context container.image
-    validation error + project CWD); documented in docs/unity-ci.md
-  - Basic matchmaking (M1 stub): POST /v1/queue + GET /v1/queue/{id}
-    poll-based FIFO pairing per language, 2-min TTL, one-shot delivery
-  - Deterministic replay endpoint: GET /v1/matches/{id}/replay (event log
-    persisted in matchResult)
+    activation (game-ci gap + container.image env-context validation error +
+    project CWD); documented in docs/unity-ci.md
 active_tasks: []
 blocked_tasks:
   - B1: Unity/Android build — pipeline is CORRECT now, but Unity Licensing
@@ -44,39 +46,33 @@ blocked_tasks:
     (dictionary/NOTICE.md)
 failed_tasks: []
 next_tasks:
-  - Recover OCI host (was unreachable after a docker build attempt on the
-    shared, heavily loaded host): reset /opt/words to origin/main, rebuild
-    dev service (healthz on 127.0.0.1:18080), re-verify go test ./...
   - Re-run Unity Android dispatch once UNITY credentials are fixed
-  - M1 vertical-slice: shared board UX, claim/lock/steal UI, combo + Sudden
-    Death rules, player profile + durable result persistence (PostgreSQL)
-  - Post-M0: session-token rotation, per-seat intent rate limiting, telemetry
-    export, queue pruning/reaping sweep
-last_commit: "3f983d3"
+  - M1: combo + Sudden Death rules (opt-in per match; M0 default unchanged),
+    shared board UX, claim/lock/steal UI (client)
+  - M1: durable player-profile/result persistence (PostgreSQL), profile in
+    matchmaking (queue with player_id), session-token rotation
+  - Android QA fallback hierarchy once an APK exists (hosted emulator wired)
+last_commit: "dfb41d3"
 tests:
-  server: green on x86_64 sandbox (go1.27.1, go vet ./...; go test -count=1
-    ./... all packages; cmd/game 36 s incl. exit-gate suite) and on OCI arm64
-    host (go1.27.1) 2026-09-09; race clean on cmd/game
-  ci: green through 944a425 (GitHub Actions, go1.24)
-  docker: image NOT built — build attempt on OCI host destabilized the shared
-    server; local static-binary smoke test passed instead
-  oci_host: UP but thrashing (2026-09-09): TCP ports 22/18080/6080 accept
-    connections, but sshd times out on banner exchange and HTTP services do
-    not answer — consistent with memory exhaustion on the shared host.
-    Recovery: wait for OOM/watchdog, or console reboot. Repo and CI are safe
-    on GitHub.
+  server: green on x86_64 sandbox (go1.27.1: go vet + go test -count=1 ./...
+    all packages; cmd/game ~43 s incl. exit-gate) and on OCI arm64 host
+    (go1.27.1); race clean on cmd/game (profile/matchmaking/hardening/metrics)
+  ci: green through dfb41d3 (GitHub Actions, go1.24)
+  docker: image NOT built on the shared OCI host (build attempt destabilized
+    it once); local static-binary smoke test passed. Build the image only on
+    a quiet host or in CI.
 android_backend: unavailable for QA until APK exists — local emulator absent
   on ARM64 host (no emulator pkg / system-images / /dev/kvm); GitHub-hosted
   x86_64 emulator (reactivecircus, API 35) is wired and will run the smoke
   test once the APK builds; remote providers (myandroid.org etc.) remain
   interactive-only and were not bypassed
 workers:
-  - ollama on OCI host (qwen2.5:0.5b etc.) — host currently unreachable; use
-    only for micro-tasks when it returns
-resume_from: "Recover: repo state on GitHub (main @ 3f983d3). On OCI host
-  (/opt/words): git fetch origin && git reset --hard origin/main; export
-  PATH=/opt/go/bin:$PATH; cd server && go vet ./... && go test ./...; rebuild
-  dev service (healthz http://127.0.0.1:18080). Avoid docker build on the
-  shared host until load drops. Unity path: wait for valid UNITY credentials,
-  then dispatch Unity Android build. Continue M1 vertical-slice server work."
+  - OCI dev service rebuilt and healthy (127.0.0.1:18080, binary @ dfb41d3,
+    healthz ok, profiles/metrics/matchmaking/result endpoints live)
+  - ollama on OCI host (qwen2.5:0.5b etc.) — use only for micro-tasks
+resume_from: "Recover: repo state on GitHub (main @ dfb41d3). OCI host is
+  healthy again (/opt/words @ dfb41d3, dev service on 127.0.0.1:18080).
+  Do NOT run docker build on the shared host. Unity path: wait for valid
+  UNITY credentials, then dispatch Unity Android build. Continue M1
+  vertical-slice: Sudden Death (opt-in), durable persistence, queue profiles."
 updated_at: "2026-09-09"

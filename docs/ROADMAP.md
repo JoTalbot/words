@@ -21,12 +21,13 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 - [~] production-shaped match service (in progress: resource limits, request
   logging, match result persistence, /metrics counters, graceful shutdown,
-  Docker/compose — 2026-09-09)
+  Docker/compose, background reaper, intent rate limiting — 2026-09-09)
 - [ ] shared board UX
 - [ ] Claim / Lock / Cross-Steal
 - [ ] combo and Sudden Death
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09)
-- [ ] player profile
+- [~] player profile (in progress: in-memory profiles + stats folding via
+  player_ids; durable storage still TODO)
 - [~] telemetry baseline (in progress: lifecycle + per-action counters via
   /metrics; export/pipeline still TODO)
 
