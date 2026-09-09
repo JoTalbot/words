@@ -1,0 +1,16 @@
+project: words
+milestone: M0
+status: ready_for_resume
+completed_tasks: []
+active_tasks: []
+blocked_tasks: []
+failed_tasks: []
+next_tasks:
+  - M0-autonomous-bootstrap
+last_commit: "92785551529e65a93b073c053d8b1502801a0a97"
+tests:
+  status: unknown
+workers:
+  active: []
+resume_from: "Run the Arena resume/startup prompt, inspect the real server state, then execute the M0 autonomous bootstrap task."
+updated_at: "2026-09-09"
