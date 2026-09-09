@@ -6,7 +6,6 @@ on:
 permissions:
   contents: write
   actions: write
-  secrets: write
 
 jobs:
   activate:
@@ -25,7 +24,6 @@ jobs:
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses /usr/share/unity3d/unity
