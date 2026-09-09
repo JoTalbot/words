@@ -1,0 +1,49 @@
+name: Activate Unity License in Cloud
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  activate:
+    name: Generate and Acquire Unity License on x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: unityci/editor:ubuntu-6000.0.59f2-android-3.2.2
+
+    steps:
+      - name: Activate Unity Personal
+        shell: bash
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses /usr/share/unity3d/unity
+          echo "=== Requesting License Activation via Unity Licensing Client ==="
+          /opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client \
+            --activate-all --include-personal \
+            --username "$UNITY_EMAIL" \
+            --password "$UNITY_PASSWORD" || true
+
+          echo "=== Checking generated license files ==="
+          find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d -type f || true
+
+          echo "=== Running Unity in batchmode to verify ==="
+          unity-editor -batchmode -nographics -quit -logFile /tmp/unity_test.log || true
+          cat /tmp/unity_test.log | grep -Ei "license|entitlement|activation|version|MonoManager" | head -30 || true
+
+          mkdir -p /tmp/exported_license
+          cp -r /root/.local/share/unity3d /tmp/exported_license/ 2>/dev/null || true
+          cp -r /root/.config/unity3d /tmp/exported_license/ 2>/dev/null || true
+          cp -r /usr/share/unity3d /tmp/exported_license/ 2>/dev/null || true
+
+      - name: Upload License Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-activated-license
+          path: /tmp/exported_license
