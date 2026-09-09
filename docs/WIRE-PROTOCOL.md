@@ -76,6 +76,17 @@ canonical state (M0 acceptance 3).
   later; further connects get 404.
 - Ranked/account session semantics (expiry, rotation) are post-M0 work.
 
+
+### 3.1 Grace window and seat re-entry
+
+- `GraceTicks = 300` (code `server/internal/matchroom/room.go`) = ~10 s at 30 Hz.
+- A seat may disconnect and reconnect with the same token any time before
+  the match ends; the simulation never pauses and the token remains valid.
+- After the match ends, the room is removed ~3 s later; reconnect then
+  returns 404.
+- Seat substitution / rotation is out of scope for M0; tokens are
+  match-scoped and do not carry across matches.
+
 ## 4. Server authority notes
 
 - Intents are applied in receive order under the room lock; simultaneous
