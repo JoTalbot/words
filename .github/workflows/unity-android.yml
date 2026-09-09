@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
           test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
-          if [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; then
+          if [[ -z "${UNITY_LICENSE:-}" if [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; thenif [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; then -z "${UNITY_SERIAL:-}" if [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; thenif [[ -z "${UNITY_LICENSE:-}" && -z "${UNITY_SERIAL:-}" ]]; then ( -z "${UNITY_EMAIL:-}" || -z "${UNITY_PASSWORD:-}" ) ]]; then
             echo 'Set UNITY_LICENSE for Unity Personal or UNITY_SERIAL for Unity Pro/Plus';
             exit 1;
           fi
