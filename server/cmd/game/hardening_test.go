@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	wordarenav1 "github.com/JoTalbot/words/server/gen/wordarena/net/v1"
 )
 
 func TestRoomCapEnforced(t *testing.T) {
@@ -127,6 +129,53 @@ func TestResultEndpointUnknownMatch(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown result status = %d, want 404", resp.StatusCode)
 	}
+}
+
+func TestMetricsCounters(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	seed := uint64(e2eSeed)
+	id, tokens, _ := createMatch(t, srv, "en", &seed)
+	c0 := dial(t, srv, id, tokens[0])
+	defer c0.close()
+	_ = c0.readSnapshot(t)
+
+	// Accepted word "cat" (board seed 1512: cells 9,1,0).
+	c0.submit(t, id, []uint32{9, 1, 0}, 1)
+	if ev := c0.readWordEvent(t); ev.Result != wordarenav1.WordResult_ACCEPTED {
+		t.Fatalf("cat result = %v", ev.Result)
+	}
+	// Rejected nonsense "taa".
+	c0.submit(t, id, []uint32{0, 1, 2}, 2)
+	if ev := c0.readWordEvent(t); ev.Result == wordarenav1.WordResult_ACCEPTED {
+		t.Fatalf("taa unexpectedly accepted")
+	}
+
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("metrics status = %d", resp.StatusCode)
+	}
+	var m map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	check := func(k string, wantMin float64) {
+		v, ok := m[k].(float64)
+		if !ok || v < wantMin {
+			t.Fatalf("metric %s = %v, want >= %v", k, m[k], wantMin)
+		}
+	}
+	check("matches_created", 1)
+	check("intents_received", 2)
+	check("words_accepted", 1)
+	check("words_rejected", 1)
+	check("active_matches", 1)
 }
 
 func TestWSRejectsOversizedFrame(t *testing.T) {

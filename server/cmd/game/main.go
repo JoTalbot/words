@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -23,8 +26,30 @@ func main() {
 		Handler:           api.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("wordarena game service listening on %s", server.Addr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		log.Printf("wordarena game service listening on %s", server.Addr)
+		serveErr <- server.ListenAndServe()
+	}()
+
+	// Graceful shutdown: stop accepting work, stop room tickers, drain
+	// in-flight requests within a bounded window, then exit.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case err := <-serveErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("serve: %v", err)
+		}
+	case s := <-sig:
+		log.Printf("signal %s received: shutting down", s)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		api.Stop()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
 	}
+	log.Print("wordarena game service stopped")
 }

@@ -43,6 +43,21 @@ type API struct {
 	// TTL-reaped). Durable match persistence is M1 work.
 	results   map[uint64]matchResult
 	resultsMu sync.Mutex
+
+	// m holds process-lifetime counters served at GET /metrics
+	// (telemetry baseline, M1 prep).
+	m        metrics
+	stopOnce sync.Once
+}
+
+// metrics are atomic counters for the telemetry baseline. They are cheap to
+// update on the hot path and expose a coarse health/throughput signal.
+type metrics struct {
+	matchesCreated  atomic.Uint64
+	matchesFinished atomic.Uint64
+	intentsReceived atomic.Uint64
+	wordsAccepted   atomic.Uint64
+	wordsRejected   atomic.Uint64
 }
 
 // matchResult is the persisted post-match outcome served by
@@ -84,6 +99,19 @@ func envInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// Stop signals all room tickers to exit (graceful shutdown). It is safe to
+// call multiple times.
+func (a *API) Stop() {
+	a.stopOnce.Do(func() { close(a.stopCh) })
+}
+
+// activeRooms returns the number of live rooms under the rooms lock.
+func (a *API) activeRooms() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.rooms)
 }
 
 func randomHex(n int) (string, error) {
@@ -128,7 +156,20 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/match/ws", a.handleWS)
 	mux.HandleFunc("GET /v1/match/{id}/snapshot", a.handleSnapshot)
 	mux.HandleFunc("GET /v1/matches/{id}/result", a.handleResult)
+	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	return requestLogger(mux)
+}
+
+// handleMetrics serves the JSON telemetry counters.
+func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"matches_created":  a.m.matchesCreated.Load(),
+		"matches_finished": a.m.matchesFinished.Load(),
+		"intents_received": a.m.intentsReceived.Load(),
+		"words_accepted":   a.m.wordsAccepted.Load(),
+		"words_rejected":   a.m.wordsRejected.Load(),
+		"active_matches":   a.activeRooms(),
+	})
 }
 
 func (a *API) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -195,6 +236,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	a.rooms[id] = room
 	a.mu.Unlock()
+	a.m.matchesCreated.Add(1)
 	go a.runRoomTicker(id, room)
 
 	resp := createMatchResponse{
@@ -319,6 +361,7 @@ func (a *API) recordResult(room *matchroom.Room) {
 		}
 	}
 	a.resultsMu.Unlock()
+	a.m.matchesFinished.Add(1)
 
 	log.Printf("match lifecycle=%s id=%d seed=%d lang=%s winner=%d tie=%v scores=%d:%d ticks=%d",
 		"over", res.MatchID, res.Seed, res.Language, res.WinnerSeat, res.IsTie,
@@ -469,9 +512,16 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		for _, v := range sw.LetterIndices {
 			ids = append(ids, int(v))
 		}
-		if _, err := room.SubmitWithSeq(seat, sw.ClientSequence, ids); err != nil {
+		frame, err := room.SubmitWithSeq(seat, sw.ClientSequence, ids)
+		if err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "submit failed")
 			break
+		}
+		a.m.intentsReceived.Add(1)
+		if frame.Result == match.ResultAccepted {
+			a.m.wordsAccepted.Add(1)
+		} else {
+			a.m.wordsRejected.Add(1)
 		}
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "bye")
