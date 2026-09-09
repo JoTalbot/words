@@ -34,7 +34,7 @@ next_tasks:
   - Android backend: requires authorized device-farm credentials (human
     input) or an x86_64 KVM host with emulator + system image
   - Post-M0: session-token rotation, match result persistence, telemetry
-last_commit: "1a3d377"
+last_commit: "ca536ea"
 tests:
   server: green on dev host 2026-09-09 (go vet ./...; go test ./... all
     packages; cmd/game 33 s incl. exit-gate suite); race clean in sandbox
