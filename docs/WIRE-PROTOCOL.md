@@ -134,7 +134,30 @@ The second player to enqueue for a language triggers pairing immediately; the
 matched entry is delivered exactly once and carries the same join info a
 direct `POST /v1/matches` would return. Entries expire after 2 minutes.
 
-## 6. Replay
+## 6. Player profiles
+
+In-memory profile registry (M1 stub; durable storage is a follow-up):
+
+```
+POST /v1/players          {"nickname":"alice","language":"en"}  -> 201 Profile
+GET  /v1/players/{id}                                           -> 200 Profile
+```
+
+`Profile` carries identity plus lifetime stats: `id`, `nickname`, `language`,
+`created_at`, `matches_played`, `wins`, `losses`, `draws`, `total_score`.
+
+A match can bind its seats to profiles by passing `player_ids` at creation:
+
+```
+POST /v1/matches  {"language":"en","seed":1512,"player_ids":[1,2]}
+```
+
+When `player_ids` is present, the seats' `user_id`s equal those profile ids,
+and the match outcome is folded into both profiles' stats when the match
+ends. Anonymous matches keep synthetic user ids and never touch profile
+stats. Both ids must exist and be distinct (`404`/`400` otherwise).
+
+## 7. Replay
 
 ```
 GET /v1/matches/{id}/replay
@@ -155,7 +178,7 @@ tooling:
 }
 ```
 
-## 7. Reconnect / resume
+## 8. Reconnect / resume
 
 - Reconnect = open the WebSocket again with the same token while the match
   is alive. The server immediately sends the canonical snapshot; the client
@@ -177,14 +200,14 @@ tooling:
 - Seat substitution / rotation is out of scope for M0; tokens are
   match-scoped and do not carry across matches.
 
-## 4. Server authority notes
+## 9. Server authority notes
 
 - Intents are applied in receive order under the room lock; simultaneous
   intents resolve identically for both clients because the outcome is a
   deterministic function of the applied order (property-tested).
 - Clients never compute scores, validity or ownership.
 
-## 5. HTTP snapshot (debug/tooling)
+## 10. HTTP snapshot (debug/tooling)
 
 ```
 GET /v1/match/{id}/snapshot
@@ -192,7 +215,7 @@ GET /v1/match/{id}/snapshot
 
 JSON rendering of the canonical snapshot; used by tools and QA.
 
-## 6. Conventions
+## 11. Conventions
 
 - Errors: JSON `{"error": "..."}` with proper HTTP status; WS auth failure
   refuses the upgrade (no frame).

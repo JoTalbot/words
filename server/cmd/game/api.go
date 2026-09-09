@@ -59,6 +59,12 @@ type API struct {
 	// seatWindows holds recent intent timestamps per seat (matchID<<1|seat).
 	seatWindows map[uint64][]time.Time
 	seatWinMu   sync.Mutex
+
+	// profiles is the in-memory player registry; profiled marks matches that
+	// were created with explicit player_ids (their stats are updated on end).
+	profiles   *profileStore
+	profiled   map[uint64]bool
+	profiledMu sync.Mutex
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -120,6 +126,8 @@ func NewAPI() *API {
 		mm:            newMatchmaker(),
 		intentsPerSec: envInt("WORDARENA_INTENTS_PER_SEC", 60),
 		seatWindows:   map[uint64][]time.Time{},
+		profiles:      newProfileStore(),
+		profiled:      map[uint64]bool{},
 	}
 	go a.runReaper()
 	return a
@@ -193,6 +201,14 @@ func (a *API) allowIntent(matchID uint64, seat int) bool {
 	return true
 }
 
+// isProfiledMatch reports whether a match was created with explicit
+// player_ids (its seats map to registered profiles).
+func (a *API) isProfiledMatch(id uint64) bool {
+	a.profiledMu.Lock()
+	defer a.profiledMu.Unlock()
+	return a.profiled[id]
+}
+
 // clearSeatWindows drops the rate-limit state for a finished match.
 func (a *API) clearSeatWindows(matchID uint64) {
 	a.seatWinMu.Lock()
@@ -233,10 +249,12 @@ func randomSeed() (uint64, error) {
 
 // createMatchRequest mirrors the JSON body of POST /v1/matches. Seed is
 // optional: fixed seeds create reproducible matches for tools and E2E
-// tests; random seeds are used when absent.
+// tests; random seeds are used when absent. PlayerIDs, when set, bind the
+// seats to registered profiles (stats are updated when the match ends).
 type createMatchRequest struct {
-	Language string  `json:"language"`
-	Seed     *uint64 `json:"seed,omitempty"`
+	Language  string     `json:"language"`
+	Seed      *uint64    `json:"seed,omitempty"`
+	PlayerIDs *[2]uint64 `json:"player_ids,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
@@ -259,6 +277,8 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/matches/{id}/replay", a.handleReplay)
 	mux.HandleFunc("POST /v1/queue", a.handleQueueCreate)
 	mux.HandleFunc("GET /v1/queue/{id}", a.handleQueuePoll)
+	mux.HandleFunc("POST /v1/players", a.handlePlayerCreate)
+	mux.HandleFunc("GET /v1/players/{id}", a.handlePlayerGet)
 	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	return requestLogger(mux)
 }
@@ -296,7 +316,21 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
-	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed)
+	if req.PlayerIDs != nil {
+		if req.PlayerIDs[0] == 0 || req.PlayerIDs[1] == 0 || req.PlayerIDs[0] == req.PlayerIDs[1] {
+			httpError(w, http.StatusBadRequest, "player_ids must be two distinct positive ids")
+			return
+		}
+		if _, ok := a.profiles.get(req.PlayerIDs[0]); !ok {
+			httpError(w, http.StatusNotFound, "player 0 not found")
+			return
+		}
+		if _, ok := a.profiles.get(req.PlayerIDs[1]); !ok {
+			httpError(w, http.StatusNotFound, "player 1 not found")
+			return
+		}
+	}
+	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed, req.PlayerIDs)
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
@@ -312,8 +346,9 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // createRoom provisions a new live room and returns its public join info.
-// It is shared by the direct-create endpoint and the matchmaker.
-func (a *API) createRoom(lang string, seed *uint64) (uint64, uint64, [2]string, [2]uint64, error) {
+// It is shared by the direct-create endpoint and the matchmaker. playerIDs,
+// when non-nil, bind the seats to registered profiles.
+func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
 	var s uint64
 	if seed != nil {
 		s = *seed
@@ -333,6 +368,9 @@ func (a *API) createRoom(lang string, seed *uint64) (uint64, uint64, [2]string, 
 	}
 	id := a.counter.Add(1)
 	userIDs := [2]uint64{id*2 + 1, id*2 + 2} // deterministic synthetic ids
+	if playerIDs != nil {
+		userIDs = *playerIDs
+	}
 	room, err := matchroom.New(matchroom.Config{
 		MatchID:  id,
 		Seed:     s,
@@ -351,6 +389,11 @@ func (a *API) createRoom(lang string, seed *uint64) (uint64, uint64, [2]string, 
 	}
 	a.rooms[id] = room
 	a.mu.Unlock()
+	if playerIDs != nil {
+		a.profiledMu.Lock()
+		a.profiled[id] = true
+		a.profiledMu.Unlock()
+	}
 	a.m.matchesCreated.Add(1)
 	go a.runRoomTicker(id, room)
 	return id, s, [2]string{tok0, tok1}, userIDs, nil
@@ -380,6 +423,9 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 				delete(a.rooms, id)
 				a.mu.Unlock()
 				a.clearSeatWindows(id)
+				a.profiledMu.Lock()
+				delete(a.profiled, id)
+				a.profiledMu.Unlock()
 				room.Close()
 				return
 			}
@@ -483,7 +529,7 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e := a.mm.enqueue(lang, func(l string) (uint64, uint64, [2]string, [2]uint64, error) {
-		return a.createRoom(l, nil)
+		return a.createRoom(l, nil, nil)
 	})
 	writeJSON(w, http.StatusAccepted, e)
 }
@@ -502,6 +548,50 @@ func (a *API) handleQueuePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, e)
+}
+
+// handlePlayerCreate registers a player profile (M1 player profile).
+func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Nickname string `json:"nickname"`
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	nick := req.Nickname
+	if nick == "" || len(nick) > 32 {
+		httpError(w, http.StatusBadRequest, "nickname must be 1..32 characters")
+		return
+	}
+	lang := req.Language
+	if lang == "" {
+		lang = "en"
+	}
+	switch lang {
+	case "en", "ru", "uk":
+	default:
+		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
+		return
+	}
+	p := a.profiles.create(nick, lang)
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// handlePlayerGet serves one player profile plus lifetime stats.
+func (a *API) handlePlayerGet(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid player id")
+		return
+	}
+	p, ok := a.profiles.get(id)
+	if !ok {
+		httpError(w, http.StatusNotFound, "player not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 // recordResult captures the final outcome of an over match and reaps stale
@@ -540,6 +630,21 @@ func (a *API) recordResult(room *matchroom.Room) {
 	a.resultsMu.Unlock()
 	a.reapResults()
 	a.m.matchesFinished.Add(1)
+
+	// Fold the outcome into profile stats when the match used explicit
+	// player_ids (anonymous/synthetic seats are no-ops in profileStore).
+	if a.isProfiledMatch(res.MatchID) {
+		for seat := match.Seat(0); seat < 2; seat++ {
+			outcome := "loss"
+			switch {
+			case res.IsTie:
+				outcome = "draw"
+			case int(res.WinnerSeat) == int(seat):
+				outcome = "win"
+			}
+			a.profiles.record(room.UserID(seat), m.Score(seat), outcome)
+		}
+	}
 
 	log.Printf("match lifecycle=%s id=%d seed=%d lang=%s winner=%d tie=%v scores=%d:%d ticks=%d",
 		"over", res.MatchID, res.Seed, res.Language, res.WinnerSeat, res.IsTie,
