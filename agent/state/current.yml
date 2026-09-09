@@ -7,10 +7,11 @@ blocked_tasks: []
 failed_tasks: []
 next_tasks:
   - M0-autonomous-bootstrap
-last_commit: "92785551529e65a93b073c053d8b1502801a0a97"
+last_commit: "451890d57b4c8c44cec6d8e336b30547a571017b"
 tests:
   status: unknown
+android_backend: auto-discover
 workers:
   active: []
-resume_from: "Run the Arena resume/startup prompt, inspect the real server state, then execute the M0 autonomous bootstrap task."
+resume_from: "Run the short Arena resume prompt. Read AGENTS.md, docs/AUTONOMOUS-DEVELOPMENT-MASTER.md and current.yml, inspect the actual server, recover the existing work, then execute the next M0 batch."
 updated_at: "2026-09-09"
