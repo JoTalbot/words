@@ -23,8 +23,9 @@ GitHub Actions ubuntu-latest (x86_64)
 ## Версия и runner
 
 - Unity: `6000.0.59f2`.
-- Раннер: GitHub-hosted `ubuntu-latest`, x86_64.
-- Action: `game-ci/unity-builder@v4`.
+- Раннер: GitHub-hosted `ubuntu-latest`, x86_64, сборка внутри контейнера
+  `unityci/editor:ubuntu-6000.0.59f2-android-3.2.2` (прямой запуск
+  `unity-editor -batchmode`, без GameCI activation).
 - Project path: `client/unity`.
 - Build method: `Words.BuildCommand.BuildAndroid`.
 - Workflow: `.github/workflows/unity-android.yml`.
@@ -34,23 +35,33 @@ Unity 6000.0.59f2 выбрана как стабильный Unity 6 patch relea
 
 ## Лицензирование
 
-Проверка `gh secret list --repo JoTalbot/words` на дату аудита не нашла ни одного Actions Secret. Поэтому APK ещё не генерировался: workflow намеренно завершится понятной ошибкой на preflight активации, пока секреты не добавлены.
+Сборка больше не зависит от механизма активации GameCI (который требует
+`UNITY_LICENSE`/`UNITY_SERIAL` и не умеет активировать Personal по
+email/password). Workflow `unity-android.yml` сам активирует лицензию внутри
+`unityci/editor` контейнера через Unity Licensing Client:
 
-Для Unity Personal по документации GameCI нужны:
+```bash
+/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client \
+  --activate-ulf --include-personal --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+# fallback: --activate-all --include-personal
+```
 
-| Secret | Назначение | Где получить | Проверка |
-|---|---|---|---|
-| `UNITY_LICENSE` | содержимое активированного `.ulf` license file | Unity Hub: ручная активация лицензии на совместимой машине | Secret существует; значение никогда не печатается |
-| `UNITY_EMAIL` | email Unity account | Unity account | Secret существует; значение не печатается |
-| `UNITY_PASSWORD` | пароль Unity account | Unity account | Secret существует; значение не печатается |
+Если после активации `.ulf`/`.xml` не найден, шаг завершается ошибкой с
+понятным сообщением (а не молча — как раньше через `|| true`).
 
-Для Unity Pro/Plus вместо `UNITY_LICENSE` используется:
+Требуемые секреты:
 
-| Secret | Назначение | Где получить | Проверка |
-|---|---|---|---|
-| `UNITY_SERIAL` | Unity serial | Unity Subscriptions | Secret существует; значение не печатается |
+| Secret | Назначение | Где получить |
+|---|---|---|
+| `UNITY_EMAIL` | email Unity account | Unity account |
+| `UNITY_PASSWORD` | пароль Unity account | Unity account |
 
-Не добавляйте одновременно случайные или придуманные значения. Workflow принимает либо `UNITY_LICENSE`, либо `UNITY_SERIAL`, и в обоих вариантах требует email/password.
+Проверка на 2026-09-09: Unity Licensing API отвечает
+`{"message": "Invalid Credential", "code": "143.002"}` на текущие значения
+секретов. Возможные причины: неверный пароль, неподтверждённый email,
+MFA/SSO на аккаунте (для автоматизации MFA должен быть выключен), либо
+спецсимволы/кодировка пароля. Пока креды не станут валидными, сборка APK
+невозможна — это единственный блокер Unity-пути.
 
 ## Сборка
 

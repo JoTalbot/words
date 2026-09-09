@@ -64,6 +64,8 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    container:
+      image: unityci/editor:ubuntu-${{ env.UNITY_VERSION }}-android-3.2.2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,15 +75,12 @@ jobs:
       - name: Validate Unity activation secrets
         shell: bash
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         run: |
           set -euo pipefail
           test -n "${UNITY_EMAIL:-}" || { echo 'Missing UNITY_EMAIL GitHub Secret'; exit 1; }
           test -n "${UNITY_PASSWORD:-}" || { echo 'Missing UNITY_PASSWORD GitHub Secret'; exit 1; }
-          echo Unity credentials configured: 
 
       - name: Validate release signing secrets
         if: ${{ inputs.build_type == 'release' }}
@@ -105,26 +104,59 @@ jobs:
           restore-keys: |
             unity-library-${{ env.UNITY_VERSION }}-android-
 
-      - name: Build APK with Unity
-        uses: game-ci/unity-builder@v4
+      - name: Activate Unity Personal license (email/password)
+        shell: bash
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          projectPath: ${{ env.PROJECT_PATH }}
-          unityVersion: ${{ env.UNITY_VERSION }}
-          targetPlatform: Android
-          buildMethod: Words.BuildCommand.BuildAndroid
-          customParameters: >-
-            -buildType ${{ inputs.build_type }}
-            -buildPath Builds/Android/words-${{ inputs.build_type }}.apk
-          androidExportType: androidPackage
-          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
-          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+        run: |
+          set -euo pipefail
+          LIC_CLIENT=/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client
+          mkdir -p /root/.local/share/unity3d/Unity /root/.config/unity3d/Unity/licenses
+
+          echo "=== Activating personal license via Unity Licensing Client ==="
+          "$LIC_CLIENT" --activate-ulf --include-personal \
+            --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD" || \
+          "$LIC_CLIENT" --activate-all --include-personal \
+            --username "$UNITY_EMAIL" --password "$UNITY_PASSWORD"
+
+          echo "=== Completing license binding in batchmode ==="
+          unity-editor -batchmode -nographics -quit -logFile /tmp/unity_init.log || true
+
+          echo "=== Locating license files ==="
+          LIC=$(find /root/.local/share/unity3d /root/.config/unity3d /usr/share/unity3d \
+            \( -name '*.ulf' -o -name '*.xml' \) 2>/dev/null | head -1 || true)
+          if [ -z "$LIC" ]; then
+            echo "No license file was produced. Unity rejected the provided credentials"
+            echo "(see 'Invalid Credential' above). Update UNITY_EMAIL / UNITY_PASSWORD"
+            echo "and re-run. Aborting the build to avoid a meaningless editor run."
+            exit 1
+          fi
+          echo "License produced: $LIC"
+
+      - name: Build APK with Unity editor (in-container)
+        shell: bash
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APK_PATH="Builds/Android/words-${{ inputs.build_type }}.apk"
+          echo "=== Building ${{ inputs.build_type }} APK ==="
+          if unity-editor -batchmode -nographics -quit \
+              -projectPath "$PROJECT_PATH" \
+              -executeMethod Words.BuildCommand.BuildAndroid \
+              -buildType "${{ inputs.build_type }}" \
+              -buildPath "$APK_PATH" \
+              -logFile /tmp/unity_build.log; then
+            echo "Build succeeded."
+          else
+            echo "=== Unity build failed; last 200 log lines ==="
+            tail -200 /tmp/unity_build.log || true
+            exit 1
+          fi
+          test -f "$APK_PATH" || { echo "APK not found at $APK_PATH"; exit 1; }
+          ls -la "$(dirname "$APK_PATH")"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
