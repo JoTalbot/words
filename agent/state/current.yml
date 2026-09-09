@@ -59,7 +59,12 @@ tests:
     host (go1.27.1) 2026-09-09; race clean on cmd/game
   ci: green through 944a425 (GitHub Actions, go1.24)
   docker: image NOT built — build attempt on OCI host destabilized the shared
-    server (SSH unreachable); local static-binary smoke test passed instead
+    server; local static-binary smoke test passed instead
+  oci_host: UP but thrashing (2026-09-09): TCP ports 22/18080/6080 accept
+    connections, but sshd times out on banner exchange and HTTP services do
+    not answer — consistent with memory exhaustion on the shared host.
+    Recovery: wait for OOM/watchdog, or console reboot. Repo and CI are safe
+    on GitHub.
 android_backend: unavailable for QA until APK exists — local emulator absent
   on ARM64 host (no emulator pkg / system-images / /dev/kvm); GitHub-hosted
   x86_64 emulator (reactivecircus, API 35) is wired and will run the smoke
