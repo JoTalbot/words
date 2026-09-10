@@ -79,15 +79,16 @@ android_backend: github-hosted x86_64 emulator (reactivecircus, API 35)
   (run 34420554448). APK artifact: words-android-debug. Remote providers
   (myandroid.org etc.) remain interactive-only and were not bypassed.
 workers:
-  - OCI dev service rebuilt and healthy (127.0.0.1:18080, binary @ dfb41d3,
-    healthz ok, profiles/metrics/matchmaking/result endpoints live)
-  - OCI host Postgres 16.15 available (cluster 16/main online, port 5432,
-    sudo -u postgres works) — target for durable storage deploy
+  - OCI dev service running 5a96864 with durable storage
+    (127.0.0.1:18080, WORDARENA_POSTGRES_DSN set, "durable storage: postgres
+    enabled" in log; profile id 1 survived a service restart — verified)
+  - OCI host Postgres 16.15: db wordarena / role wordarena created; schema
+    auto-migrates on connect
   - ollama on OCI host (qwen2.5:0.5b/1.5b/7b, llama3.2:3b, deepseek-r1:7b) —
     use only for micro-tasks
-resume_from: "Recover: repo state on GitHub (main @ d56df81). OCI host is
-  healthy (/opt/words, dev service on 127.0.0.1:18080, binary @ dfb41d3;
-  host Postgres 16 online). Unity Android CI green incl. hosted-emulator
-  smoke. Next: deploy durable storage to OCI (create db/role, rebuild with
-  pgx, WORDARENA_POSTGRES_DSN, verify), then session-token rotation."
+resume_from: "Recover: repo state on GitHub (main @ 5a96864). OCI dev
+  service on 127.0.0.1:18080 with Postgres durability (verified live: profile
+  survives restart). Unity Android CI green incl. hosted-emulator smoke.
+  Next: session-token rotation, then M1 client (Unity) work + telemetry
+  export."
 updated_at: "2026-09-10"

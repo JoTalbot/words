@@ -36,11 +36,31 @@ jobs:
   go:
     name: Go tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wordarena
+          POSTGRES_PASSWORD: wordarena
+          POSTGRES_DB: wordarena_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wordarena -d wordarena_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache: true
+      - run: go vet ./...
+        working-directory: server
       - run: go test ./...
         working-directory: server
+        env:
+          # Runs the Postgres integration tests (store_pg_test.go) in
+          # addition to the in-memory suite.
+          WORDARENA_TEST_POSTGRES_DSN: postgres://wordarena:wordarena@127.0.0.1:5432/wordarena_test?sslmode=disable
