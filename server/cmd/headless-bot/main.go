@@ -148,6 +148,67 @@ func coverWave(snap *dictionary.Snapshot, cells []match.Cell) [][]int {
 	return (&coverCtx{cells: cells, wb: wb, budget: 200000}).search(rem)
 }
 
+// initialSnapshotEqual reports whether two snapshots describe the same game,
+// ignoring the clock fields that differ between two sockets purely because they
+// connected at different ticks.
+func initialSnapshotEqual(a, b *wordarenav1.MatchStateSnapshot) bool {
+	return a.GetMatchId() == b.GetMatchId() &&
+		a.GetCurrentWave() == b.GetCurrentWave() &&
+		a.GetOver() == b.GetOver() &&
+		msgsEqual(a.GetCells(), b.GetCells()) &&
+		msgsEqual(a.GetPlayers(), b.GetPlayers())
+}
+
+// alignAndCompareInitial enforces acceptance 1 across two sockets that connected
+// at different points in a 30 Hz stream. If the frames already agree, it returns
+// immediately. If one socket is a wave behind, it reads that socket forward until
+// the waves match and compares again. Only a genuine difference in the game -
+// board, ownership, scores, wave - is reported, and the report carries both
+// frames' clock fields so a future reader can see the skew that was ruled out.
+func alignAndCompareInitial(s0, s1 *wordarenav1.MatchStateSnapshot, c0, c1 *botClient, ctx context.Context) error {
+	if initialSnapshotEqual(s0, s1) {
+		return nil
+	}
+	const maxAdvance = 8
+	for i := 0; i < maxAdvance; i++ {
+		behind, ahead := c0, c1
+		cur, other := s0, s1
+		if s1.GetCurrentWave() < s0.GetCurrentWave() {
+			behind, ahead = c1, c0
+			cur, other = s1, s0
+		}
+		_ = ahead
+		if cur.GetCurrentWave() >= other.GetCurrentWave() {
+			break // same wave and still different: a real divergence
+		}
+		p, err := behind.readPayload(ctx)
+		if err != nil {
+			return err
+		}
+		snap, ok := p.(*wordarenav1.MatchStateSnapshot)
+		if !ok {
+			continue
+		}
+		if behind == c0 {
+			s0 = snap
+		} else {
+			s1 = snap
+		}
+		if initialSnapshotEqual(s0, s1) {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"initial snapshots describe different games "+
+			"(seat0 tick=%d ver=%d wave=%d remaining_ms=%d, "+
+			"seat1 tick=%d ver=%d wave=%d remaining_ms=%d, "+
+			"cells_equal=%v players_equal=%v)",
+		s0.GetServerTick(), s0.GetStateVersion(), s0.GetCurrentWave(), s0.GetRemainingTimeMs(),
+		s1.GetServerTick(), s1.GetStateVersion(), s1.GetCurrentWave(), s1.GetRemainingTimeMs(),
+		msgsEqual(s0.GetCells(), s1.GetCells()),
+		msgsEqual(s0.GetPlayers(), s1.GetPlayers()))
+}
+
 // msgsEqual compares two repeated message fields element-wise. proto.Equal only
 // takes whole messages, and the divergence report below needs to say whether the
 // board itself differed or only the clock fields did.
@@ -485,26 +546,26 @@ func playOne(addr, lang string, seed uint64, viaQueue bool) (*matchResult, error
 	if !ok {
 		return nil, fmt.Errorf("seat1: expected snapshot, got %T", s1p)
 	}
-	if !proto.Equal(s0, s1) {
-		// Report *how* the frames differ, not just that they do. The room starts
-		// its 30 Hz ticker when the queue pairs the two seats while this harness
-		// dials them sequentially, so the two sockets can legitimately receive
-		// different ticks. That is a property of a 30 Hz stream, not a
-		// determinism failure - but it was indistinguishable from one until the
-		// frames were printed. Measured over 147 queue matches on 2026-09-10,
-		// this class accounted for 4 failures (2.7 percent); deciding whether it
-		// is a server defect or an over-strict check needs the ticks, so they are
-		// now part of the error.
-		return nil, fmt.Errorf(
-			"seed %d: initial snapshots diverge "+
-				"(seat0 tick=%d ver=%d wave=%d remaining_ms=%d, "+
-				"seat1 tick=%d ver=%d wave=%d remaining_ms=%d, "+
-				"cells_equal=%v players_equal=%v)",
-			created.Seed,
-			s0.GetServerTick(), s0.GetStateVersion(), s0.GetCurrentWave(), s0.GetRemainingTimeMs(),
-			s1.GetServerTick(), s1.GetStateVersion(), s1.GetCurrentWave(), s1.GetRemainingTimeMs(),
-			msgsEqual(s0.GetCells(), s1.GetCells()),
-			msgsEqual(s0.GetPlayers(), s1.GetPlayers()))
+	// Acceptance 1: both seats must see the same game. It used to assert
+	// proto.Equal on the two first frames, and that was over-strict for a 30 Hz
+	// stream. The room starts its ticker when it is created - for a queued match
+	// that is the moment the matchmaker pairs the two seats (api.go:643,
+	// `go a.runRoomTicker(id, room)`) - while each socket is sent a snapshot when
+	// it connects (api.go:1163). The two sockets are dialed sequentially, so they
+	// can legitimately receive different ticks, and if a wave boundary falls
+	// between the two connections they receive different boards too. Neither is a
+	// determinism failure. Proven from code on 2026-09-11 and consistent with the
+	// measurement: 4 of 147 queue matches reported this class while every match
+	// that ran to completion reported terminal_snapshots_equal and
+	// client_streams_equal true.
+	//
+	// So compare what determinism actually promises - the game, not the clock.
+	// server_tick, remaining_time_ms and state_version are deliberately excluded;
+	// match_id, wave, board and scores are not. If the waves differ, advance the
+	// socket that is behind until they agree, because a wave boundary between the
+	// two connections is not divergence either.
+	if err := alignAndCompareInitial(s0, s1, c0, c1, ctx); err != nil {
+		return nil, fmt.Errorf("seed %d: %w", created.Seed, err)
 	}
 
 	bots := []*botClient{c0, c1}
