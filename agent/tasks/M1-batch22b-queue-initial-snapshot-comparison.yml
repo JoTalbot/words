@@ -3,7 +3,7 @@ title: Decide what "identical initial snapshots" means when the clock starts at 
 owner: qa
 priority: high
 complexity: small
-status: measured_ready_for_decision
+status: decided_implemented_measured
 found_by: "live re-verification of the promoted OCI deployment"
 inputs:
   - "server/cmd/headless-bot/main.go (playOne, the proto.Equal(s0, s1) check)"
@@ -67,23 +67,68 @@ mechanism:
   - >-
     NOT YET PROVEN FROM CODE: the deciding step must confirm it by printing both
     frames' server_tick and state_version on divergence.
-decision_needed:
+decision:
+  verdict: >-
+    The comparison was wrong, not the room. Proven from code on 2026-09-11:
+    api.go:643 starts the room ticker when the room is created, which for a
+    queued match is the moment the matchmaker pairs the two seats, while
+    api.go:1163 sends each socket a snapshot when it connects. Two sockets dialed
+    sequentially can therefore receive different server_tick, state_version and
+    remaining_time_ms, and a wave boundary between the connections gives them
+    different boards. Neither is a determinism failure, and M0 acceptance states
+    the terminal-state property, which held on every match in every measurement.
+  action_taken:
+    - >-
+      the harness now compares the game (match_id, current_wave, cells, players,
+      over) and ignores server_tick, state_version and remaining_time_ms;
+      alignAndCompareInitial reads a lagging socket forward when the waves differ
+    - >-
+      a genuine difference in the game is still reported, and the report carries
+      both frames' clock fields so the ruled-out skew stays visible
+    - >-
+      the offline planner's inability to cover an arbitrary board became a typed
+      errNotCoverable that main() counts as SKIP, not FAIL, and a run where every
+      match was skipped exits 1 with EXIT-GATE: NO SAMPLES
+    - >-
+      docs/M0.md item 9 now states precisely what "identical" covers, and
+      docs/WIRE-PROTOCOL.md gained a section on why the first snapshot is not a
+      synchronisation point
+  not_taken:
+    - >-
+      the room was deliberately NOT changed to hold its clock until both seats
+      connect. That would delay every queued match by the slower client's
+      connection time to satisfy a property M0 does not require, and it would
+      still not make the first frames equal, because each socket is served on
+      connect.
+measurement_after:
   - >-
-    Product or harness. If both seats must see the identical board at join is an
-    M1 property, the room must not advance waves until both seats have connected,
-    a server change with a deterministic test. If the property is what the
-    terminal state proves, which is what M0 acceptance actually states, then the
-    harness must compare tick-aligned frames and the current check is over-strict
-    for a 30 Hz stream.
-next_step:
+    Pass 1 (planner class separated, comparison still proto.Equal), live OCI at
+    5653210, -via-queue -rounds 7 -seeds 21..27 = 49 matches: 46 measured all
+    PASS with terminal_snapshots_equal and client_streams_equal true, 3 skipped,
+    0 divergence failures.
   - >-
-    Make the harness print server_tick and state_version of both first frames on
-    divergence, re-run 49 queue matches, and only then change either side.
+    Pass 2 (clock-free comparison), same host, -via-queue -rounds 7 -seeds
+    31..37 = 49 matches: 47 measured all PASS, 2 skipped, 0 failures.
   - >-
-    Independently of that: give the bot a fallback plan, or seed the offline
-    planner from the live snapshot, so an under-coverable board is skipped rather
-    than counted as a failure; otherwise every random-seed queue run wastes about
-    3 percent of its samples on a planner limitation.
+    Combined 98 queue matches after the change: 93 measured, 0 divergence
+    failures, 5 planner skips (5.1 percent), 0 failures. Before the change the
+    same host produced 12 failures in 147 (~8 percent).
+  - >-
+    Honesty note: 46 samples cannot by themselves rule out the previously
+    measured 2.7 percent divergence rate (p about 0.28 of seeing zero). The
+    verdict therefore rests on the code proof above, with the measurements as
+    corroboration rather than as the argument.
+validation_after:
+  - "go vet ./...: exit 0"
+  - "go test -count=1 ./...: 12 packages ok, headless-bot now has 4 tests"
+  - "gofmt -l on every touched file: clean"
+  - >-
+    TestInitialSnapshotEqualIgnoresTheClock pins the decision both ways: a 1-tick
+    and a 40-tick skew are not divergence, while different ownership, score, wave
+    and match id all are
+  - >-
+    TestSolveSeedClassifiesAnUncoverableBoard pins the live observation that seed
+    13868347868007641273 reports wave 2 not fully claimable
 notes:
   - >-
     First observed as a single failure in -via-queue -rounds 1 -seeds 9,10,11. It
