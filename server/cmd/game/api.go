@@ -171,7 +171,37 @@ func NewAPIWithPostgres(dsn string) (*API, error) {
 		return nil, err
 	}
 	a := newAPI(&pgProfileStore{db: db}, &pgResultStore{db: db}, db)
+	// Resume match ids from the durable store before serving anyone. This is
+	// fatal on purpose: continuing at 1 would silently alias finished
+	// matches, which is worse than not starting (docs/ARCHITECTURE.md keeps
+	// durable reads authoritative for results).
+	if err := a.primeMatchIDs(); err != nil {
+		a.Stop()
+		db.Close()
+		return nil, err
+	}
 	return a, nil
+}
+
+// primeMatchIDs advances the match-id counter past the durable high-water
+// mark. A no-op when there is no durable result store (ids cannot collide with
+// nothing) or when the store is empty.
+func (a *API) primeMatchIDs() error {
+	if a.resultRepo == nil {
+		return nil
+	}
+	maxID, err := a.resultRepo.MaxMatchID()
+	if err != nil {
+		return fmt.Errorf("resume match ids: %w", err)
+	}
+	if maxID == 0 {
+		return nil
+	}
+	if cur := a.counter.Load(); maxID > cur {
+		a.counter.Store(maxID)
+		log.Printf("match ids resumed from the durable store at %d", maxID)
+	}
+	return nil
 }
 
 // newAPI is the shared constructor. profiles must not be nil; resultRepo and

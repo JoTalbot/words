@@ -17,4 +17,11 @@ type ResultRepo interface {
 	Put(res matchResult) error
 	// Get returns a stored result.
 	Get(id uint64) (matchResult, bool, error)
+	// MaxMatchID returns the highest match id already stored (0 when empty).
+	// The service resumes its id counter from this value after a restart:
+	// match ids are generated per process, so without it a new process hands
+	// out ids that alias finished matches already in the durable store, the
+	// fresh result is dropped by ON CONFLICT DO NOTHING, and reads of the new
+	// match return the old match's data. See TestMatchIDsDoNotAliasAcrossRestarts.
+	MaxMatchID() (uint64, error)
 }

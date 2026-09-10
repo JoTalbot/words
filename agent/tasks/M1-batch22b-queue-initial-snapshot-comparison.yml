@@ -1,0 +1,39 @@
+id: M1-batch22b-queue-initial-snapshot-comparison
+title: Decide what "identical initial snapshots" means when the clock starts at pairing
+owner: qa
+priority: high
+complexity: small
+status: queued
+found_by: live via-queue exit gate on the OCI deployment (1 of 3 matches failed)
+inputs:
+  - server/cmd/headless-bot/main.go (playOne, the proto.Equal(s0, s1) check)
+  - server/cmd/game/matchmaking.go (pairing -> createRoom -> ticker start)
+  - server/cmd/game/api.go (runRoomTicker, sendSnapshot on connect)
+outputs:
+  - a decision recorded in docs/M0.md / docs/WIRE-PROTOCOL.md: either the room
+    must not advance until both seats have connected, or the harness must
+    compare tick-aligned snapshots (same server_tick / state_version) instead
+    of the first frame each socket happens to receive
+acceptance:
+  - the flake rate is measured over at least 20 queue-created matches, both
+    before and after the change, not argued from one sample
+  - if the conclusion is "the clock must wait for both seats", the change lands
+    with a deterministic test and the M0 acceptance wording is updated
+  - if the conclusion is "the comparison was wrong", the harness compares
+    tick-matched frames and a regression test pins that a wave boundary between
+    connections is not reported as divergence
+validation:
+  - cd server && go test ./cmd/game -run 'TestExitGate|TestMatchmaking' -count=1 -v
+  - on OCI: headless-bot -via-queue -rounds 6 -seeds 1,2,3,4,5,6 (repeat 3x)
+risk: medium
+escalation: strong-model
+notes:
+  - Observed on 2026-09-10: `-via-queue -rounds 1 -seeds 9,10,11` produced
+    "FAIL seed=10 round=1: seed 7996944792814624157: initial snapshots diverge"
+    while the same build passed 6/6 on an isolated instance and the direct
+    control passed 3/3 with baseline scores. A room starts its 30 Hz ticker at
+    creation, and the two seats connect sequentially, so the two "initial"
+    frames can legitimately be different ticks. Reproducing before designing is
+    mandatory: this must not be dismissed as a flake, and it must not be
+    "fixed" by relaxing an acceptance criterion without deciding which of the
+    two properties the project actually wants.
