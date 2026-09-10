@@ -3,7 +3,11 @@ title: Ignore runtime telemetry output and correct the infra layout docs
 owner: backend-infra
 priority: low
 complexity: trivial
-status: queued
+status: verified
+local_validation:
+  - /telemetry/ and *.jsonl added to .gitignore
+  - infra/README.md layout section now matches the repository and marks the
+    planned subdirectories as future work
 inputs:
   - .gitignore
   - infra/README.md

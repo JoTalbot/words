@@ -107,6 +107,24 @@ Explicitly does NOT own (do not edit):
 3. `infra/smoke.sh` pins two contract details that are easy to regress:
    `/v1/match/ws` must answer **401** for a missing or invalid seat token, and
    `/v1/matches/{id}/replay` must answer **404** while a match is still active.
+4. **Batch 17D is unblocked: the live via-queue regression now passes.** Session
+   A recorded it as waiting on OCI SSH (degraded since ~08:20Z). SSH recovered
+   at ~10:17 UTC and session C ran it read-only against the live service —
+   no source file was touched:
+   - `headless-bot -via-queue -rounds 2 -seeds 1,2,3` → 6/6 `EXIT-GATE: PASS`,
+     every match `terminal_snapshots_equal=true` and `client_streams_equal=true`.
+   - direct control `-rounds 2 -seeds 1512,1513,1517` → 6/6 `EXIT-GATE: PASS`
+     with scores identical to the 2026-09-09 baseline
+     (43:45 / 37:60 / 44:40), so the deployed build still reproduces.
+   - `/metrics` after the run: 180 intents, 180 accepted, 0 rejected,
+     242 telemetry events written, 0 dropped, 0 export errors.
+   Evidence task file: `agent/tasks/M1-batch18-oci-queue-regression.yml`.
+   Session A can mark 17D verified in `agent/state/current.yml`.
+5. The OCI SSH degradation correlates with **host load spikes**, not with the
+   service: during the outage the systemd unit stayed `active`. Session C
+   triggered one spike itself by starting a Docker build and two Ollama jobs at
+   once (load went to ~255 on the 15-minute average). Recommendation for all
+   sessions: run at most one heavy job on the OCI host at a time.
 
 ## Handoff notes
 

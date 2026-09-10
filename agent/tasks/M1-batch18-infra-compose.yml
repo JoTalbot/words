@@ -3,7 +3,17 @@ title: Validate the Docker image and compose stack by actually running it
 owner: backend-infra
 priority: high
 complexity: medium
-status: running
+status: verified_live_oci
+local_validation:
+  - OCI arm-server-01 (Docker 29.7.2, linux/aarch64), branch 0cd9fe7,
+    isolated clone /home/ubuntu/batch18-oci, host port 18090 so the live
+    systemd service on 18080 was untouched
+  - docker compose up -d --build: infra-db-1 healthy, infra-game-1 healthy
+  - SMOKE_EXPECT_STORAGE=postgres bash infra/smoke.sh http://127.0.0.1:18090
+    -> 19 passed, 0 failed
+  - telemetry volume: /var/log/wordarena/events.jsonl non-empty inside the
+    container (match_created, ws_connected, profile_created)
+  - docker compose down -v: stack removed, no orphan containers
 inputs:
   - infra/Dockerfile
   - infra/docker-compose.yml

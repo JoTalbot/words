@@ -8,6 +8,12 @@ Until batch 18 (2026-09-10) the image and the compose file had only been
 `.github/workflows/container-smoke.yml`, so a broken Dockerfile fails CI
 instead of failing at deploy time.
 
+First validated live on the OCI arm64 host (Docker 29.7.2, linux/aarch64) at
+commit `0cd9fe7`: both compose services reached `healthy`, `infra/smoke.sh`
+reported **19 passed / 0 failed** with `storage=postgres`, and the telemetry
+volume received JSONL events. Verified again through GitHub CI on the same
+workflow.
+
 Scope note: this file covers the container path. The systemd deployment on the
 OCI host is documented separately in `docs/M1-OPS.md`.
 

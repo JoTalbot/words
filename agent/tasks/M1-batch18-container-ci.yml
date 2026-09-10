@@ -3,7 +3,7 @@ title: Additive CI job that builds the container image and runs the compose smok
 owner: ci-reliability
 priority: normal
 complexity: small
-status: queued
+status: awaiting_ci
 inputs:
   - infra/Dockerfile
   - infra/docker-compose.yml

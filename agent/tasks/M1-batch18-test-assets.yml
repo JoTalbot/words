@@ -3,7 +3,11 @@ title: Populate the empty tests/ data-asset directories declared by docs/M0.md
 owner: qa
 priority: normal
 complexity: small
-status: queued
+status: verified
+local_validation:
+  - python3 tools/check-test-assets.py -> 6 checks passed, 0 failed
+  - parses rtt/loss slices from netsim_test.go and matches/subsPerMatch consts
+    from bench_test.go; fails on drift
 inputs:
   - docs/M0.md (Required test assets)
   - server/cmd/game/netsim_test.go (live fault matrix constants)
