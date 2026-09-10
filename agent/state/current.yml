@@ -1,7 +1,16 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batches_23A_23B_merged; oci_promoted_to_main_and_reverified_live; live_result_persistence_defect_fixed; batch22b_measured_awaiting_decision
+status: m1_vertical_slice_advancing; batches_23A_23B_24_merged; oci_promoted_and_reverified_live; batch22b_decided_and_implemented
 completed_tasks:
+  - >-
+    Batch 24 (M1): closed M1-batch22b. The harness asserted proto.Equal on the two first
+    WebSocket frames of a match, but the room starts its 30 Hz ticker when it is created
+    (api.go:643) and serves each socket a snapshot on connect (api.go:1163), so two sockets
+    dialed sequentially legitimately receive different server_tick, state_version and
+    remaining_time_ms - and different boards if a wave boundary falls between the connections.
+    The check now compares the game and ignores the clock; the offline planner's uncoverable
+    board became a typed SKIP instead of a FAIL. 98 queue matches after the change: 93
+    measured, 0 divergence failures, 5 planner skips, 0 failures (PR #10, 4a99e82)
   - >-
     Batch 23A (M1): fixed a live data-loss defect - match_results declared match_id and seed BIGINT
     while the service models both as Go uint64, so every value above MaxInt64 failed at pgx encode
@@ -622,6 +631,28 @@ task_graph:
     note: >-
       CI run 109 and Container smoke run 4 both success on c2079e8, which is the
       pending item the task file recorded.
+  M1-batch22b-queue-initial-snapshot-comparison:
+    status: decided_implemented_measured
+    owner: qa
+    merged: 4a99e82
+    pull_request: 10
+    validation:
+      - >-
+        mechanism proven from code: api.go:643 starts the room ticker at room creation,
+        api.go:1163 serves each socket on connect, so first-frame clock skew is expected
+      - >-
+        live OCI, pass 1 (-via-queue -rounds 7 -seeds 21..27, 49 matches): 46 measured all
+        PASS, 3 skipped, 0 divergence failures
+      - >-
+        live OCI, pass 2 (-via-queue -rounds 7 -seeds 31..37, 49 matches): 47 measured all
+        PASS, 2 skipped, 0 failures
+      - >-
+        go vet exit 0; go test -count=1 ./... 12 packages ok; headless-bot went from 0 tests
+        to 4; gofmt clean
+      - >-
+        honest caveat recorded in the task file: 46 samples alone cannot rule out the
+        previously measured 2.7 percent divergence rate (p about 0.28), so the verdict rests
+        on the code proof with the measurements as corroboration
   M1-batch23a-uint64-result-columns:
     status: verified_live_oci
     owner: backend-storage
@@ -771,7 +802,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "87c5228"
-last_verified_commit: "5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
-resume_from: "Main is 87c5228. Batch 23A (PR #8) fixed a live data-loss defect: match_results declared match_id and seed BIGINT while the service models both as uint64, so every seed above MaxInt64 - about half of all server-chosen seeds - failed to encode and the durable result row was never written. Migration 002 widens both to NUMERIC(20,0). Deployed to the OCI systemd service on 2026-09-10 with a pre-migration dump at /home/ubuntu/backup-wordarena-pre-002-*.dump; 107 rows preserved, exit gate 6/6 PASS with baseline scores, smoke 23/0, 8/8 finished matches persisted, 0 result_store_error in the journal. Batch 23B (PR #9) fixed the device-smoke focus gate, which accepted mFocusedApp and so passed while a system sheet held input focus. Next, in priority order: (1) M1-batch22b deciding step - make headless-bot print server_tick and state_version of both first frames on divergence, re-run 49 queue matches, then change either the room or the harness; independently give the bot a fallback plan so an under-coverable board is skipped instead of counted as a failure (reproduced live again on 2026-09-10: seed 13868347868007641273 reported wave 2 not fully claimable). (2) M1-batch21g-match-codes, which now needs migration 003 because 23A took 002. (3) The Unity runtime server-endpoint field. (4) Two 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
-updated_at: "2026-09-10 (batch 23: live result-persistence defect fixed and deployed)"
+last_commit: "4a99e82"
+last_verified_commit: "4a99e82 on main (CI + container-smoke green); 5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
+resume_from: "Main is 4a99e82. Batch 23A (PR #8) fixed the live result-persistence defect (match_id/seed BIGINT vs Go uint64; migration 002 widens both to NUMERIC(20,0)) and is deployed to the OCI systemd service, re-verified live. Batch 23B (PR #9) fixed the device-smoke focus gate. Batch 24 (PR #10) closed M1-batch22b: the initial-snapshot check compared proto.Equal on two first frames from a 30 Hz stream whose sockets connect at different ticks, so it reported clock skew as divergence; the room starts its ticker at creation (api.go:643) and serves each socket on connect (api.go:1163), proven from code. The harness now compares the game and ignores server_tick/state_version/remaining_time_ms, and the offline planner's uncoverable-board case is a typed SKIP rather than a FAIL. 98 queue matches after the change: 93 measured, 0 divergence, 5 planner skips, 0 failures. Next, in priority order: (1) M1-batch21g-match-codes - unguessable match ids closing security finding S-2; it needs migration 003 because 23A took 002. (2) The Unity runtime server-endpoint field. (3) 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. (4) The Android device leg still has never been green - five consecutive infra failures; 23B fixed the gate that mis-reported those runs but has had no clean device run to prove it, and no authorized device-farm credential is available in this environment. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
+updated_at: "2026-09-11 (batch 24: 22b decided and implemented)"
