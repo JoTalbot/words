@@ -7,6 +7,7 @@ package matchroom
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/JoTalbot/words/server/internal/match"
 )
@@ -24,6 +25,17 @@ type Config struct {
 	Token1   string
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
+	// TokenTTL bounds seat-token lifetime. Zero (default) disables expiry
+	// (M0 behaviour: tokens last the whole match). When positive, a token
+	// minted or rotated at time T stops authenticating after T+TokenTTL;
+	// rotating refreshes the deadline.
+	TokenTTL time.Duration
+}
+
+// tokenGrant is a seat credential with an optional expiry.
+type tokenGrant struct {
+	seat      match.Seat
+	expiresAt time.Time // zero = never expires
 }
 
 // Room runs one authoritative match.
@@ -32,8 +44,9 @@ type Room struct {
 	match *match.Match
 	mu    sync.Mutex
 
-	userIDs [2]uint64
-	tokens  map[string]match.Seat
+	userIDs  [2]uint64
+	tokenTTL time.Duration
+	tokens   map[string]tokenGrant
 
 	subs    map[match.Seat]*Subscription
 	stopped bool
@@ -86,19 +99,29 @@ func New(cfg Config) (*Room, error) {
 		return nil, err
 	}
 	r := &Room{
-		id:      cfg.MatchID,
-		match:   m,
-		userIDs: cfg.UserIDs,
-		tokens:  map[string]match.Seat{},
-		subs:    map[match.Seat]*Subscription{},
+		id:       cfg.MatchID,
+		match:    m,
+		userIDs:  cfg.UserIDs,
+		tokenTTL: cfg.TokenTTL,
+		tokens:   map[string]tokenGrant{},
+		subs:     map[match.Seat]*Subscription{},
 	}
 	if cfg.Token0 != "" {
-		r.tokens[cfg.Token0] = 0
+		r.tokens[cfg.Token0] = r.grant(0)
 	}
 	if cfg.Token1 != "" {
-		r.tokens[cfg.Token1] = 1
+		r.tokens[cfg.Token1] = r.grant(1)
 	}
 	return r, nil
+}
+
+// grant builds a tokenGrant for a seat with the configured TTL applied.
+func (r *Room) grant(seat match.Seat) tokenGrant {
+	g := tokenGrant{seat: seat}
+	if r.tokenTTL > 0 {
+		g.expiresAt = time.Now().Add(r.tokenTTL)
+	}
+	return g
 }
 
 // Match exposes the underlying simulation (read-only by convention; do not
@@ -122,10 +145,30 @@ func (r *Room) IsOver() bool {
 // UserID returns the account id for a seat.
 func (r *Room) UserID(s match.Seat) uint64 { return r.userIDs[s] }
 
-// SeatForToken resolves a token to its seat.
+// SeatForToken resolves a token to its seat, honouring token expiry.
 func (r *Room) SeatForToken(tok string) (match.Seat, bool) {
-	s, ok := r.tokens[tok]
-	return s, ok
+	g, ok := r.tokens[tok]
+	if !ok {
+		return 0, false
+	}
+	if !g.expiresAt.IsZero() && time.Now().After(g.expiresAt) {
+		return 0, false
+	}
+	return g.seat, true
+}
+
+// SetToken performs seat-token rotation: it drops every credential currently
+// granting the seat and installs the new one. The caller supplies the freshly
+// minted token (so the room stays free of crypto/rand).
+func (r *Room) SetToken(seat match.Seat, tok string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, g := range r.tokens {
+		if g.seat == seat {
+			delete(r.tokens, k)
+		}
+	}
+	r.tokens[tok] = r.grant(seat)
 }
 
 // Subscribe registers a client stream for a seat. One stream per seat.

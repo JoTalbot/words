@@ -19,9 +19,10 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M1 — Vertical Slice
 
-- [~] production-shaped match service (in progress: resource limits, request
-  logging, match result persistence, /metrics counters, graceful shutdown,
-  Docker/compose, background reaper, intent rate limiting — 2026-09-09)
+- [~] production-shaped match service (resource limits, request logging,
+  match result persistence, /metrics counters, graceful shutdown,
+  Docker/compose, background reaper, intent rate limiting, seat-token
+  rotation + optional TTL — 2026-09-10)
 - [ ] shared board UX
 - [ ] Claim / Lock / Cross-Steal
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden

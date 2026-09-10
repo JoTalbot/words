@@ -47,22 +47,24 @@ completed_tasks:
     ProfileRepo + ResultRepo interfaces; in-memory default; pgx v5 backends
     behind WORDARENA_POSTGRES_DSN (fail-fast on connect); read-through
     results; integration tests incl. cross-instance durability
+  - Batch 9 (M1): seat-token rotation (POST /v1/matches/{id}/token/rotate)
+    + optional token TTL (WORDARENA_SEAT_TOKEN_TTL_SECONDS, default 0 = M0
+    behaviour); rotation invalidates the old token and refreshes expiry
+  - OCI deploy of durable storage verified live (db/role wordarena on host
+    Postgres 16; service restarted with DSN; profile survived restart)
 active_tasks: []
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
 failed_tasks: []
 next_tasks:
-  - Deploy durable storage to OCI dev server (create wordarena db/role on
-    host Postgres 16, rebuild binary, WORDARENA_POSTGRES_DSN, verify)
+  - M1: telemetry export/pipeline (counters exist; export TODO)
   - M1 client work (Unity): shared board UX, claim/lock/steal UI, combo and
     Sudden Death presentation — Unity editor absent on ARM64 dev host; use
     CI-built APK for QA
-  - M1: session-token rotation (bounded-lifetime seat tokens)
-  - M1: telemetry export/pipeline (counters exist; export TODO)
   - Android QA fallback hierarchy (hosted emulator wired; APK artifact
     words-android-debug)
-last_commit: "d56df81"
+last_commit: "2358412"
 tests:
   server: green on x86_64 sandbox (go1.27.1: go vet + go test -count=1 ./...
     all packages; cmd/game ~43 s incl. exit-gate); race clean on
@@ -86,9 +88,9 @@ workers:
     auto-migrates on connect
   - ollama on OCI host (qwen2.5:0.5b/1.5b/7b, llama3.2:3b, deepseek-r1:7b) —
     use only for micro-tasks
-resume_from: "Recover: repo state on GitHub (main @ 5a96864). OCI dev
-  service on 127.0.0.1:18080 with Postgres durability (verified live: profile
-  survives restart). Unity Android CI green incl. hosted-emulator smoke.
-  Next: session-token rotation, then M1 client (Unity) work + telemetry
-  export."
+resume_from: "Recover: repo state on GitHub (main @ <token-rotation
+  commit>). OCI dev service on 127.0.0.1:18080 with Postgres durability
+  (verified live: profile survives restart). Unity Android CI green incl.
+  hosted-emulator smoke. Next: telemetry export, then M1 client (Unity)
+  work."
 updated_at: "2026-09-10"

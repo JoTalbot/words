@@ -199,7 +199,22 @@ tooling:
   a disconnected player. After the match ends subscribers first receive the
   terminal `over=true` snapshot, then the room is removed ~3 s later;
   further connects get 404.
-- Ranked/account session semantics (expiry, rotation) are post-M0 work.
+
+### Seat-token rotation (M1)
+
+```
+POST /v1/matches/{id}/token/rotate   {"token": "<current seat token>"}
+  -> 200 {"match_id":..,"seat":0|1,"user_id":..,"token":"<fresh token>"}
+  -> 401 invalid/expired token
+  -> 404 match not live
+```
+
+Presenting a valid seat token exchanges it for a fresh one; the presented
+token stops authenticating immediately (WS dials with it get 401). Rotation
+bounds the exposure window of seat credentials. With
+`WORDARENA_SEAT_TOKEN_TTL_SECONDS` set (default 0 = no expiry), a token
+minted or rotated at time T stops authenticating after T+TTL; rotation
+refreshes the deadline.
 
 
 ### 3.1 Grace window and seat re-entry

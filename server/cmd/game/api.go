@@ -74,6 +74,10 @@ type API struct {
 	resultRepo ResultRepo
 	// pgDB is the shared Postgres handle, closed on Stop.
 	pgDB *sql.DB
+
+	// tokenTTL bounds seat-token lifetime (0 = never, M0 default). Set via
+	// WORDARENA_SEAT_TOKEN_TTL_SECONDS.
+	tokenTTL time.Duration
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -159,6 +163,7 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		profiled:      map[uint64]bool{},
 		resultRepo:    resultRepo,
 		pgDB:          pgDB,
+		tokenTTL:      time.Duration(envInt("WORDARENA_SEAT_TOKEN_TTL_SECONDS", 0)) * time.Second,
 	}
 	go a.runReaper()
 	return a
@@ -312,6 +317,7 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("/healthz", a.handleHealthz)
 	mux.HandleFunc("POST /v1/matches", a.handleCreateMatch)
 	mux.HandleFunc("GET /v1/match/ws", a.handleWS)
+	mux.HandleFunc("POST /v1/matches/{id}/token/rotate", a.handleTokenRotate)
 	mux.HandleFunc("GET /v1/match/{id}/snapshot", a.handleSnapshot)
 	mux.HandleFunc("GET /v1/matches/{id}/result", a.handleResult)
 	mux.HandleFunc("GET /v1/matches/{id}/replay", a.handleReplay)
@@ -432,6 +438,7 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		Token0:      tok0,
 		Token1:      tok1,
 		SuddenDeath: suddenDeath,
+		TokenTTL:    a.tokenTTL,
 	})
 	if err != nil {
 		return 0, 0, [2]string{}, [2]uint64{}, err
@@ -485,6 +492,50 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 			}
 		}
 	}
+}
+
+// handleTokenRotate rotates a seat token: the caller presents the current
+// token (proving they hold it) and receives a fresh one; the presented
+// token stops authenticating. This bounds the exposure window of seat
+// credentials. With WORDARENA_SEAT_TOKEN_TTL_SECONDS set, rotation also
+// refreshes the expiry deadline.
+func (a *API) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid match id")
+		return
+	}
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+		httpError(w, http.StatusBadRequest, "token required")
+		return
+	}
+	a.mu.Lock()
+	room, ok := a.rooms[id]
+	a.mu.Unlock()
+	if !ok {
+		httpError(w, http.StatusNotFound, "match not found or finished")
+		return
+	}
+	seat, ok := room.SeatForToken(req.Token)
+	if !ok {
+		httpError(w, http.StatusUnauthorized, "invalid or expired token")
+		return
+	}
+	next, err := randomHex(16)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+	room.SetToken(seat, next)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"match_id": id,
+		"seat":     int(seat),
+		"user_id":  room.UserID(seat),
+		"token":    next,
+	})
 }
 
 func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
