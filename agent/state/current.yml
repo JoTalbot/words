@@ -88,9 +88,8 @@ workers:
     auto-migrates on connect
   - ollama on OCI host (qwen2.5:0.5b/1.5b/7b, llama3.2:3b, deepseek-r1:7b) —
     use only for micro-tasks
-resume_from: "Recover: repo state on GitHub (main @ <token-rotation
-  commit>). OCI dev service on 127.0.0.1:18080 with Postgres durability
-  (verified live: profile survives restart). Unity Android CI green incl.
-  hosted-emulator smoke. Next: telemetry export, then M1 client (Unity)
-  work."
+resume_from: "Recover: repo state on GitHub (main @ d5d625a). OCI dev
+  service on 127.0.0.1:18080 with Postgres durability (verified live: profile
+  survives restart). Unity Android CI green incl. hosted-emulator smoke.
+  Next: telemetry export, then M1 client (Unity) work."
 updated_at: "2026-09-10"
