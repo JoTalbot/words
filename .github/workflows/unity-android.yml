@@ -223,12 +223,8 @@ jobs:
           # does not need animations disabled.
           disable-animations: false
           script: |
-            # NOTE: this action runs the script with /bin/sh (dash), which does
-            # not support `set -o pipefail`. Use plain `set -eu`.
-            set -eu
-            export ANDROID_BACKEND=github-hosted-emulator
-            apk=$(find artifact -name '*.apk' -type f | head -1)
-            test -n "$apk"
-            adb install -r "$apk"
-            adb shell monkey -p com.jotalbot.words 1
-            adb shell pm path com.jotalbot.words
+            # android-emulator-runner splits the script into single lines and
+            # runs each with a separate `sh -c` (script-parser.ts), so state
+            # does not persist across lines: chain the whole smoke flow on one
+            # line with &&. Backend marker: ANDROID_BACKEND=github-hosted-emulator.
+            apk=$(find artifact -name '*.apk' -type f | head -1) && test -n "$apk" && adb install -r "$apk" && adb shell monkey -p com.jotalbot.words 1 && adb shell pm path com.jotalbot.words
