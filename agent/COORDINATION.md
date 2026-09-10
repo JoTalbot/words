@@ -187,7 +187,27 @@ GitHub-hosted runners for anything CPU-bound.
 Two SSH outages on 2026-09-10 (08:20Z and ~11:15Z) were traced to host load
 spikes, not to the service: `wordarena.service` stayed `active` throughout.
 
-## Handoff notes
+## ### Batch 21 lanes (2026-09-10, ~14:1x UTC)
+
+- **21A** `feat/m1-batch21a-security` — security/abuse hardening + the S-1
+  snapshot credential gate. Owns `server/cmd/game/{api,main}.go`,
+  `server/internal/security/**`, `docs/{SECURITY-REVIEW-M1,WIRE-PROTOCOL,M1-OPS}.md`,
+  `infra/{smoke.sh,docker-compose.yml}` (additive).
+- **21B** `feat/m1-batch21b-ci-retry` — `.github/workflows/unity-android.yml`
+  + `tools/android-smoke.sh` + `docs/unity-ci.md`. **No other workflow file is
+  touched**; `ci.yml` and `container-smoke.yml` are untouched so 21A's CI stays
+  meaningful.
+- **21C** local-LLM micro-worker — `.gitignore`, tracked-binary removal
+  (`server/game`), `docs/unity-ci.md`? **no** — `tools/` only.
+  Files: `server/game` (untrack), `.gitignore`,
+  `agent/tasks/M1-batch21c-repo-hygiene.yml`. Drafted by `qwen2.5:7b` on the
+  OCI host, reviewed and executed by the orchestrator.
+
+Lanes are disjoint by construction; each was verified in its own worktree
+before its commit, and they are integrated one at a time in the order A → B → C
+so a regression is attributable.
+
+Handoff notes
 
 - Session B found Batch 15 (`5dbcc42`) fully green: push CI `34443200741` and
   Unity Android `34443210534` both success. Recorded in `agent/state/current.yml`.
