@@ -1,0 +1,40 @@
+id: M1-batch16-oci-ops
+title: OCI systemd service + M1 operations runbook
+owner: backend-infra
+priority: high
+complexity: small
+status: verified_live
+inputs:
+  - docs/M1-TELEMETRY.md
+  - docs/M1-PERSISTENCE.md
+  - server/cmd/game
+dependencies:
+  - M1-oci-deploy
+outputs:
+  - /etc/systemd/system/wordarena.service (Restart=on-failure, EnvironmentFile secrets)
+  - /etc/wordarena/wordarena.env (mode 600, root-owned)
+  - /opt/words/bin/wordarena-server durable binary path
+  - docs/M1-OPS.md runbook
+acceptance:
+  - systemctl is-enabled/is-active wordarena.service both succeed
+  - ad-hoc /tmp/words-game.latest nohup instance removed
+  - SIGKILL crash is restarted by systemd and /readyz returns to ready
+  - rollback path documented (wordarena-server.prev)
+  - runbook covers deploy, rollback, endpoints, telemetry, live smoke
+validation:
+  - ssh systemctl is-enabled wordarena.service -> enabled
+  - ssh systemctl is-active wordarena.service -> active
+  - ssh SIGKILL test -> active again + /readyz {"status":"ready","storage":"postgres"}
+  - full 6-match live exit gate re-run on deployed build -> EXIT-GATE PASS
+file_ownership:
+  - docs/M1-OPS.md
+  - agent/tasks/M1-batch16-oci-ops.yml
+risk: medium
+escalation: strong-model
+local_validation:
+  - OCI (2026-09-10): unit enabled+active; crash restart verified; readyz green;
+    EXIT-GATE PASS 6/6 (seeds 1512,1513,1517 x2 rounds) on build 5dbcc42
+notes:
+  - Secrets stay in EnvironmentFile (600), not in the unit file.
+  - Runbook pre-deploy checklist drafted by host-local qwen2.5:1.5b and cleaned
+    by the orchestrating agent.
