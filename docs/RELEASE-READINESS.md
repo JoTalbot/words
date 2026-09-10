@@ -15,16 +15,32 @@ the batch task files under agent/tasks/.
 | Claim / Lock / Cross-Steal | server verified; client presentation verified | M0 simulation + Unity intent flow + reconciliation |
 | Combo and Sudden Death | verified | server golden + opt-in tiebreak (docs/M1-SUDDEN-DEATH.md) + result presentation (batch 17C) |
 | Protocol robustness | verified | fuzz targets (batch 16D, ~800k execs 0 crashes), byte stability, compat tests |
+| Security / abuse resistance | verified for M1 scope | batch 21A: live-board read requires a seat credential, origin policy replaces `OriginPatterns: ["*"]`, 16 KiB body cap + unknown-field rejection, per-caller mutation budget with Retry-After, explicit-seed fairness gate, nickname policy, fixed 500 text, HTTP timeouts. 9 findings with dispositions in docs/SECURITY-REVIEW-M1.md; new gates covered by 15 tests (package + integration) |
+| Containers, migrations, monitoring | verified in CI | batches 18/19/20: compose stack + smoke script executed in CI, `001_init.sql` baseline with a schema-drift gate that fails the build, Prometheus scrape config and a 9-panel Grafana dashboard cross-checked against a live exposition |
+| Build/CI reliability | in progress | batch 21B: device smoke moved to `tools/android-smoke.sh` with retried device ops, a focus gate, ANR-dialog suppression, INFRA_FAIL vs PRODUCT_FAIL classes, a retry leg on another emulator image and a scheduled re-run; `agent/state/current.yml` is now parseable YAML (it had never been) |
 
 Open items before the M1 gate can be declared:
 
-1. Device-level swipe smoke confirmation (batch 17E) — currently blocked by
-   hosted-emulator boot flake (`input keyevent 82` Broken pipe / exit 224);
-   code itself CI-green; retry in flight, will not block indefinitely.
-2. Live OCI via-queue regression (batch 17D) — local validation green; live
-   run pending OCI SSH recovery (degraded since ~08:20Z on 2026-09-10).
+1. Device-level swipe smoke confirmation (batch 17E) — **root cause found, not
+   assumed**: run 34492844342 captured a screenshot showing "System UI isn't
+   responding" holding the foreground, so the synthetic swipe never reached
+   Unity; install/launch/log capture all succeeded. Batch 21B adds the focus
+   gate and a second-emulator-image retry leg. Code is CI-green.
+2. Live OCI via-queue regression (batch 17D) — **CLOSED 2026-09-10**: isolated
+   build of `c2079e8` on the host, `-via-queue -rounds 2 -seeds 1,2,3` => 6/6
+   EXIT-GATE PASS (terminal snapshots equal, client streams equal), direct
+   control 3/3 PASS reproducing the baseline scores, `infra/smoke.sh` 18/18.
 3. External access decision (PRODUCT-DECISIONS.md Q8) — loopback-only until
    an edge/TLS + abuse review is made; does not block the vertical slice.
+   Note the operational side effect recorded this session: with no second
+   observation channel, a host load spike makes the deployment unobservable
+   for ~15 minutes (measured load1 8.6 -> 15-min average 256-276, kswapd
+   active, ~2650 tasks) while `wordarena.service` itself stayed healthy.
+3b. Security finding S-2 — sequential match ids make finished-match results
+   enumerable. Accepted for the loopback deployment, blocked on
+   `agent/tasks/M1-batch21g-match-codes.yml` before any public exposure.
+3c. Deployment drift — the live systemd binary is `5dbcc42`; main is ahead by
+   six batches. Promotion plus re-verification is the next ops step.
 4. B2 uk dictionary legal review — distribution blocker only.
 
 ## M0 Release Readiness
