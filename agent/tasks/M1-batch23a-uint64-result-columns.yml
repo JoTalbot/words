@@ -1,0 +1,107 @@
+id: M1-batch23a-uint64-result-columns
+title: match_results lost the durable result of every match whose seed or id set the top bit
+owner: backend-storage
+priority: critical
+complexity: small
+status: verified_local_pending_ci
+found_by: >-
+  reading the live journal of wordarena.service on arm-server-01 while
+  recovering session state, not by a test: `match lifecycle=result_store_error
+  err=postgres: put result: failed to encode args[1]: unable to encode
+  0xc07644e8862430b9 into binary format for int8 (OID 20):
+  13868347868007641273 is greater than maximum value for int64`
+dependencies:
+  - M1-batch8-durable-postgres
+  - M1-batch19-schema-migrations
+  - M1-batch22a-id-monotonicity
+inputs:
+  - server/cmd/game/api.go (matchResult: MatchID and Seed are uint64)
+  - server/cmd/game/store_pg.go (pgSchema, pgResultStore Put/Get/MaxMatchID)
+  - infra/migrations/001_init.sql (match_id BIGINT PK, seed BIGINT)
+outputs:
+  - >-
+    infra/migrations/002_match_results_uint64.sql widening match_id and seed to
+    NUMERIC(20,0), the exact unsigned 64-bit Postgres type
+  - >-
+    pgSchema updated to the same shape so a fresh database created by the
+    service and one created by the migrations converge
+  - >-
+    u64Param/scanU64 as the single place the representation is decided; both
+    columns bind and scan as decimal text so the round trip is lossless and
+    driver-independent
+  - >-
+    TestUint64ColumnParamRoundTrip and TestScanU64RejectsOutOfRange (no database
+    needed) plus TestPostgresResultHighBitSeed (real server, restart path)
+  - >-
+    TestPostgresResultPutGet made re-runnable by deriving its ids from the
+    durable high-water mark
+acceptance:
+  - >-
+    a match result whose seed is above MaxInt64 persists and reads back with the
+    seed bit-identical, including through a second API instance on the same DSN,
+    which is the restart path the in-memory TTL expires into
+  - >-
+    MaxMatchID reports a high-water mark above MaxInt64 rather than a negative
+    number, so id monotonicity (batch 22A) survives the widening
+  - >-
+    the schema drift test still passes: it compares column names, and the names
+    are unchanged, so 001 plus 002 and pgSchema stay in lockstep
+  - >-
+    the Postgres suite can be run twice against the same database and pass both
+    times
+validation:
+  - >-
+    reproduction against pre-fix code and schema: a throwaway test calling the
+    real pgResultStore.Put with seed 13868347868007641273 failed with the exact
+    string from the production journal (unable to encode 0xc07644e8862430b9 into
+    binary format for int8)
+  - >-
+    WORDARENA_POSTGRES_DSN=... go run ./cmd/migrate applied 001 then 002; \d
+    match_results reports match_id and seed as numeric(20,0) with the primary
+    key intact
+  - >-
+    go test ./cmd/game -run TestPostgres -count=1 three consecutive times against
+    the same database: ok, ok, ok
+  - "go vet ./...: passed"
+  - "go test -count=1 ./...: 12 packages ok"
+  - "go test -race -count=1 ./cmd/game ./internal/security ./internal/match ./internal/matchroom: ok"
+  - "go test ./cmd/migrate -count=1 -v: TestBaselineMigrationMatchesServiceSchema and TestRepositoryMigrationsAreContiguousAndNamed pass"
+  - "gofmt -l on every file this task touched: clean"
+file_ownership:
+  - server/cmd/game/store_pg.go
+  - server/cmd/game/store_pg_test.go
+  - server/cmd/game/store_u64_test.go
+  - infra/migrations/002_match_results_uint64.sql
+  - docs/M1-PERSISTENCE.md
+  - docs/M1-MIGRATIONS.md
+  - agent/tasks/M1-batch23a-uint64-result-columns.yml
+risk: medium
+escalation: strong-model
+followups:
+  - >-
+    players.id is BIGSERIAL (int64) while Profile.ID and the client-supplied
+    player_ids on POST /v1/matches are uint64. Server-issued ids can never set
+    the top bit, but a client-supplied player_ids entry can, and pgProfileStore
+    .Record would fail to encode exactly as this one did. This task deliberately
+    did not touch api.go, which another lane owns; the API should reject a
+    player id above MaxInt64 with 400 instead of reaching the encoder.
+  - >-
+    cmd/game/matchmaking.go is not gofmt-clean on main (queueEntry field
+    alignment). Pre-existing, unrelated to this change, and CI does not run
+    gofmt, so nothing caught it.
+notes:
+  - >-
+    Impact before the fix: randomSeed() draws eight crypto-random bytes, so
+    roughly half of all server-chosen seeds were unrepresentable. The match
+    still played, still reported over=true on the socket and still folded
+    profile stats in memory, so nothing looked wrong from the client. Only the
+    durable row was missing, which means GET /v1/matches/{id}/result returned
+    nothing once the in-memory TTL expired and nothing survived a restart.
+  - >-
+    The whole existing suite used curated small seeds (1512, 9001), which is why
+    this was green in CI for its entire life. The new tests use the value from
+    the production journal.
+  - >-
+    Narrowing the generator instead of widening the column was rejected: the
+    batch 21A explicit-seed fairness gate lets a client choose any seed, so the
+    bug would have stayed reachable at any value above MaxInt64.
