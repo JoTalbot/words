@@ -41,10 +41,16 @@ namespace Words.Client
         private bool suddenDeath;
         private bool serverMode;
         private bool createInProgress;
+        private bool readyCheckInProgress;
+        private bool tokenRotationInProgress;
+        private bool resultFetchInProgress;
+        private bool terminalResultFetchRequested;
         private float lastAcceptedAt = -999f;
         private string serverUrl = "http://127.0.0.1:18080";
         private string language = "en";
         private string status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
+        private string readySummary = "Ready: not checked";
+        private string resultSummary = "Result: not fetched";
         private ulong liveMatchId;
         private ulong liveSeed;
         private uint lastServerTick;
@@ -129,6 +135,7 @@ namespace Words.Client
         private void DrawConnectionPanel()
         {
             GUILayout.Label(ConnectionText(), statusStyle, GUILayout.Height(54f));
+            GUILayout.Label(readySummary + "   |   " + resultSummary, statusStyle, GUILayout.Height(54f));
             GUILayout.BeginHorizontal();
             GUILayout.Label("Server", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
             serverUrl = GUILayout.TextField(serverUrl, inputStyle, GUILayout.Height(48f));
@@ -180,7 +187,17 @@ namespace Words.Client
             GUILayout.Space(12f);
             GUILayout.BeginHorizontal();
             DrawActionButton(createInProgress ? "Creating..." : "Create server match", OnCreateServerMatch, new Color32(54, 172, 118, 255));
+            DrawActionButton(readyCheckInProgress ? "Checking ready..." : "Ready check", OnReadyCheck, new Color32(72, 150, 170, 255));
+            GUILayout.EndHorizontal();
+            GUILayout.Space(12f);
+            GUILayout.BeginHorizontal();
             DrawActionButton(serverMode ? "Reconnect seat" : "Reset demo", serverMode ? (Action)ReconnectActiveSeat : ResetDemoState, new Color32(96, 112, 146, 255));
+            DrawActionButton(tokenRotationInProgress ? "Rotating..." : "Rotate token", OnRotateActiveToken, new Color32(190, 128, 60, 255));
+            GUILayout.EndHorizontal();
+            GUILayout.Space(12f);
+            GUILayout.BeginHorizontal();
+            DrawActionButton(resultFetchInProgress ? "Fetching result..." : "Fetch result", OnFetchResult, new Color32(80, 120, 210, 255));
+            DrawActionButton("Local demo reset", ResetDemoState, new Color32(90, 105, 128, 255));
             GUILayout.EndHorizontal();
         }
 
@@ -328,6 +345,104 @@ namespace Words.Client
                 : "Sudden Death presentation off: tied matches render as draws.");
         }
 
+
+        private void OnReadyCheck()
+        {
+            if (readyCheckInProgress || network == null)
+            {
+                return;
+            }
+
+            readyCheckInProgress = true;
+            StartCoroutine(network.CheckReadyz(serverUrl, HandleReadyzResult));
+        }
+
+        private void HandleReadyzResult(ReadyzResult result)
+        {
+            readyCheckInProgress = false;
+            readySummary = result == null ? "Ready: check failed" : "Ready: " + result.DisplayText;
+            SetStatus(readySummary);
+        }
+
+        private void OnRotateActiveToken()
+        {
+            if (!serverMode || liveMatchId == 0 || liveTokens == null || activeSeat < 0 || activeSeat >= liveTokens.Length || string.IsNullOrEmpty(liveTokens[activeSeat]))
+            {
+                SetStatus("No active server seat to rotate. Create a server match first.");
+                return;
+            }
+
+            if (tokenRotationInProgress || network == null)
+            {
+                return;
+            }
+
+            tokenRotationInProgress = true;
+            StartCoroutine(network.RotateSeatToken(serverUrl, liveMatchId, liveTokens[activeSeat], HandleRotateTokenResult));
+        }
+
+        private void HandleRotateTokenResult(RotateTokenResult result)
+        {
+            tokenRotationInProgress = false;
+            if (result == null || !result.Success)
+            {
+                SetStatus(result == null ? "Token rotation failed." : result.Error);
+                return;
+            }
+
+            if (result.Seat >= 0 && result.Seat < liveTokens.Length)
+            {
+                liveTokens[result.Seat] = result.Token;
+            }
+
+            if (result.Seat >= 0 && result.Seat < liveUserIds.Length && result.UserId != 0)
+            {
+                liveUserIds[result.Seat] = result.UserId;
+                players[result.Seat].UserId = result.UserId;
+            }
+
+            SetStatus("Rotated " + players[Mathf.Clamp(result.Seat, 0, players.Length - 1)].DisplayName + " session token; reconnecting with fresh credentials.");
+            if (result.Seat == activeSeat)
+            {
+                ReconnectActiveSeat();
+            }
+        }
+
+        private void OnFetchResult()
+        {
+            if (!serverMode || liveMatchId == 0)
+            {
+                SetStatus("No server match result to fetch yet.");
+                return;
+            }
+
+            FetchResultOnce(false);
+        }
+
+        private void FetchResultOnce(bool terminalSnapshot)
+        {
+            if (resultFetchInProgress || network == null || liveMatchId == 0)
+            {
+                return;
+            }
+
+            if (terminalSnapshot && terminalResultFetchRequested)
+            {
+                return;
+            }
+
+            terminalResultFetchRequested = terminalSnapshot || terminalResultFetchRequested;
+            resultFetchInProgress = true;
+            StartCoroutine(network.FetchResult(serverUrl, liveMatchId, HandleMatchResult));
+        }
+
+        private void HandleMatchResult(MatchResultSummary result)
+        {
+            resultFetchInProgress = false;
+            resultSummary = result == null ? "Result: fetch failed" : "Result: " + result.DisplayText;
+            SetStatus(resultSummary);
+        }
+
         private void OnCreateServerMatch()
         {
             if (createInProgress || network == null)
@@ -362,6 +477,8 @@ namespace Words.Client
 
             activeSeat = 0;
             clientSequence = 0;
+            terminalResultFetchRequested = false;
+            resultSummary = "Result: pending for match " + liveMatchId;
             ReconnectActiveSeat();
         }
 
@@ -420,6 +537,7 @@ namespace Words.Client
             if (snapshot.Over)
             {
                 SetStatus("Match over. Final authoritative score: " + ScoreText());
+                FetchResultOnce(true);
             }
         }
 
@@ -663,6 +781,10 @@ namespace Words.Client
 
             serverMode = false;
             createInProgress = false;
+            readyCheckInProgress = false;
+            tokenRotationInProgress = false;
+            resultFetchInProgress = false;
+            terminalResultFetchRequested = false;
             liveMatchId = 0;
             liveSeed = 0;
             lastServerTick = 0;
@@ -680,6 +802,8 @@ namespace Words.Client
 
             players[0].Reset("Blue");
             players[1].Reset("Orange");
+            readySummary = "Ready: not checked";
+            resultSummary = "Result: not fetched";
             status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
         }
 

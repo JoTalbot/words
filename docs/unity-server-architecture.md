@@ -89,3 +89,21 @@ regression `TestUnityClientSubmitEnvelopeCompatibility` pins that the server
 accepts the Unity encoder's unpacked repeated `letter_indices` representation.
 Unity CI remains the compile/build gate because local Arena tooling has no Unity
 Editor or C# compiler.
+
+## M1 session lifecycle controls (2026-09-10)
+
+The same bootstrap exposes operational lifecycle controls needed for safer live
+session testing:
+
+- `Ready check` calls `/readyz` and displays readiness/storage/active match
+  status before match creation.
+- `Rotate token` calls `POST /v1/matches/{id}/token/rotate` for the active seat,
+  updates the in-memory credential and reconnects with the fresh token. Raw seat
+  tokens are not displayed in IMGUI status messages.
+- `Fetch result` calls `GET /v1/matches/{id}/result` and displays the final
+  authoritative score/winner once the server has persisted the completed match.
+- A terminal `over=true` WebSocket snapshot triggers one automatic result fetch.
+
+These controls exercise the server's M1 production-shaped endpoints from the
+Android client while preserving the rule that credentials stay scoped and the
+server remains authoritative.

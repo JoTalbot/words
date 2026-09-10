@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_android_latest_main_green; oci_ssh_degraded
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_session_lifecycle_local_green; unity_android_latest_main_green; oci_ssh_degraded
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -74,7 +74,8 @@ completed_tasks:
     SubmitWordIntent encoder, ServerEnvelope snapshot/event decoder, canonical
     cells/owners/locks/scores/version rendering; local demo kept non-authoritative;
     GitHub CI run 34439234247 success; Unity Android run 34439238378 success
-active_tasks: []
+active_tasks:
+  - M1-batch14-unity-session-lifecycle: local_static_go_green_unity_ci_pending
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -84,7 +85,8 @@ blocked_tasks:
 failed_tasks:
   - OCI isolated Batch 10 Postgres validation/deploy retry pending: SSH banner
     timed out while host load was high (~20+) after a focused `/tmp/words-batch10`
-    go test worker hung; not a code failure and not a human blocker
+    go test worker hung; latest short probe after Batch 13 state also timed out
+    during banner exchange; not a code failure and not a human blocker
   - Unity Android latest-main run 34437012338 failed in hosted emulator unlock
     before APK install (`adb shell input keyevent 82` Broken pipe/exit 224);
     same head retried as run 34437841806 and completed success, so treat
@@ -94,7 +96,7 @@ next_tasks:
     test worker if still present, run focused Postgres validation with /opt/go,
     then deploy current main binary to 127.0.0.1:18080 with durable DSN + JSONL
     telemetry enabled
-  - M1 client follow-up (Unity): richer gesture/reconnect/result UX over the server-bound protocol; improve Android live-device/server configuration after OCI deploy stabilizes
+  - M1 client follow-up (Unity): Batch 14 session lifecycle controls are locally green and pending Unity Android CI; after CI, continue richer gesture/reconnect/result UX and live-device/server configuration when OCI stabilizes
   - Android QA fallback hierarchy (hosted emulator wired; APK artifact
     words-android-debug); if local Android unavailable, use authorized remote
     device backend without bypassing auth/CAPTCHA/limits
@@ -143,6 +145,16 @@ task_graph:
       - go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed
       - GitHub CI push run 34439234247: success
       - Unity Android run 34439238378: success (preflight, build, hosted emulator smoke)
+  M1-batch14-unity-session-lifecycle:
+    status: local_static_go_green_unity_ci_pending
+    owner: unity-client
+    validation:
+      - python static Unity script sanity with lifecycle markers/token-redaction: passed
+      - go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed
+      - go test -count=1 ./...: passed
+      - go vet ./...: passed
+      - go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+      - GitHub CI and Unity Android workflow_dispatch: pending after push
   M1-oci-deploy:
     status: blocked_by_transient_server_load_or_ssh_banner_timeout
     owner: infra
@@ -156,7 +168,8 @@ tests:
   ci: GitHub CI green for Batch 10 state commit 52145b0 (run 34435254937);
     Batch 12 push CI green for 816fe37 (run 34436316582); state commit
     7dfa72b push CI green (run 34438730364); Batch 13 push CI green for
-    f671506 (run 34439234247); Unity Android fully green pre-Batch11
+    f671506 (run 34439234247); Batch 13 state commit ff2ca20 push CI green
+    (run 34440858555); Unity Android fully green pre-Batch11
     (run 34420554448); Batch11 first Unity run 34435380589 failed on
     UI/EventSystems compile; IMGUI repair run 34435705752 success;
     latest-main Unity run 34437012338 failed at hosted emulator unlock before
@@ -182,6 +195,6 @@ workers:
     id=1 verified before SSH degradation
   - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
     but timed out/spinner under host load; do not rely on it until load drops
-last_commit: "f671506"
-resume_from: "Batch 13 Unity protocol binding committed and pushed at f671506. GitHub CI 34439234247 success and Unity Android 34439238378 success (preflight/build/hosted emulator smoke). Next: either retry OCI deploy only with short focused SSH recovery, or continue Unity follow-up UX/reconnect/result polish over the now server-bound protocol. Do not restart project or repeat completed telemetry/readiness/IMGUI/protocol-binding work."
+last_commit: "ff2ca20"
+resume_from: "Batch 14 Unity session lifecycle controls implemented locally on top of ff2ca20: /readyz check, active-seat token rotation with redacted UI, authoritative result fetch and terminal snapshot auto-fetch. Local static/Go/vet/race validation passed. Next: commit/push Batch 14, monitor GitHub CI and Unity Android debug smoke, then mark verified or repair. OCI SSH banner timeout persisted on latest short probe; do not retry broad remote commands."
 updated_at: "2026-09-10"

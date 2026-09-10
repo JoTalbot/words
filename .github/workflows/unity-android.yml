@@ -59,6 +59,13 @@ jobs:
           grep -q 'TryDecodeServerEnvelope' "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs"
           grep -q 'EncodeSubmitWord' "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs"
           grep -q 'ClientWebSocket' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -q 'CheckReadyz' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -q 'RotateSeatToken' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -q 'FetchResult' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -q 'RedactedUri' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -q 'Ready check' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'Rotate token' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'Fetch result' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           grep -R 'UnityEngine\.UI\|UnityEngine\.EventSystems' "$PROJECT_PATH/Assets/Scripts" && exit 1 || true
           test -f docs/unity-ci.md
           test -f docs/android-build.md

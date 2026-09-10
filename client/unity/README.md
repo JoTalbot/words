@@ -17,5 +17,8 @@ The IMGUI bootstrap starts in local demo mode. To exercise the authoritative
 path, run the Go game server, enter its base URL in the Server field, then tap
 `Create server match`. The client creates a match over REST, connects the active
 seat to the binary protobuf WebSocket, sends selected cell paths as
-`SubmitWordIntent`, and renders canonical snapshots/events. Android builds force
-INTERNET permission from `Assets/Editor/BuildCommand.cs`.
+`SubmitWordIntent`, and renders canonical snapshots/events. `Ready check`,
+`Rotate token`, and `Fetch result` exercise the server's readiness, session
+credential, and result endpoints; raw seat tokens are kept in memory and are not
+printed in the UI. Android builds force INTERNET permission from
+`Assets/Editor/BuildCommand.cs`.

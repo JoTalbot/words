@@ -22,8 +22,8 @@ Exit gate: two remote clients can complete repeated matches with identical final
 - [~] production-shaped match service (resource limits, request logging,
   match result persistence, /metrics JSON + Prometheus counters,
   graceful shutdown, Docker/compose, background reaper, intent rate limiting,
-  seat-token rotation + optional TTL, JSONL telemetry export, /readyz readiness/draining — 2026-09-10)
-- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; richer production UX pending)
+  seat-token rotation + optional TTL, JSONL telemetry export, /readyz readiness/draining — 2026-09-10; Unity client lifecycle controls for /readyz, result fetch and token rotation added 2026-09-10)
+- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; richer production UX pending)
 - [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server and renders canonical ownership/lock snapshots; gesture polish pending)
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo

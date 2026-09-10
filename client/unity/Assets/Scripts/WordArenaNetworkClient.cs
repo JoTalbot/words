@@ -106,6 +106,159 @@ namespace Words.Client
             }
         }
 
+
+        public IEnumerator CheckReadyz(string serverBaseUrl, Action<ReadyzResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/readyz";
+            var request = UnityWebRequest.Get(url);
+            request.timeout = 5;
+            EmitStatus("Checking backend readiness.");
+            yield return request.SendWebRequest();
+
+            var result = new ReadyzResult();
+            result.HttpStatus = request.responseCode;
+            result.Success = RequestSucceeded(request);
+            try
+            {
+                var parsed = JsonUtility.FromJson<ReadyzResponseJson>(request.downloadHandler.text);
+                if (parsed != null)
+                {
+                    result.Status = parsed.status;
+                    result.Storage = parsed.storage;
+                    result.ActiveMatches = parsed.active_matches;
+                    result.Error = parsed.error;
+                }
+            }
+            catch (Exception exception)
+            {
+                result.Error = "ready JSON parse failed: " + exception.Message;
+            }
+
+            if (string.IsNullOrEmpty(result.Status))
+            {
+                result.Status = result.Success ? "ready" : "not_ready";
+            }
+
+            if (!result.Success && string.IsNullOrEmpty(result.Error))
+            {
+                result.Error = request.error;
+            }
+
+            request.Dispose();
+            EmitStatus("Backend readiness: " + result.DisplayText);
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        public IEnumerator RotateSeatToken(string serverBaseUrl, ulong matchId, string currentToken, Action<RotateTokenResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/matches/" + matchId + "/token/rotate";
+            var body = "{\"token\":\"" + EscapeJson(currentToken) + "\"}";
+            var request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST);
+            var payload = Encoding.UTF8.GetBytes(body);
+            request.uploadHandler = new UploadHandlerRaw(payload);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.timeout = 10;
+
+            EmitStatus("Rotating active seat token.");
+            yield return request.SendWebRequest();
+
+            var result = new RotateTokenResult();
+            result.HttpStatus = request.responseCode;
+            result.Success = RequestSucceeded(request);
+            if (!result.Success)
+            {
+                result.Error = "token rotation failed: HTTP " + request.responseCode + " " + request.error;
+            }
+            else
+            {
+                try
+                {
+                    var parsed = JsonUtility.FromJson<RotateTokenResponseJson>(request.downloadHandler.text);
+                    if (parsed == null || string.IsNullOrEmpty(parsed.token))
+                    {
+                        result.Success = false;
+                        result.Error = "token rotation returned incomplete JSON";
+                    }
+                    else
+                    {
+                        result.MatchId = (ulong)Math.Max(0L, parsed.match_id);
+                        result.Seat = parsed.seat;
+                        result.UserId = (ulong)Math.Max(0L, parsed.user_id);
+                        result.Token = parsed.token;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    result.Success = false;
+                    result.Error = "token rotation JSON parse failed: " + exception.Message;
+                }
+            }
+
+            request.Dispose();
+            EmitStatus(result.Success ? "Active seat token rotated." : result.Error);
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        public IEnumerator FetchResult(string serverBaseUrl, ulong matchId, Action<MatchResultSummary> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/matches/" + matchId + "/result";
+            var request = UnityWebRequest.Get(url);
+            request.timeout = 10;
+            EmitStatus("Fetching authoritative match result.");
+            yield return request.SendWebRequest();
+
+            var result = new MatchResultSummary();
+            result.HttpStatus = request.responseCode;
+            result.Success = RequestSucceeded(request);
+            if (!result.Success)
+            {
+                result.Error = "result unavailable: HTTP " + request.responseCode + " " + request.error;
+            }
+            else
+            {
+                try
+                {
+                    var parsed = JsonUtility.FromJson<MatchResultResponseJson>(request.downloadHandler.text);
+                    if (parsed == null || parsed.scores == null || parsed.scores.Length < 2)
+                    {
+                        result.Success = false;
+                        result.Error = "result endpoint returned incomplete JSON";
+                    }
+                    else
+                    {
+                        result.MatchId = (ulong)Math.Max(0L, parsed.match_id);
+                        result.Seed = (ulong)Math.Max(0L, parsed.seed);
+                        result.Language = parsed.language;
+                        result.Over = parsed.over;
+                        result.WinnerSeat = parsed.winner_seat;
+                        result.IsTie = parsed.is_tie;
+                        result.Scores = parsed.scores;
+                        result.StateVersion = (uint)Math.Max(0, parsed.state_version);
+                        result.ServerTick = (uint)Math.Max(0, parsed.server_tick);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    result.Success = false;
+                    result.Error = "result JSON parse failed: " + exception.Message;
+                }
+            }
+
+            request.Dispose();
+            EmitStatus(result.Success ? "Fetched authoritative match result." : result.Error);
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
         public void Connect(string serverBaseUrl, ulong matchId, string token)
         {
             Disconnect();
@@ -182,7 +335,7 @@ namespace Words.Client
         {
             try
             {
-                EmitStatus("Connecting " + uri);
+                EmitStatus("Connecting " + RedactedUri(uri));
                 var active = socket;
                 if (active == null)
                 {
@@ -296,6 +449,28 @@ namespace Words.Client
             }
         }
 
+
+        private static bool RequestSucceeded(UnityWebRequest request)
+        {
+#if UNITY_2020_2_OR_NEWER
+            return request.result == UnityWebRequest.Result.Success;
+#else
+            return !request.isNetworkError && !request.isHttpError;
+#endif
+        }
+
+        private static string RedactedUri(Uri uri)
+        {
+            if (uri == null)
+            {
+                return string.Empty;
+            }
+
+            var builder = new UriBuilder(uri);
+            builder.Query = "match_id=<id>&token=<redacted>";
+            return builder.Uri.ToString();
+        }
+
         private static Uri BuildWebSocketUri(string serverBaseUrl, ulong matchId, string token)
         {
             var baseUri = new Uri(NormalizeHttpBase(serverBaseUrl));
@@ -350,6 +525,39 @@ namespace Words.Client
             return (ulong)Math.Max(0.0, (DateTime.UtcNow - epoch).TotalMilliseconds);
         }
 
+
+        [Serializable]
+        private sealed class ReadyzResponseJson
+        {
+            public string status;
+            public string storage;
+            public int active_matches;
+            public string error;
+        }
+
+        [Serializable]
+        private sealed class RotateTokenResponseJson
+        {
+            public long match_id;
+            public int seat;
+            public long user_id;
+            public string token;
+        }
+
+        [Serializable]
+        private sealed class MatchResultResponseJson
+        {
+            public long match_id;
+            public long seed;
+            public string language;
+            public bool over;
+            public int winner_seat;
+            public bool is_tie;
+            public int[] scores;
+            public int state_version;
+            public int server_tick;
+        }
+
         [Serializable]
         private sealed class CreateMatchResponseJson
         {
@@ -373,4 +581,72 @@ namespace Words.Client
         public string[] Tokens = new string[0];
         public ulong[] UserIds = new ulong[0];
     }
+
+    public sealed class ReadyzResult
+    {
+        public bool Success;
+        public long HttpStatus;
+        public string Status = string.Empty;
+        public string Storage = string.Empty;
+        public int ActiveMatches;
+        public string Error = string.Empty;
+
+        public string DisplayText
+        {
+            get
+            {
+                var storageText = string.IsNullOrEmpty(Storage) ? "unknown" : Storage;
+                var text = Status + " storage=" + storageText + " active=" + ActiveMatches;
+                if (!string.IsNullOrEmpty(Error))
+                {
+                    text += " error=" + Error;
+                }
+
+                return text;
+            }
+        }
+    }
+
+    public sealed class RotateTokenResult
+    {
+        public bool Success;
+        public long HttpStatus;
+        public string Error = string.Empty;
+        public ulong MatchId;
+        public int Seat;
+        public ulong UserId;
+        public string Token = string.Empty;
+    }
+
+    public sealed class MatchResultSummary
+    {
+        public bool Success;
+        public long HttpStatus;
+        public string Error = string.Empty;
+        public ulong MatchId;
+        public ulong Seed;
+        public string Language = string.Empty;
+        public bool Over;
+        public int WinnerSeat;
+        public bool IsTie;
+        public int[] Scores = new int[0];
+        public uint StateVersion;
+        public uint ServerTick;
+
+        public string DisplayText
+        {
+            get
+            {
+                if (!Success)
+                {
+                    return string.IsNullOrEmpty(Error) ? "result unavailable" : Error;
+                }
+
+                var scoreText = Scores != null && Scores.Length >= 2 ? Scores[0] + ":" + Scores[1] : "?:?";
+                var winnerText = IsTie ? "tie" : "winner seat " + WinnerSeat;
+                return "match=" + MatchId + " " + scoreText + " " + winnerText + " version=" + StateVersion;
+            }
+        }
+    }
+
 }

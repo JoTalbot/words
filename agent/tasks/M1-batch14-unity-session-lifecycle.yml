@@ -1,0 +1,54 @@
+id: M1-batch14-unity-session-lifecycle
+title: Add Unity authoritative session lifecycle UX
+owner: unity-client
+priority: high
+complexity: medium
+status: validating_local_green_unity_ci_pending
+inputs:
+  - docs/WIRE-PROTOCOL.md
+  - server/cmd/game/api.go
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+dependencies:
+  - M1-batch13-unity-protocol-binding
+outputs:
+  - Unity ready check for /readyz
+  - Unity active-seat token rotation through POST /v1/matches/{id}/token/rotate
+  - Unity final result fetch through GET /v1/matches/{id}/result
+  - UI copy that exposes session status without rendering raw seat tokens
+  - docs/state updates
+acceptance:
+  - Client can check backend readiness before creating/joining matches
+  - Client can rotate the active seat token and reconnect with the fresh token
+  - Client can fetch and display the final authoritative result after match over
+  - Raw seat tokens are not displayed in the IMGUI status text
+  - Local demo mode remains available and non-authoritative
+  - No uGUI/EventSystem package dependency is introduced
+validation:
+  - python static Unity script sanity: braces, required lifecycle markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers, no raw-token UI markers
+  - cd server && go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1
+  - cd server && go test -count=1 ./...
+  - cd server && go vet ./...
+  - cd server && go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1
+  - GitHub CI push run after commit
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+  - client/README.md
+  - client/unity/README.md
+  - docs/ROADMAP.md
+  - docs/unity-server-architecture.md
+  - agent/state/current.yml
+  - agent/tasks/M1-batch14-unity-session-lifecycle.yml
+risk: medium
+escalation: strong-model
+local_validation:
+  - python static Unity script sanity with lifecycle markers and token-redaction check: passed
+  - go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed
+  - go test -count=1 ./...: passed
+  - go vet ./...: passed
+  - go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+notes:
+  - This is still an engineering bootstrap, not final mobile UX.
+  - The client stores seat tokens in memory to reconnect but must not print them in the on-screen UI or docs.
