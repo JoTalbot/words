@@ -28,6 +28,25 @@ en_US snapshot, includes normalization; ARM host above):
 | Contains (normalize + lookup) | ~382 ns/op (~2.6M validations/s/core) |
 | Cold load of 123k-word uk snapshot | not measured separately (cached after first load) |
 
+## Re-measurement on current main (2026-09-10)
+
+Same OCI host (Ampere A1, 4 × Neoverse-N1), Go 1.27.1, commit 9a942df, host
+otherwise idle at measurement time (previous numbers were captured while the
+host ran unrelated load):
+
+| Metric | 2026-09-08 | 2026-09-10 | Delta |
+|---|---|---|---|
+| Submissions/sec, total (32 matches) | ~1.48 M | ~1.84 M | +25 % |
+| Submissions/sec per match | ~46 k | ~57.6 k | +25 % |
+| Heap delta per match | ~463 KiB | ~382.6 KiB | -17 % |
+| Dictionary Contains | ~382 ns/op | ~375.9 ns/op | stable |
+
+No regression introduced by M1 batches 1–16 (matchmaking, persistence
+interfaces, telemetry, readiness gate, token rotation, protocol fuzz seeds
+are off the hot simulation path). The 2026-09-08 figures remain the
+conservative planning baseline; treat the delta as host-load variance, not
+optimization.
+
 ## Methodology notes
 
 - In-process domain benchmark; transport and network are excluded by
