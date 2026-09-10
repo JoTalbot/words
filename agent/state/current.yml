@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch21a_21c_merged_verified; batch21b_device_leg_still_running; batch22a_id_alias_fix_in_pr7; oci_deployed_to_e0240db_then_pending_22a; live_reverification_found_two_real_defects; local_llm_tier_calibrated
+status: m1_vertical_slice_advancing; batch21a_21c_22a_merged_deployed_verified; batch21b_device_smoke_root_caused_and_fix_in_flight; batch22b_queue_gate_flake_measured_7pct; oci_live_matches_main_ff4606c
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -214,14 +214,49 @@ completed_tasks:
     at 420 s. Conclusion recorded: route by verifiability, review every local
     model line, keep code that lands in main with the strong tier.
 
+  - >-
+    Batch 22A verified on the live deployment, not only in CI: after
+    installing ff4606c and restarting, journalctl shows "match ids resumed from
+    the durable store at 9001", infra/smoke.sh against the systemd service is
+    22 passed / 0 failed (the previously failing "replay is 404 while the match
+    is active" now passes), the direct exit gate is 3/3 PASS with the baseline
+    scores, and GET /v1/matches/1/result returns the correct match (seed 1512,
+    43:45) instead of an aliased row. Deployment drift is closed: live == main.
+  - >-
+    DEVICE SMOKE ROOT CAUSE, measured from the client's own logs (run
+    34498217023, artifacts saved under diag28/ in the Arena workspace): six red
+    legs were NOT one cause. On API 34 the app was still loading -
+    "Fully drawn ... +23s785ms" with the client's last state line
+    "SetGameState: isLoading: true" - so the fixed 14 s wait swiped a black
+    loading screen; on API 35 the first-run "Viewing full screen / Got it" sheet
+    plus "System UI isn't responding" was on screen and logcat shows
+    "Process ... exited due to signal 9 (Killed)". Batch 21B (2c54f63) now waits
+    for the client's own "SetGameState: isLoading: false", starts the activity
+    with am start -W, suppresses the immersive confirmation, and prints the
+    client state lines on failure. Run 34501682859 tests it.
+  - >-
+    Batch 22B measured (not argued) on the live service: queue-created matches
+    fail the exit gate at roughly 7% - pass 1: 4 failed / 45 ok of 49, pass 2:
+    3 / 46 - while every passing match reports terminal_snapshots_equal and
+    client_streams_equal true. Two failure strings appear: "initial snapshots
+    diverge" and "wave N not fully claimable". Note the harness semantics
+    discovered while measuring: -via-queue -rounds R -seeds s1..sN runs R*N
+    matches and ignores the listed seeds (the server picks them), so "rounds" is
+    per-seed-set, not per-match.
+
 active_tasks:
   - >-
-    Batch 21B (PR #5, branch feat/m1-batch21b-ci-retry at 46b33f7): Unity run
-    34498217023 - setup/preflight/build green, the device smoke leg with the new
-    focus gate and ANR suppression is still executing. Merge on green, then
-    re-dispatch one device smoke on main to attach WORDS_SWIPE evidence to a
-    merged commit (closes 17E).
+    Batch 21B (PR #5 at 2c54f63): readiness fix awaiting Unity run 34501682859.
+    If the device leg goes green, merge and re-dispatch once on main to attach
+    WORDS_SWIPE evidence to a merged commit (that closes 17E). If it fails
+    again, the script now prints the client's own state lines, so the next
+    diagnosis does not need an artifact download.
   - >-
+    Batch 22B: decide whether the room clock must wait for both seats or the
+    harness must compare tick-aligned snapshots; measure before designing
+    (>=20 queue matches - already ~98 samples collected on 2026-09-10).
+    "wave N not fully claimable" is likely a harness precondition written for
+    client-chosen seeds and needs the same treatment.  - >-
     Batch 22A (PR #7): merge after the Go tests job goes green, then re-promote
     the OCI binary and re-run infra/smoke.sh (expect 22 passed / 0 failed) plus
     the via-queue gate. That re-run is the acceptance evidence for the id fix.  - >-
