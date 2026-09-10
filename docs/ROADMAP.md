@@ -22,7 +22,7 @@ Exit gate: two remote clients can complete repeated matches with identical final
 - [~] production-shaped match service (resource limits, request logging,
   match result persistence, /metrics JSON + Prometheus counters,
   graceful shutdown, Docker/compose, background reaper, intent rate limiting,
-  seat-token rotation + optional TTL, JSONL telemetry export — 2026-09-10)
+  seat-token rotation + optional TTL, JSONL telemetry export, /readyz readiness/draining — 2026-09-10)
 - [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server protocol binding pending)
 - [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; authoritative network binding pending)
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden

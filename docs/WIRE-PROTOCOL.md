@@ -101,7 +101,25 @@ still active, unknown, or its result has expired. Durable (PostgreSQL-backed)
 match persistence is M1 work; this endpoint is the M0-adequate persistence
 surface and the hook clients/tools use to read final outcomes.
 
-## 4. Resource limits
+## 4. Health, readiness and resource limits
+
+```
+GET /healthz  -> process liveness, 200 {"status":"ok"}
+GET /readyz   -> orchestration readiness
+```
+
+`/readyz` returns `200` while the process is ready to accept new work:
+
+```json
+{"status":"ready","storage":"memory","active_matches":0}
+```
+
+When PostgreSQL durability is enabled, `/readyz` pings the database before
+returning ready and reports `503 {"status":"not_ready","storage":"postgres",
+"error":"storage_unavailable"}` if storage is unavailable. During graceful
+shutdown `Stop()` marks the API as draining: `/readyz` returns
+`503 {"status":"draining"}` and new mutating work / WebSocket upgrades are
+rejected with `503`.
 
 The dev service enforces two limits, both configurable via environment:
 

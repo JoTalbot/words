@@ -1,0 +1,37 @@
+id: M1-batch12-readiness-draining
+title: Readiness and draining endpoint for production-shaped match service
+owner: backend-infra
+priority: normal
+complexity: small
+dependencies:
+  - M1 production-shaped match service baseline
+  - M1 durable storage interface
+inputs:
+  - docs/ARCHITECTURE.md
+  - docs/ROADMAP.md
+  - server/cmd/game/api.go
+outputs:
+  - server/cmd/game/readiness_test.go
+  - server/cmd/game/api.go
+  - docs/WIRE-PROTOCOL.md
+  - infra/README.md
+  - docs/ROADMAP.md
+acceptance:
+  - /healthz remains process liveness
+  - /readyz returns 200 ready with storage mode and active match count
+  - /readyz returns 503 while draining
+  - Postgres-backed readiness pings storage before reporting ready
+  - new mutating work is rejected with 503 while draining
+validation:
+  - cd server && go test ./cmd/game -run 'TestReadyz|TestDrainingRejectsNewWork' -count=1 -v
+  - cd server && go vet ./...
+  - cd server && go test -count=1 ./...
+file_ownership:
+  - server/cmd/game/api.go
+  - server/cmd/game/readiness_test.go
+  - docs/WIRE-PROTOCOL.md
+  - infra/README.md
+  - docs/ROADMAP.md
+risk: low
+escalation: none
+status: verified

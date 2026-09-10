@@ -25,7 +25,8 @@ embedded), so the local environment is a single container:
 
 ```bash
 docker compose -f infra/docker-compose.yml up --build
-# http://127.0.0.1:18080/healthz   -> {"status":"ok"}
+# http://127.0.0.1:18080/healthz   -> liveness
+# http://127.0.0.1:18080/readyz    -> readiness/draining/storage check
 # http://127.0.0.1:18080/metrics   -> telemetry counters (JSON)
 # http://127.0.0.1:18080/metrics/prometheus -> Prometheus text metrics
 # POST http://127.0.0.1:18080/v1/matches  -> create a match
@@ -52,6 +53,6 @@ Multi-region deployment, autoscaling, managed PostgreSQL/Redis/ClickHouse where 
 - Match gameplay must continue during analytics outages.
 - Reward/economy writes are idempotent.
 - Match servers have bounded session lifetime and resource limits.
-- Health, readiness and draining are distinct states.
+- Health (`/healthz`), readiness/draining (`/readyz`) and load-balancer removal are distinct states.
 - Deployments must have a rollback path.
 - Capacity tests are based on observed CPU, memory, network and tick timing, not concurrent-client counts alone.

@@ -34,7 +34,8 @@ type API struct {
 	mu      sync.Mutex
 	counter atomic.Uint64
 
-	stopCh chan struct{}
+	stopCh   chan struct{}
+	draining atomic.Bool
 
 	// Resource limits (production-shape hardening, M1 prep). Zero means
 	// unlimited for maxRooms; maxWSBytes is always enforced when positive.
@@ -204,6 +205,7 @@ func envInt(key string, def int) int {
 // call multiple times.
 func (a *API) Stop() {
 	a.stopOnce.Do(func() {
+		a.draining.Store(true)
 		close(a.stopCh)
 		if a.telemetry != nil {
 			_ = a.telemetry.Close()
@@ -323,6 +325,7 @@ type createMatchResponse struct {
 func (a *API) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", a.handleHealthz)
+	mux.HandleFunc("/readyz", a.handleReadyz)
 	mux.HandleFunc("POST /v1/matches", a.handleCreateMatch)
 	mux.HandleFunc("GET /v1/match/ws", a.handleWS)
 	mux.HandleFunc("POST /v1/matches/{id}/token/rotate", a.handleTokenRotate)
@@ -360,7 +363,50 @@ func (a *API) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
+// handleReadyz is the orchestration readiness endpoint. It is distinct from
+// /healthz: a process can be alive while draining or while durable storage is
+// unavailable. Readiness failures return 503 so load balancers stop sending
+// new work before shutdown or during backend incidents.
+func (a *API) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if a.draining.Load() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status": "draining",
+		})
+		return
+	}
+	storage := "memory"
+	if a.pgDB != nil {
+		storage = "postgres"
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+		if err := a.pgDB.PingContext(ctx); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status":  "not_ready",
+				"storage": storage,
+				"error":   "storage_unavailable",
+			})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":         "ready",
+		"storage":        storage,
+		"active_matches": a.activeRooms(),
+	})
+}
+
+func (a *API) rejectIfDraining(w http.ResponseWriter) bool {
+	if !a.draining.Load() {
+		return false
+	}
+	httpError(w, http.StatusServiceUnavailable, "server is draining")
+	return true
+}
+
 func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
+	if a.rejectIfDraining(w) {
+		return
+	}
 	var req createMatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid json body")
@@ -521,6 +567,9 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 // credentials. With WORDARENA_SEAT_TOKEN_TTL_SECONDS set, rotation also
 // refreshes the expiry deadline.
 func (a *API) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
+	if a.rejectIfDraining(w) {
+		return
+	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
 		httpError(w, http.StatusBadRequest, "invalid match id")
@@ -673,6 +722,9 @@ func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
 // player_id binds the queue entry to a registered profile so the eventual
 // match folds its outcome into that profile's stats.
 func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
+	if a.rejectIfDraining(w) {
+		return
+	}
 	var req struct {
 		Language string `json:"language"`
 		PlayerID uint64 `json:"player_id"`
@@ -724,6 +776,9 @@ func (a *API) handleQueuePoll(w http.ResponseWriter, r *http.Request) {
 
 // handlePlayerCreate registers a player profile (M1 player profile).
 func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
+	if a.rejectIfDraining(w) {
+		return
+	}
 	var req struct {
 		Nickname string `json:"nickname"`
 		Language string `json:"language"`
@@ -913,6 +968,9 @@ func playersToJSON(ps []*wordarenav1.PlayerState) []map[string]any {
 
 // handleWS upgrades the connection and runs the live duplex stream.
 func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
+	if a.rejectIfDraining(w) {
+		return
+	}
 	q := r.URL.Query()
 	id, err := parseID(q.Get("match_id"))
 	if err != nil {
