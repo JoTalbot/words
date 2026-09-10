@@ -374,7 +374,13 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 	id := a.counter.Add(1)
 	userIDs := [2]uint64{id*2 + 1, id*2 + 2} // deterministic synthetic ids
 	if playerIDs != nil {
-		userIDs = *playerIDs
+		// Bind seats that supplied a profile; seats without one (zero)
+		// keep their synthetic id so user ids stay non-zero on the wire.
+		for i := range userIDs {
+			if playerIDs[i] != 0 {
+				userIDs[i] = playerIDs[i]
+			}
+		}
 	}
 	room, err := matchroom.New(matchroom.Config{
 		MatchID:     id,
@@ -518,10 +524,13 @@ func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleQueueCreate enqueues a player for basic 1v1 matchmaking.
+// handleQueueCreate enqueues a player for basic 1v1 matchmaking. An optional
+// player_id binds the queue entry to a registered profile so the eventual
+// match folds its outcome into that profile's stats.
 func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Language string `json:"language"`
+		PlayerID uint64 `json:"player_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid json body")
@@ -537,8 +546,14 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
-	e := a.mm.enqueue(lang, func(l string) (uint64, uint64, [2]string, [2]uint64, error) {
-		return a.createRoom(l, nil, nil, false)
+	if req.PlayerID != 0 {
+		if _, ok := a.profiles.get(req.PlayerID); !ok {
+			httpError(w, http.StatusNotFound, "player not found")
+			return
+		}
+	}
+	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
+		return a.createRoom(l, nil, pids, false)
 	})
 	writeJSON(w, http.StatusAccepted, e)
 }

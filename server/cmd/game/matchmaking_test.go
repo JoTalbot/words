@@ -125,7 +125,7 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 	mm.ttl = 20 * time.Millisecond
 
 	// A waiting entry that is never polled must not leak.
-	e := mm.enqueue("en", func(string) (uint64, uint64, [2]string, [2]uint64, error) {
+	e := mm.enqueue("en", 0, func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
 		return 0, 0, [2]string{}, [2]uint64{}, errRoomCapacity
 	})
 	if e.Status != "waiting" {
@@ -148,11 +148,11 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 func TestMatchmakerReaperPurgesMatchedUnpolled(t *testing.T) {
 	mm := newMatchmaker()
 	mm.ttl = 30 * time.Millisecond
-	mk := func(string) (uint64, uint64, [2]string, [2]uint64, error) {
+	mk := func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
 		return 7, 99, [2]string{"a", "b"}, [2]uint64{1, 2}, nil
 	}
-	a := mm.enqueue("en", mk)
-	b := mm.enqueue("en", mk)
+	a := mm.enqueue("en", 0, mk)
+	b := mm.enqueue("en", 0, mk)
 	if b.Status != "matched" {
 		t.Fatalf("second entry should be matched: %+v", b)
 	}
@@ -175,6 +175,133 @@ func TestMatchmakingExpiry(t *testing.T) {
 	_, code := pollQueue(t, srv, e.ID)
 	if code != http.StatusGone {
 		t.Fatalf("expired poll status = %d, want 410", code)
+	}
+}
+
+// enqueueWithPlayer posts a queue entry optionally bound to a profile.
+func enqueueWithPlayer(t *testing.T, srv *httptest.Server, lang string, playerID uint64) (queueEntry, int) {
+	t.Helper()
+	body := fmt.Sprintf(`{"language":%q`, lang)
+	if playerID != 0 {
+		body += fmt.Sprintf(`,"player_id":%d`, playerID)
+	}
+	body += `}`
+	resp, err := http.Post(srv.URL+"/v1/queue", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var e queueEntry
+	if resp.StatusCode == http.StatusAccepted {
+		if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return e, resp.StatusCode
+}
+
+func TestMatchmakingQueueBindsProfiles(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	pa, code := createPlayer(t, srv, "alice", "en")
+	if code != http.StatusCreated {
+		t.Fatalf("create alice = %d", code)
+	}
+	pb, code := createPlayer(t, srv, "bob", "en")
+	if code != http.StatusCreated {
+		t.Fatalf("create bob = %d", code)
+	}
+
+	a, code := enqueueWithPlayer(t, srv, "en", pa.ID)
+	if code != http.StatusAccepted || a.Status != "waiting" || a.PlayerID != pa.ID {
+		t.Fatalf("first entry = %+v (status %d)", a, code)
+	}
+	b, code := enqueueWithPlayer(t, srv, "en", pb.ID)
+	if code != http.StatusAccepted || b.Status != "matched" {
+		t.Fatalf("second entry = %+v (status %d)", b, code)
+	}
+	qa, _ := pollQueue(t, srv, a.ID)
+	if qa.Status != "matched" || qa.MatchID != b.MatchID {
+		t.Fatalf("poll A = %+v", qa)
+	}
+	if qa.UserID != pa.ID || b.UserID != pb.ID {
+		t.Fatalf("seats not bound to profiles: A=%d (want %d) B=%d (want %d)",
+			qa.UserID, pa.ID, b.UserID, pb.ID)
+	}
+
+	api.mu.Lock()
+	room := api.rooms[b.MatchID]
+	api.mu.Unlock()
+	if room == nil {
+		t.Fatal("matched room missing")
+	}
+	if room.UserID(0) != pa.ID || room.UserID(1) != pb.ID {
+		t.Fatalf("room user ids = %d/%d, want %d/%d", room.UserID(0), room.UserID(1), pa.ID, pb.ID)
+	}
+	if !api.isProfiledMatch(b.MatchID) {
+		t.Fatal("profile-bound match must be marked profiled")
+	}
+}
+
+func TestMatchmakingQueueMixedProfileAndAnonymous(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	p, code := createPlayer(t, srv, "alice", "en")
+	if code != http.StatusCreated {
+		t.Fatalf("create alice = %d", code)
+	}
+
+	a, code := enqueueWithPlayer(t, srv, "en", p.ID) // profiled seat 0
+	if code != http.StatusAccepted {
+		t.Fatalf("profiled enqueue = %d", code)
+	}
+	b, code := enqueueWithPlayer(t, srv, "en", 0) // anonymous seat 1
+	if code != http.StatusAccepted || b.Status != "matched" {
+		t.Fatalf("second entry = %+v (status %d)", b, code)
+	}
+	qa, _ := pollQueue(t, srv, a.ID)
+	if qa.UserID != p.ID {
+		t.Fatalf("profiled seat user id = %d, want %d", qa.UserID, p.ID)
+	}
+	if b.UserID == 0 || b.UserID == p.ID {
+		t.Fatalf("anonymous seat user id = %d, want a synthetic non-profile id", b.UserID)
+	}
+	api.mu.Lock()
+	room := api.rooms[b.MatchID]
+	api.mu.Unlock()
+	if room == nil || room.UserID(0) != p.ID {
+		t.Fatal("profiled seat not bound")
+	}
+}
+
+func TestMatchmakingQueueUnknownPlayerRejected(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	_, code := enqueueWithPlayer(t, srv, "en", 424242)
+	if code != http.StatusNotFound {
+		t.Fatalf("unknown player_id status = %d, want 404", code)
+	}
+}
+
+func TestMatchmakingQueueDuplicateProfileIsIdempotent(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	p, code := createPlayer(t, srv, "alice", "en")
+	if code != http.StatusCreated {
+		t.Fatalf("create alice = %d", code)
+	}
+	a, _ := enqueueWithPlayer(t, srv, "en", p.ID)
+	b, _ := enqueueWithPlayer(t, srv, "en", p.ID)
+	if a.ID != b.ID {
+		t.Fatalf("re-enqueue of the same profile must return the same entry: %q vs %q", a.ID, b.ID)
 	}
 }
 

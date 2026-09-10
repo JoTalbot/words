@@ -128,7 +128,7 @@ bytes, duration); WebSocket upgrades are logged on handshake.
 Two players are paired FIFO per language via a poll-based queue:
 
 ```
-POST /v1/queue          { "language": "en" }   -> 202 {"queue_id":"..","status":"waiting"}
+POST /v1/queue          { "language": "en", "player_id": 1 }  -> 202 {"queue_id":"..","status":"waiting"}
 GET  /v1/queue/{id}                             -> 200 {"status":"waiting"}
                                                 -> 200 {"status":"matched","match_id":..,"seed":..,"token":"..","user_id":..}
                                                 -> 410 Gone when expired
@@ -137,6 +137,12 @@ GET  /v1/queue/{id}                             -> 200 {"status":"waiting"}
 The second player to enqueue for a language triggers pairing immediately; the
 matched entry is delivered exactly once and carries the same join info a
 direct `POST /v1/matches` would return. Entries expire after 2 minutes.
+
+`player_id` is optional. When supplied it must be a registered profile
+(`404` otherwise) and binds that seat to the profile; the resulting match
+folds its outcome into the profile's stats on completion. Anonymous seats
+keep synthetic user ids. Enqueueing the same profile twice in one language
+queue is idempotent: the existing entry is returned.
 
 ## 6. Player profiles
 

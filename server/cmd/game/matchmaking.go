@@ -14,14 +14,20 @@ import (
 const queueTTL = 2 * time.Minute
 
 // createRoomFn abstracts room provisioning so the matchmaker stays free of
-// transport/room details (it is injected by the API).
-type createRoomFn func(lang string) (id uint64, seed uint64, tokens [2]string, userIDs [2]uint64, err error)
+// transport/room details (it is injected by the API). playerIDs, when
+// non-nil, binds seats to registered profiles; a zero entry means the seat
+// stays synthetic (anonymous).
+type createRoomFn func(lang string, playerIDs *[2]uint64) (id uint64, seed uint64, tokens [2]string, userIDs [2]uint64, err error)
 
 // queueEntry is one waiting player and, once matched, their join info.
 type queueEntry struct {
 	ID        string    `json:"queue_id"`
 	Language  string    `json:"language"`
 	Status    string    `json:"status"` // "waiting" | "matched" | "expired"
+	// PlayerID is the optional registered profile the player queued with
+	// (0 = anonymous). When both seats have profiles, the match folds its
+	// outcome into their lifetime stats on completion.
+	PlayerID  uint64    `json:"player_id,omitempty"`
 	MatchID   uint64    `json:"match_id,omitempty"`
 	Seed      uint64    `json:"seed,omitempty"`
 	Token     string    `json:"token,omitempty"`
@@ -47,10 +53,21 @@ func newMatchmaker() *matchmaker {
 }
 
 // enqueue registers a player and attempts pairing. It returns the entry; if
-// a match was formed immediately, the entry already carries join info.
-func (mm *matchmaker) enqueue(lang string, create createRoomFn) *queueEntry {
+// a match was formed immediately, the entry already carries join info. A
+// non-zero playerID must be a registered profile (validated by the caller);
+// the same profile cannot wait in the same language queue twice — the
+// existing entry is returned instead (idempotent re-enqueue).
+func (mm *matchmaker) enqueue(lang string, playerID uint64, create createRoomFn) *queueEntry {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
+
+	if playerID != 0 {
+		for _, e := range mm.waiting[lang] {
+			if e.PlayerID == playerID {
+				return e
+			}
+		}
+	}
 
 	id, err := randomHex(8)
 	if err != nil {
@@ -63,6 +80,7 @@ func (mm *matchmaker) enqueue(lang string, create createRoomFn) *queueEntry {
 		ID:        id,
 		Language:  lang,
 		Status:    "waiting",
+		PlayerID:  playerID,
 		CreatedAt: time.Now(),
 		deadline:  time.Now().Add(mm.ttl),
 	}
@@ -96,6 +114,8 @@ func (mm *matchmaker) poll(id string) (*queueEntry, bool) {
 
 // pairLocked pairs queued players of one language while at least two wait.
 // If room creation fails (capacity), pairing stops until the next enqueue.
+// Seats keep FIFO order (a -> seat 0, b -> seat 1); profile ids bind only
+// the seats that supplied them.
 func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 	for {
 		q := mm.waiting[lang]
@@ -103,7 +123,11 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 			return
 		}
 		a, b := q[0], q[1]
-		id, seed, tokens, userIDs, err := create(lang)
+		var pids *[2]uint64
+		if a.PlayerID != 0 || b.PlayerID != 0 {
+			pids = &[2]uint64{a.PlayerID, b.PlayerID}
+		}
+		id, seed, tokens, userIDs, err := create(lang, pids)
 		if err != nil {
 			return
 		}
