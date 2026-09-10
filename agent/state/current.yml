@@ -282,14 +282,25 @@ task_graph:
       - GitHub CI run 34455667924 success (head 3ab6c01)
       - Unity build/smoke coverage via the d0befaf run (stacked head)
   M1-batch17-gesture-adjacency-swipe-smoke:
-    status: merged_ci_running_unity_swipe_smoke_pending
+    status: merged_ci_green_unity_swipe_smoke_retry_after_flake
     owner: unity-client
     validation:
       - python static sanity: braces, Batch 17E markers, workflow yaml parse: passed
       - go vet ./...: passed
-      - GitHub CI run 34455905771: in_progress
-      - Unity Android run (d0befaf) includes the new adb input swipe + logcat
-        WORDS_SWIPE assertion
+      - GitHub CI run 34455905771 success (head d0befaf)
+      - Unity Android run 34455925881 FAILED at 'adb shell monkey' (media
+        provider startup crash aborted monkey upstream of the swipe step;
+        WORDS_SWIPE assertion never reached) — classified runner/emulator
+        flake per precedent (run 34437012338), retried once at head 6cc02e1
+        as run 34457772896; if the flake recurs, harden the launch step
+  M1-batch17-board-legend:
+    status: merged_ci_pending_unity_covered_by_retry_run
+    owner: unity-client
+    validation:
+      - python static sanity: braces, Batch 17F markers, no forbidden deps: passed
+      - go vet ./...: passed
+      - GitHub CI run 34457742840 (head 6cc02e1): in_progress
+      - Unity coverage via retry run 34457772896
   M1-batch16-oci-ops:
     status: verified_live
     owner: backend-infra
