@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch21a_21c_22a_merged_deployed_verified; batch21b_device_smoke_root_caused_and_fix_in_flight; batch22b_queue_gate_flake_measured_7pct; oci_live_matches_main_ff4606c
+status: m1_vertical_slice_advancing; batches_21A_21B_21C_22A_merged_deployed; task_graph_now_machine_readable; device_smoke_self_heal_live_on_main; batch22b_measured_awaiting_decision
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -244,14 +244,52 @@ completed_tasks:
     matches and ignores the listed seeds (the server picks them), so "rounds" is
     per-seed-set, not per-match.
 
+  - >-
+    Batch 21B merged (ec3b7cd, PR #5) after its CI went green: repo-owned
+    tools/android-smoke.sh with boot polling, retried install/launch/swipe, a
+    "client must own mCurrentFocus" gate, ANR and immersive-dialog suppression,
+    readiness taken from the client's own SetGameState log line instead of a
+    fixed sleep, INFRA_FAIL vs PRODUCT_FAIL classification, logcat+screenshot
+    artifacts on every leg, a retry leg on API 33 and a single smoke-gate
+    verdict; plus a twice-daily schedule on main so hosted-emulator flakiness no
+    longer needs a human to re-dispatch.
+  - >-
+    Repository metadata defect found and fixed (74af124): 13 of 28 task files in
+    agent/tasks/ did not parse as YAML at all and 7 more parsed into the wrong
+    shape (a validation step written as "python static Unity script sanity:
+    braces, markers" became a one-key mapping), so the protocol's durable
+    contract was not machine-readable for most of the graph. Added
+    tools/check-task-yaml.py (required keys, id matching the file name,
+    snake_case status, string-list acceptance/validation), tools/normalize-task-yaml.py
+    as the idempotent repair tool (deliberately not run by CI), wired the check
+    into Container-smoke, and documented the form in docs/TASK-PROTOCOL.md.
+    Verified: the checker reports "28 files, 0 problems", a second normalize run
+    is a no-op, and main CI #123 plus Container smoke #18 are green with the new
+    step executing it.
+  - >-
+    Device-smoke status after the fix, from the run logs rather than inference:
+    on API 35 the emulator now fails earlier than before - sys.boot_completed
+    never reached 1 within the 135 s budget (previously it booted and the app was
+    SIGKILLed with "System UI isn't responding" on screen) - so the leg is
+    classified INFRA and the API 33 retry leg runs automatically, which is the
+    behaviour 21B was built to provide. 17E therefore stays open as a device
+    backend availability item, not as a product defect: the client, the build and
+    the assertion are all green, and the only failure source measured today was
+    the hosted emulator pool.
+
 active_tasks:
   - >-
-    Batch 21B (PR #5 at 2c54f63): readiness fix awaiting Unity run 34501682859.
-    If the device leg goes green, merge and re-dispatch once on main to attach
-    WORDS_SWIPE evidence to a merged commit (that closes 17E). If it fails
-    again, the script now prints the client's own state lines, so the next
-    diagnosis does not need an artifact download.
+    Unity Android on main (dispatched 2026-09-10 17:0x UTC, run after ec3b7cd):
+    if a leg prints WORDS_SWIPE_SMOKE_OK, batch 17E is closed with that run as
+    evidence; if both legs report INFRA_FAIL, record the pool condition here and
+    let the twice-daily schedule keep retrying - do not weaken the assertion, and
+    do not keep a human polling for it.
   - >-
+    M1-batch22b: measured, awaiting the deciding step (print both frames'
+    server_tick and state_version on divergence, re-run 49 queue matches, then
+    choose server-clock-waits vs tick-aligned comparison). The 3.4 percent
+    planner failures need their own small fix so random-seed queue runs stop
+    wasting samples.  - >-
     Batch 22B: decide whether the room clock must wait for both seats or the
     harness must compare tick-aligned snapshots; measure before designing
     (>=20 queue matches - already ~98 samples collected on 2026-09-10).
@@ -664,7 +702,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "fea986b"
+last_commit: "ec3b7cd"
 last_verified_commit: "fea986b on main (CI green); 5263bfc (21A: local suite + race + smoke 22/0 + CI #110/#5)"
-resume_from: "Batch 21 in flight. Merged into main: 21A security hardening (5263bfc) and 21C repo hygiene + bounded LLM worker (fea986b). Open PR #5 = 21B Unity CI self-heal at 46b33f7 (branch feat/m1-batch21b-ci-retry), waiting on its Unity Android dispatch; when green, merge, then re-dispatch a device smoke on main to close 17E, and promote the OCI deployment from 5dbcc42 to main (21A changed the snapshot contract that infra/smoke.sh asserts, so the deployed binary must catch up). Next substantive work is M1-batch21g-match-codes and the Unity runtime server-endpoint field. Do not re-run already-verified items listed in completed_tasks; reuse their evidence."
-updated_at: "2026-09-10 (batch 21)"
+resume_from: "Main is ec3b7cd (21B merged) with 21A (5263bfc), 21C (fea986b), 22A (ff4606c) and the task-graph validator (74af124) all merged; the OCI systemd deployment runs ff4606c and was re-verified live (smoke 22/0, direct gate 3/3 PASS). Next: read the outcome of the Unity Android run dispatched on main (workflow unity-android.yml, run_number 30 at the time of writing) and record either the WORDS_SWIPE evidence or an INFRA_FAIL verdict for 17E; then M1-batch22b's deciding step; then M1-batch21g-match-codes (unguessable match ids, closes security finding S-2 and unblocks any public edge) and the Unity runtime server-endpoint field. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
+updated_at: "2026-09-10 (batch 21+22 close-out)"
