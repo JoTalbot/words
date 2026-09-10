@@ -107,3 +107,19 @@ session testing:
 These controls exercise the server's M1 production-shaped endpoints from the
 Android client while preserving the rule that credentials stay scoped and the
 server remains authoritative.
+
+## M1 prediction/reconciliation shell (2026-09-10)
+
+Server mode now adds a bounded presentation-only prediction layer:
+
+- submitting selected cells creates a visible `PENDING #client_sequence` overlay;
+- the client correlates `WordValidatedEvent.client_sequence` to the pending
+  overlay and marks it accepted or rolled back;
+- canonical `MatchStateSnapshot` messages rebuild cell ownership/locks/scores
+  from server state and remove resolved/stale pending overlays;
+- the overlay never changes authoritative score, cell owner, lock status or
+  match completion locally.
+
+This satisfies the first Unity-side reconciliation skeleton without committing
+to final mobile animations. Rich swipe trails and smoother rollback visuals are
+left for a later polish task after live-device latency evidence.

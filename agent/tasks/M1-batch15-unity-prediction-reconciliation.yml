@@ -1,0 +1,51 @@
+id: M1-batch15-unity-prediction-reconciliation
+title: Add Unity pending-intent prediction/reconciliation shell
+owner: unity-client
+priority: high
+complexity: medium
+status: validating_local_green_unity_ci_pending
+inputs:
+  - docs/M0.md
+  - docs/WIRE-PROTOCOL.md
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaProtocol.cs
+dependencies:
+  - M1-batch13-unity-protocol-binding
+  - M1-batch14-unity-session-lifecycle
+outputs:
+  - pending intent overlay in Unity server mode
+  - client_sequence correlation to WordValidatedEvent
+  - canonical snapshot reconciliation that removes stale/resolved predictions
+  - docs/state updates
+acceptance:
+  - Submitting a server-mode word path creates a visible pending prediction tied to client_sequence
+  - WordValidatedEvent echoes reconcile pending state as accepted/rejected/blocked feedback
+  - Canonical snapshots rebuild cells from server state and remove resolved/stale pending overlays
+  - Pending overlay never mutates authoritative score, ownership, lock or match completion
+  - Local demo mode behavior remains available
+  - No uGUI/EventSystem package dependency is introduced
+validation:
+  - python static Unity script sanity: braces, pending markers, no UnityEngine.UI/EventSystems, no secret-like markers
+  - cd server && go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace' -count=1
+  - cd server && go test -count=1 ./...
+  - cd server && go vet ./...
+  - GitHub CI push run after commit
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - docs/ROADMAP.md
+  - docs/unity-server-architecture.md
+  - client/README.md
+  - agent/state/current.yml
+  - agent/tasks/M1-batch15-unity-prediction-reconciliation.yml
+risk: medium
+escalation: strong-model
+local_validation:
+  - python static Unity script sanity with pending/reconciliation markers and token-redaction check: passed
+  - go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace' -count=1: passed
+  - go test -count=1 ./...: passed
+  - go vet ./...: passed
+  - go test -race ./cmd/game ./internal/protocol -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+notes:
+  - This is a presentation prediction shell only; canonical server snapshots always win.
+  - It deliberately avoids scoring/ownership prediction until device playtesting validates gesture latency needs.

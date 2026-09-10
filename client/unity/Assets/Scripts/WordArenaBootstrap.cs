@@ -28,6 +28,7 @@ namespace Words.Client
         private readonly PlayerViewModel[] players = { new PlayerViewModel("Blue"), new PlayerViewModel("Orange") };
         private readonly Queue<Action> mainThreadActions = new Queue<Action>();
         private readonly object mainThreadActionsLock = new object();
+        private readonly List<PendingIntentViewModel> pendingIntents = new List<PendingIntentViewModel>();
 
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
@@ -51,6 +52,7 @@ namespace Words.Client
         private string status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
         private string readySummary = "Ready: not checked";
         private string resultSummary = "Result: not fetched";
+        private string predictionSummary = "Prediction: idle";
         private ulong liveMatchId;
         private ulong liveSeed;
         private uint lastServerTick;
@@ -94,6 +96,7 @@ namespace Words.Client
         {
             DrainMainThreadActions();
             TickVisibleLocks();
+            TickPendingIntents();
         }
 
         private void OnGUI()
@@ -136,6 +139,7 @@ namespace Words.Client
         {
             GUILayout.Label(ConnectionText(), statusStyle, GUILayout.Height(54f));
             GUILayout.Label(readySummary + "   |   " + resultSummary, statusStyle, GUILayout.Height(54f));
+            GUILayout.Label(predictionSummary, statusStyle, GUILayout.Height(46f));
             GUILayout.BeginHorizontal();
             GUILayout.Label("Server", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
             serverUrl = GUILayout.TextField(serverUrl, inputStyle, GUILayout.Height(48f));
@@ -256,9 +260,12 @@ namespace Words.Client
 
             clientSequence++;
             var submitCells = selected.ToArray();
+            var submittedWord = WordForCells(submitCells);
             selected.Clear();
+            pendingIntents.Add(new PendingIntentViewModel(clientSequence, submitCells, submittedWord, activeSeat, Time.time, lastStateVersion));
+            predictionSummary = "Prediction: pending seq=" + clientSequence + " '" + submittedWord + "' (visual only)";
             network.SubmitWord(liveMatchId, clientSequence, submitCells);
-            SetStatus("Submitted intent #" + clientSequence + " for '" + WordForCells(submitCells) + "'; waiting for authoritative event/snapshot.");
+            SetStatus("Submitted intent #" + clientSequence + " for '" + submittedWord + "'; waiting for authoritative event/snapshot.");
         }
 
         private void ApplyLocalDemoClaim()
@@ -534,6 +541,8 @@ namespace Words.Client
                 cells.Add(cell);
             }
 
+            ReconcilePendingWithSnapshot(snapshot.StateVersion);
+
             if (snapshot.Over)
             {
                 SetStatus("Match over. Final authoritative score: " + ScoreText());
@@ -561,9 +570,118 @@ namespace Words.Client
                 players[seat].Combo = Mathf.Max(1f, wordEvent.ComboMultiplier);
             }
 
+            ReconcilePendingWithEvent(wordEvent, seat);
+
             SetStatus("Server event #" + wordEvent.EventId + " seq=" + wordEvent.ClientSequence + ": "
                 + ResultText(wordEvent.Result) + " '" + wordEvent.NormalizedWord + "'"
                 + " +" + wordEvent.ScoreAdded + (wordEvent.IsSteal ? " Cross-Steal" : string.Empty));
+        }
+
+
+        private void ReconcilePendingWithEvent(WordArenaValidatedEvent wordEvent, int eventSeat)
+        {
+            var pending = FindPendingForEvent(wordEvent, eventSeat);
+            if (pending == null)
+            {
+                return;
+            }
+
+            pending.Resolved = true;
+            pending.Accepted = wordEvent.Accepted;
+            pending.Rejected = !wordEvent.Accepted;
+            pending.ResolvedAt = Time.time;
+            pending.StateVersion = wordEvent.StateVersion;
+            predictionSummary = wordEvent.Accepted
+                ? "Prediction reconciled: seq=" + pending.Sequence + " accepted by server"
+                : "Prediction rolled back: seq=" + pending.Sequence + " " + ResultText(wordEvent.Result);
+        }
+
+        private void ReconcilePendingWithSnapshot(uint snapshotVersion)
+        {
+            var removed = 0;
+            var now = Time.time;
+            for (var index = pendingIntents.Count - 1; index >= 0; index--)
+            {
+                var pending = pendingIntents[index];
+                if (pending.Resolved && now - pending.ResolvedAt >= 0.8f)
+                {
+                    pendingIntents.RemoveAt(index);
+                    removed++;
+                    continue;
+                }
+
+                if (!pending.Resolved && snapshotVersion >= pending.SubmittedAtStateVersion && now - pending.SubmittedAt >= 1.5f)
+                {
+                    pendingIntents.RemoveAt(index);
+                    removed++;
+                }
+            }
+
+            if (removed > 0)
+            {
+                predictionSummary = "Prediction: canonical snapshot reconciled " + removed + " pending overlay(s)";
+            }
+            else if (pendingIntents.Count == 0)
+            {
+                predictionSummary = "Prediction: idle; canonical version=" + snapshotVersion;
+            }
+        }
+
+        private void TickPendingIntents()
+        {
+            var now = Time.time;
+            for (var index = pendingIntents.Count - 1; index >= 0; index--)
+            {
+                var pending = pendingIntents[index];
+                if (pending.Resolved && now - pending.ResolvedAt >= 1.2f)
+                {
+                    pendingIntents.RemoveAt(index);
+                }
+                else if (!pending.Resolved && now - pending.SubmittedAt >= 8f)
+                {
+                    predictionSummary = "Prediction: seq=" + pending.Sequence + " still pending; waiting for server snapshot/event";
+                }
+            }
+        }
+
+        private PendingIntentViewModel FindPendingForEvent(WordArenaValidatedEvent wordEvent, int eventSeat)
+        {
+            if (wordEvent == null || wordEvent.ClientSequence == 0)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < pendingIntents.Count; index++)
+            {
+                var pending = pendingIntents[index];
+                if (pending.Sequence != wordEvent.ClientSequence)
+                {
+                    continue;
+                }
+
+                if (eventSeat >= 0 && pending.Seat != eventSeat)
+                {
+                    continue;
+                }
+
+                return pending;
+            }
+
+            return null;
+        }
+
+        private PendingIntentViewModel PendingForCell(int cellId)
+        {
+            for (var index = pendingIntents.Count - 1; index >= 0; index--)
+            {
+                var pending = pendingIntents[index];
+                if (pending.ContainsCell(cellId))
+                {
+                    return pending;
+                }
+            }
+
+            return null;
         }
 
         private void ApplyDemoScore(string word, bool stole)
@@ -644,7 +762,9 @@ namespace Words.Client
             var owner = cell.OwnerSeat < 0 ? "Free" : players[cell.OwnerSeat].Name;
             var lockText = cell.Locked ? "\nLOCK " + cell.LockRemaining.ToString("0.0") + "s" : string.Empty;
             var selectedText = selected.Contains(cell.CellId) ? "\nSELECTED" : string.Empty;
-            return cell.Letter + "\n" + owner + lockText + selectedText;
+            var pending = PendingForCell(cell.CellId);
+            var pendingText = pending == null ? string.Empty : "\nPENDING #" + pending.Sequence;
+            return cell.Letter + "\n" + owner + lockText + selectedText + pendingText;
         }
 
         private Color32 CellColor(CellViewModel cell)
@@ -652,6 +772,12 @@ namespace Words.Client
             if (selected.Contains(cell.CellId))
             {
                 return new Color32(248, 210, 88, 255);
+            }
+
+            var pending = PendingForCell(cell.CellId);
+            if (pending != null)
+            {
+                return pending.Accepted ? new Color32(108, 212, 132, 255) : pending.Rejected ? new Color32(214, 92, 92, 255) : new Color32(248, 210, 88, 255);
             }
 
             if (cell.OwnerSeat == 0)
@@ -794,6 +920,7 @@ namespace Words.Client
             liveUserIds = new ulong[2];
             activeSeat = 0;
             selected.Clear();
+            pendingIntents.Clear();
             cells.Clear();
             for (var index = 0; index < DemoLetters.Length; index++)
             {
@@ -804,6 +931,7 @@ namespace Words.Client
             players[1].Reset("Orange");
             readySummary = "Ready: not checked";
             resultSummary = "Result: not fetched";
+            predictionSummary = "Prediction: idle";
             status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
         }
 
@@ -910,6 +1038,45 @@ namespace Words.Client
             public int OwnerSeat { get; set; }
             public bool Locked { get; set; }
             public float LockRemaining { get; set; }
+        }
+
+
+        private sealed class PendingIntentViewModel
+        {
+            public PendingIntentViewModel(uint sequence, int[] cellIds, string word, int seat, float submittedAt, uint submittedAtStateVersion)
+            {
+                Sequence = sequence;
+                CellIds = cellIds == null ? new int[0] : cellIds;
+                Word = word == null ? string.Empty : word;
+                Seat = seat;
+                SubmittedAt = submittedAt;
+                SubmittedAtStateVersion = submittedAtStateVersion;
+            }
+
+            public uint Sequence { get; private set; }
+            public int[] CellIds { get; private set; }
+            public string Word { get; private set; }
+            public int Seat { get; private set; }
+            public float SubmittedAt { get; private set; }
+            public uint SubmittedAtStateVersion { get; private set; }
+            public bool Resolved { get; set; }
+            public bool Accepted { get; set; }
+            public bool Rejected { get; set; }
+            public float ResolvedAt { get; set; }
+            public uint StateVersion { get; set; }
+
+            public bool ContainsCell(int cellId)
+            {
+                for (var index = 0; index < CellIds.Length; index++)
+                {
+                    if (CellIds[index] == cellId)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
         }
 
         private sealed class PlayerViewModel

@@ -39,7 +39,9 @@ as an authoritative server-bound client. In server mode it:
 - sends only `SubmitWordIntent` messages for selected cell paths;
 - renders canonical `MatchStateSnapshot` and `WordValidatedEvent` data from the server;
 - checks `/readyz`, rotates the active seat token without printing raw tokens,
-  and fetches the authoritative final result.
+  and fetches the authoritative final result;
+- displays selected server-mode submissions as pending overlays and reconciles
+  them with `WordValidatedEvent.client_sequence` plus canonical snapshots.
 
 The lightweight C# protobuf adapter is scoped to `proto/wordarena/v1/match.proto`
 and does not make the client authoritative for score, ownership, locks, word
