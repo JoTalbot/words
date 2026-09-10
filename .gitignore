@@ -69,3 +69,9 @@ coverage/
 # Runtime telemetry output (JSONL sink) — never commit generated events
 /telemetry/
 *.jsonl
+
+# Build output that must never be tracked (tools/check-repo-hygiene.py enforces).
+/server/game
+/server/migrate
+/server/wordarena-server
+/tools/__pycache__/

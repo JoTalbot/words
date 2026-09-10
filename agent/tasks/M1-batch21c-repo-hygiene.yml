@@ -1,0 +1,62 @@
+id: M1-batch21c-repo-hygiene
+title: Stop tracking build output and keep it out permanently
+owner: qa-infra
+priority: normal
+complexity: small
+status: verified_local_pending_ci
+delegated_to: local-llm qwen2.5:7b (draft) / orchestrator (implementation)
+inputs:
+  - git ls-files
+  - infra/Dockerfile, .github/workflows/container-smoke.yml
+dependencies:
+  - M1-batch18-repo-hygiene
+outputs:
+  - tools/check-repo-hygiene.py (size cap, artifact patterns, exec-bit and CRLF checks)
+  - server/game (14 MiB ARM64 Go debug ELF) untracked; the file stays on the dev host
+  - .gitignore entries for server binaries and tools/__pycache__
+  - tools/llm-micro-worker.sh (bounded local-LLM runner with a host capacity guard)
+  - repo-hygiene job in .github/workflows/container-smoke.yml
+acceptance:
+  - the checker exits 1 on the tree as it stood before the fix (proven: it
+    flagged server/game twice, once by pattern and once by size, and found a
+    shebang without an exec bit in client/web-m0/test-smoke.py)
+  - the checker exits 0 on the tree after the fix
+  - large legitimate data files are allowed only through an explicit, sorted
+    allow-list, so growth requires a deliberate edit
+  - nothing in the repository references the removed path (grep across
+    .github/, infra/, docs/, server/README.md returned no hits)
+  - CI runs the guard on every push/PR to main
+validation:
+  - python3 tools/check-repo-hygiene.py            # 0 failed
+  - python3 -c "import yaml;yaml.safe_load(open('.github/workflows/container-smoke.yml'))"
+  - bash -n tools/llm-micro-worker.sh && tools/llm-micro-worker.sh -p /tmp/task -o /tmp/out --dry-run
+  - GitHub CI + Container smoke on the merge commit
+file_ownership:
+  - tools/check-repo-hygiene.py
+  - tools/llm-micro-worker.sh
+  - .gitignore
+  - server/game (untrack only)
+  - client/web-m0/test-smoke.py (mode bit only)
+  - .github/workflows/container-smoke.yml (one added job)
+  - agent/tasks/M1-batch21c-repo-hygiene.yml
+risk: low
+escalation: none
+notes:
+  - History is NOT rewritten. `git rm --cached` keeps the blob in existing
+    clones' objects; purging it (BFG / filter-repo + a coordinated force push)
+    is a destructive, multi-developer action and therefore a human decision,
+    not autonomous cleanup.
+  - Local-LLM capability data point for the routing policy: the worker was
+    dispatched twice. Attempt 1 failed in the *harness*, not the model (the
+    payload was built with `jq -n --arg p "$P"` inside a double-quoted remote
+    command, so bash expanded `$p` first and Ollama answered
+    "missing request body" - the same quoting bug session C hit on 2026-09-10).
+    Attempt 2 ran under the new tools/llm-micro-worker.sh, but the host became
+    unreachable (SSH banner timeout, load1 8.6 on 4 cores) before the draft
+    could be fetched, so the artifact was never reviewed. The checker was
+    therefore implemented by the orchestrator.
+  - Consequence encoded in tooling: llm-micro-worker.sh now refuses to start
+    when load1 > 1.2 * nproc (exit 4) and caps inference at num_thread=2,
+    because a "small drafting task" must not take down the box that runs the
+    service under test. Verified locally: the guard, the payload builder and
+    the JSON/empty/truncation checks all behave as documented.
