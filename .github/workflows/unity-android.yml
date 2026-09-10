@@ -343,13 +343,13 @@ jobs:
       - name: Install and launch on hosted emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 33
           arch: x86_64
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: false
           script: |
-            ANDROID_BACKEND=github-hosted-emulator-api34-retry bash tools/android-smoke.sh artifact
+            ANDROID_BACKEND=github-hosted-emulator-api33-retry bash tools/android-smoke.sh artifact
 
       - name: Upload device diagnostics
         if: always()
@@ -376,6 +376,20 @@ jobs:
         run: |
           echo "smoke: ${{ needs.smoke.result }}"
           echo "smoke-retry: ${{ needs.smoke-retry.result }}"
+          # The two legs write a class marker into their own log; the gate
+          # cannot read them, so the distinction is stated here for whoever
+          # triages a red run: INFRA_FAIL = the device was unusable,
+          # PRODUCT_FAIL = the app failed a real assertion. Only the second
+          # one should stop a release.
+          cat <<'NOTE'
+          Verdict classes emitted by tools/android-smoke.sh:
+            INFRA_FAIL    - emulator boot / install / foreground / adb input
+                            (exit 1 or 8): the device backend was unusable.
+                            Retry, do not "fix" the app.
+            PRODUCT_FAIL  - the app had focus, a swipe was delivered and the
+                            gesture marker was absent (exit 1): a real
+                            regression; this one blocks.
+          NOTE
           if [ "${{ needs.smoke.result }}" != "success" ] && [ "${{ needs.smoke-retry.result }}" != "success" ]; then
             echo "::error::Android device smoke failed on both hosted emulator images - inspect the smoke job log and the uploaded logcat/screenshot artifacts, then decide whether this is a product regression or an exhausted emulator pool"
             exit 1

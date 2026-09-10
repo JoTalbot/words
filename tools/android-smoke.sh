@@ -59,6 +59,15 @@ echo "boot_completed=1"
 adb shell input keyevent 82 >/dev/null 2>&1 || echo "note: unlock keyevent skipped (known flake)"
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
 adb shell settings put global transition_animation_scale 0 >/dev/null 2>&1 || true
+adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
+
+# The hosted emulator pool's actual failure mode, captured in a screenshot on
+# 2026-09-10: "System UI isn't responding" steals focus, the synthetic swipe
+# lands on the system dialog, and the app never sees a gesture - which looks
+# exactly like a broken gesture implementation in the log. hide_error_dialogs
+# suppresses ANR/crash dialogs; the focus loop below is the real gate.
+adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+adb shell settings put system accelerometer_rotation 1 >/dev/null 2>&1 || true
 
 echo "--- install ---"
 retry 3 6 adb install -r -g "$apk" || { echo "FAIL: adb install never succeeded"; exit 1; }
@@ -66,6 +75,30 @@ retry 3 6 adb install -r -g "$apk" || { echo "FAIL: adb install never succeeded"
 echo "--- launch ---"
 retry 3 5 adb shell monkey -p "$PKG" 1 || { echo "FAIL: monkey launch failed"; exit 1; }
 adb shell pm path "$PKG" || { echo "FAIL: package not installed"; exit 1; }
+
+# Focus must be on our package before any input is meaningful. Three separate
+# runs were lost to a system dialog holding the foreground, so "is the app
+# actually in front?" is now an explicit, retryable step with its own failure
+# class (INFRA_FAIL) instead of a confusing missing-marker assertion.
+focused=0
+for attempt in 1 2 3 4 5 6; do
+  if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^ ]* $PKG|mFocusedApp.*$PKG"; then
+    focused=1
+    break
+  fi
+  echo "  foreground is not $PKG yet (attempt $attempt); dismissing system dialogs"
+  adb shell input keyevent 4 >/dev/null 2>&1 || true
+  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+  sleep 5
+done
+if [ "$focused" != 1 ]; then
+  echo "INFRA_FAIL: $PKG never took the foreground on $BACKEND"
+  adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | head -5 || true
+  adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+  adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+  exit 8
+fi
+adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus" | head -2 || true
 
 echo "--- gesture smoke (batch 17E) ---"
 # Let Unity draw the runtime board, then clear the log so the assertion below
@@ -81,7 +114,7 @@ for i in 1 2 3; do
   echo "  swipe attempt $i failed; retrying"; sleep 3
 done
 if [ "$swipe_ok" != 1 ]; then
-  echo "FAIL: adb input swipe never succeeded"
+  echo "INFRA_FAIL: adb input swipe never succeeded on $BACKEND"
   adb logcat -d >"$DIAG/logcat-swipe-fail.txt" 2>&1 || true
   exit 1
 fi
