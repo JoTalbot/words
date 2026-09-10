@@ -22,6 +22,8 @@ type Config struct {
 	UserIDs  [2]uint64
 	Token0   string
 	Token1   string
+	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
+	SuddenDeath bool
 }
 
 // Room runs one authoritative match.
@@ -75,9 +77,10 @@ type SnapshotFrame struct {
 // New creates a room around a fresh deterministic match.
 func New(cfg Config) (*Room, error) {
 	m, err := match.New(match.Config{
-		MatchID: cfg.MatchID,
-		Seed:    cfg.Seed,
-		Lang:    cfg.Language,
+		MatchID:     cfg.MatchID,
+		Seed:        cfg.Seed,
+		Lang:        cfg.Language,
+		SuddenDeath: cfg.SuddenDeath,
 	})
 	if err != nil {
 		return nil, err

@@ -24,7 +24,9 @@ Exit gate: two remote clients can complete repeated matches with identical final
   Docker/compose, background reaper, intent rate limiting — 2026-09-09)
 - [ ] shared board UX
 - [ ] Claim / Lock / Cross-Steal
-- [ ] combo and Sudden Death
+- [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
+  Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; client
+  presentation pending)
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09)
 - [~] player profile (in progress: in-memory profiles + stats folding via
   player_ids; durable storage still TODO)

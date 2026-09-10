@@ -18,9 +18,13 @@ type Match struct {
 	wave       int
 	tick       int
 	waveStart  int
-	phase      string // "active" | "over"
+	phase      string // "active" | "sudden_death" | "over"
 	stateVer   int
 	eventSeq   int
+
+	// suddenDeath is the opt-in flag; inSuddenDeath marks the tiebreak wave.
+	suddenDeath   bool
+	inSuddenDeath bool
 
 	cells   []Cell
 	players [2]PlayerState
@@ -38,12 +42,13 @@ func New(cfg Config) (*Match, error) {
 		return nil, fmt.Errorf("match: load dictionary %s: %w", lang, err)
 	}
 	m := &Match{
-		ID:   cfg.MatchID,
-		Seed: cfg.Seed,
-		Lang: cfg.Lang,
-		dict: *snap,
-		wave: 0,
-		phase: "active",
+		ID:          cfg.MatchID,
+		Seed:        cfg.Seed,
+		Lang:        cfg.Lang,
+		dict:        *snap,
+		wave:        0,
+		phase:       "active",
+		suddenDeath: cfg.SuddenDeath,
 	}
 	m.players[0].Seat = 0
 	m.players[1].Seat = 1
@@ -102,6 +107,10 @@ func (m *Match) Players() [2]PlayerState { return m.players }
 // Combo returns current combo count for a seat.
 func (m *Match) Combo(s Seat) int { return m.players[s].Combo }
 
+// SuddenDeathEnabled reports whether the match was created with the opt-in
+// tiebreak flag (docs/M1-SUDDEN-DEATH.md).
+func (m *Match) SuddenDeathEnabled() bool { return m.suddenDeath }
+
 // ---- mutation ----
 
 // AdvanceTicks moves the simulation forward: lock expiry first, then wave
@@ -150,13 +159,37 @@ func (m *Match) freeCount() int {
 // endWaveByTimeout finishes the wave when its time budget is exhausted.
 // Unclaimed cells simply expire (score 0); no state carries over.
 func (m *Match) endWaveByTimeout() {
+	if m.inSuddenDeath {
+		// A Sudden Death wave that runs out of time ends as a draw.
+		m.phase = "over"
+		m.stateVer++
+		return
+	}
 	if m.wave >= WavesPerMatch-1 {
+		if m.suddenDeath && m.isTied() {
+			m.startSuddenDeath()
+			return
+		}
 		m.phase = "over"
 		m.stateVer++
 		return
 	}
 	m.startWave(m.wave + 1)
 }
+
+// startSuddenDeath begins the opt-in tiebreak wave (docs/M1-SUDDEN-DEATH.md).
+// The board is generated deterministically for wave index WavesPerMatch.
+func (m *Match) startSuddenDeath() {
+	m.wave++
+	m.waveStart = m.tick
+	m.cells = generateWave(m.Seed, m.Lang, m.wave)
+	m.inSuddenDeath = true
+	m.phase = "sudden_death"
+	m.stateVer++
+}
+
+// isTied reports whether both players have identical scores.
+func (m *Match) isTied() bool { return m.players[0].Score == m.players[1].Score }
 
 // startWave begins wave w with a freshly generated board.
 func (m *Match) startWave(w int) {
@@ -261,11 +294,23 @@ func (m *Match) evaluate(ev Event) Event {
 	ev.IsSteal = isSteal
 	ev.StateVersion = m.stateVer
 
-	// Wave completion: all cells owned -> next wave or match end.
+	// Sudden Death: the first accepted word ends the match immediately.
+	// Its points are already applied above, so the scorer is ahead.
+	if m.inSuddenDeath {
+		m.phase = "over"
+		m.stateVer++
+		return ev
+	}
+
+	// Wave completion: all cells owned -> next wave, sudden death, or end.
 	if m.freeCount() == 0 {
 		if m.wave >= WavesPerMatch-1 {
-			m.phase = "over"
-			m.stateVer++
+			if m.suddenDeath && m.isTied() {
+				m.startSuddenDeath()
+			} else {
+				m.phase = "over"
+				m.stateVer++
+			}
 		} else {
 			m.startWave(m.wave + 1)
 		}
@@ -293,6 +338,7 @@ func (m *Match) Snapshot() Snapshot {
 		CurrentWave:     m.wave,
 		StateVersion:    m.stateVer,
 		Phase:           m.phase,
+		SuddenDeath:     m.inSuddenDeath,
 	}
 	for seat := Seat(0); seat < 2; seat++ {
 		p := &m.players[seat]

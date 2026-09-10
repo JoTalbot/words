@@ -10,7 +10,7 @@ transport behaves in the M0 dev service (`cmd/game`).
 POST /v1/matches
 Content-Type: application/json
 
-{ "language": "en" | "ru" | "uk", "seed": 1512 }   // seed optional
+{ "language": "en" | "ru" | "uk", "seed": 1512, "sudden_death": true }  // optional fields
 ```
 
 `201 Created`:
@@ -20,6 +20,7 @@ Content-Type: application/json
   "match_id": 1,
   "seed": 1512,
   "language": "en",
+  "sudden_death": true,
   "tokens": ["<seat0 token>", "<seat1 token>"],
   "user_ids": [1, 2]
 }
@@ -29,6 +30,9 @@ A fixed `seed` makes the whole match reproducible (same board sequence,
 same outcomes) and is how two remote clients can play identical matches.
 Random seeds are generated when absent. Tokens authorize the WebSocket
 seats. `user_ids` are the account ids reported in snapshots and events.
+`sudden_death` (default `false`) enables the opt-in tiebreak described in
+`docs/M1-SUDDEN-DEATH.md`: a tied final score plays one extra wave where the
+first accepted word wins. With it off, ties are draws (M0 rules).
 
 ## 2. Live play
 
@@ -213,7 +217,10 @@ tooling:
 GET /v1/match/{id}/snapshot
 ```
 
-JSON rendering of the canonical snapshot; used by tools and QA.
+JSON rendering of the canonical snapshot; used by tools and QA. The response
+includes `"phase"` (`active` | `sudden_death` | `over`) and `"sudden_death"`
+(`true` while the tiebreak wave is live), alongside `server_tick`, `wave`,
+`state_version`, `cells` and `players`.
 
 ## 11. Conventions
 

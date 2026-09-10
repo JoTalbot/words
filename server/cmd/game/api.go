@@ -252,18 +252,22 @@ func randomSeed() (uint64, error) {
 // tests; random seeds are used when absent. PlayerIDs, when set, bind the
 // seats to registered profiles (stats are updated when the match ends).
 type createMatchRequest struct {
-	Language  string     `json:"language"`
-	Seed      *uint64    `json:"seed,omitempty"`
+	Language string `json:"language"`
+	Seed     *uint64    `json:"seed,omitempty"`
 	PlayerIDs *[2]uint64 `json:"player_ids,omitempty"`
+	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
+	// Defaults to false: M0 rules apply and ties are draws.
+	SuddenDeath bool `json:"sudden_death,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
 type createMatchResponse struct {
-	MatchID  uint64    `json:"match_id"`
-	Seed     uint64    `json:"seed"`
-	Language string    `json:"language"`
-	Tokens   [2]string `json:"tokens"`
-	UserIDs  [2]uint64 `json:"user_ids"`
+	MatchID     uint64    `json:"match_id"`
+	Seed        uint64    `json:"seed"`
+	Language    string    `json:"language"`
+	SuddenDeath bool      `json:"sudden_death"`
+	Tokens      [2]string `json:"tokens"`
+	UserIDs     [2]uint64 `json:"user_ids"`
 }
 
 // Routes registers the service handlers, wrapped in request logging.
@@ -330,7 +334,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed, req.PlayerIDs)
+	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed, req.PlayerIDs, req.SuddenDeath)
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
@@ -340,15 +344,16 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, createMatchResponse{
-		MatchID: id, Seed: seed, Language: lang,
+		MatchID: id, Seed: seed, Language: lang, SuddenDeath: req.SuddenDeath,
 		Tokens: tokens, UserIDs: userIDs,
 	})
 }
 
 // createRoom provisions a new live room and returns its public join info.
 // It is shared by the direct-create endpoint and the matchmaker. playerIDs,
-// when non-nil, bind the seats to registered profiles.
-func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
+// when non-nil, bind the seats to registered profiles. suddenDeath enables
+// the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
+func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, suddenDeath bool) (uint64, uint64, [2]string, [2]uint64, error) {
 	var s uint64
 	if seed != nil {
 		s = *seed
@@ -372,12 +377,13 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64) (uint6
 		userIDs = *playerIDs
 	}
 	room, err := matchroom.New(matchroom.Config{
-		MatchID:  id,
-		Seed:     s,
-		Language: lang,
-		UserIDs:  userIDs,
-		Token0:   tok0,
-		Token1:   tok1,
+		MatchID:     id,
+		Seed:        s,
+		Language:    lang,
+		UserIDs:     userIDs,
+		Token0:      tok0,
+		Token1:      tok1,
+		SuddenDeath: suddenDeath,
 	})
 	if err != nil {
 		return 0, 0, [2]string{}, [2]uint64{}, err
@@ -446,11 +452,14 @@ func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, "match not found or finished")
 		return
 	}
-	snap := protocol.SnapshotToProto(room.Match().Snapshot(), [2]uint64{room.UserID(0), room.UserID(1)})
+	dsnap := room.Match().Snapshot()
+	snap := protocol.SnapshotToProto(dsnap, [2]uint64{room.UserID(0), room.UserID(1)})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"server_tick":   snap.ServerTick,
 		"wave":          snap.CurrentWave,
 		"state_version": snap.StateVersion,
+		"phase":         dsnap.Phase,
+		"sudden_death":  dsnap.SuddenDeath,
 		"cells":         cellsToJSON(snap.Cells),
 		"players":       playersToJSON(snap.Players),
 	})
@@ -529,7 +538,7 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e := a.mm.enqueue(lang, func(l string) (uint64, uint64, [2]string, [2]uint64, error) {
-		return a.createRoom(l, nil, nil)
+		return a.createRoom(l, nil, nil, false)
 	})
 	writeJSON(w, http.StatusAccepted, e)
 }

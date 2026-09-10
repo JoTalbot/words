@@ -98,16 +98,21 @@ type Event struct {
 
 // Snapshot is the canonical public state view at a tick.
 type Snapshot struct {
-	MatchID        uint64
-	Language       string
-	Seed           uint64
-	ServerTick     int
+	MatchID         uint64
+	Language        string
+	Seed            uint64
+	ServerTick      int
 	RemainingTimeMs int
-	CurrentWave    int
-	StateVersion   int
-	Phase          string // "active" | "over"
-	Players        [2]PlayerView
-	Cells          []CellView
+	CurrentWave     int
+	StateVersion    int
+	// Phase is "active" | "sudden_death" | "over". Sudden Death is only
+	// reachable when the match was created with Config.SuddenDeath.
+	Phase   string
+	// SuddenDeath reports whether the match is currently in its tiebreak
+	// wave (first accepted word wins, see docs/M1-SUDDEN-DEATH.md).
+	SuddenDeath bool
+	Players     [2]PlayerView
+	Cells       []CellView
 }
 
 // PlayerView is a snapshot of one player's competitive state.
@@ -142,6 +147,9 @@ type Config struct {
 	Seed    uint64
 	Lang    string // "en" | "ru" | "uk" (dictionary.Language)
 	Dict    WordValidator
+	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
+	// When false the match keeps M0 rules: a tied final score is a draw.
+	SuddenDeath bool
 }
 
 // WordValidator is the dictionary capability the match needs.

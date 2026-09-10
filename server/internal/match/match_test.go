@@ -562,5 +562,210 @@ func TestUkClaim(t *testing.T) {
 	}
 }
 
+// ---- Sudden Death (docs/M1-SUDDEN-DEATH.md) ----
+
+// suddenCfg returns an EN config with the opt-in tiebreak enabled.
+func suddenCfg() Config {
+	c := testCfg()
+	c.SuddenDeath = true
+	return c
+}
+
+// findAnyWord returns the first legal 3-cell word path on the current board
+// that the pinned dictionary accepts, or nil. Deterministic: enumerates
+// distinct cell triples in ascending cell-id order and prefers free/own cells
+// for the given seat.
+func findAnyWord(m *Match, seat Seat) []int {
+	n := len(m.cells)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if j == i {
+				continue
+			}
+			for k := 0; k < n; k++ {
+				if k == i || k == j {
+					continue
+				}
+				word := string([]rune{m.cells[i].Letter, m.cells[j].Letter, m.cells[k].Letter})
+				if !m.dict.ContainsNormalized(word) {
+					continue
+				}
+				path := []int{i, j, k}
+				legal := true
+				for _, id := range path {
+					c := m.cells[id]
+					if c.State != CellFree && c.Owner != seat {
+						legal = false
+						break
+					}
+				}
+				if legal {
+					return path
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// TestSuddenDeathDisabledTieIsDraw locks M0 behaviour: with the flag off, a
+// tied final score ends the match as a draw (no extra wave).
+func TestSuddenDeathDisabledTieIsDraw(t *testing.T) {
+	m, err := New(testCfg()) // SuddenDeath == false
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.AdvanceTicks(WavesPerMatch * WaveTicks)
+	if !m.IsOver() {
+		t.Fatal("match must end after the final wave, not enter a tiebreak")
+	}
+	if m.Wave() != WavesPerMatch-1 {
+		t.Fatalf("wave = %d, want %d", m.Wave(), WavesPerMatch-1)
+	}
+	res := m.Result()
+	if !res.Over || !res.IsTie {
+		t.Fatalf("result = %+v, want draw", res)
+	}
+}
+
+// TestSuddenDeathEntersTiebreak checks that a tied final wave starts the
+// opt-in tiebreak instead of a draw.
+func TestSuddenDeathEntersTiebreak(t *testing.T) {
+	m, err := New(suddenCfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.AdvanceTicks(WavesPerMatch * WaveTicks)
+	if m.IsOver() {
+		t.Fatal("tied match must enter sudden death, not end")
+	}
+	if m.Wave() != WavesPerMatch {
+		t.Fatalf("wave = %d, want sudden-death wave %d", m.Wave(), WavesPerMatch)
+	}
+	s := m.Snapshot()
+	if s.Phase != "sudden_death" || !s.SuddenDeath {
+		t.Fatalf("snapshot phase=%q sudden_death=%v", s.Phase, s.SuddenDeath)
+	}
+	if s.RemainingTimeMs <= 0 {
+		t.Fatalf("sudden death wave must have a fresh time budget, got %d ms", s.RemainingTimeMs)
+	}
+	if m.freeCount() != CellsPerWave {
+		t.Fatalf("sudden death board must be fresh, %d free cells", m.freeCount())
+	}
+}
+
+// TestSuddenDeathFirstWordWins checks the core tiebreak rule: the first
+// accepted word ends the match immediately with that seat winning.
+func TestSuddenDeathFirstWordWins(t *testing.T) {
+	// White-box setup so the rule is tested against a controlled board.
+	m := mustMatch(t, "catdogpqrstu")
+	m.suddenDeath = true
+	m.inSuddenDeath = true
+	m.wave = WavesPerMatch
+	m.waveStart = m.tick
+	path := findCells(m, 0, "cat")
+	if path == nil {
+		t.Fatal("cannot spell cat on the controlled board")
+	}
+	ev := m.Submit(0, path)
+	if ev.Result != ResultAccepted {
+		t.Fatalf("word rejected in sudden death: %s", ev.WordResultString)
+	}
+	if !m.IsOver() {
+		t.Fatal("first accepted word must end sudden death immediately")
+	}
+	res := m.Result()
+	if res.IsTie || res.WinnerSeat != 0 {
+		t.Fatalf("result = %+v, want winner seat 0", res)
+	}
+}
+
+// TestSuddenDeathTimeoutIsDraw checks that a tiebreak wave that runs out of
+// time with no accepted word ends the match as a draw.
+func TestSuddenDeathTimeoutIsDraw(t *testing.T) {
+	m, err := New(suddenCfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.AdvanceTicks(WavesPerMatch*WaveTicks + WaveTicks)
+	if !m.IsOver() {
+		t.Fatal("timed-out sudden death must end the match")
+	}
+	res := m.Result()
+	if !res.IsTie {
+		t.Fatalf("result = %+v, want draw", res)
+	}
+}
+
+// TestSuddenDeathBoardDeterminism checks the tiebreak board is generated
+// deterministically from (seed, language, wave) like any other wave.
+func TestSuddenDeathBoardDeterminism(t *testing.T) {
+	a, err := New(suddenCfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(suddenCfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.AdvanceTicks(WavesPerMatch * WaveTicks)
+	b.AdvanceTicks(WavesPerMatch * WaveTicks)
+	if boardString(a) != boardString(b) {
+		t.Fatalf("sudden-death board diverged: %q vs %q", boardString(a), boardString(b))
+	}
+	if boardString(a) == "rhsornertars" {
+		t.Log("sudden-death board equals wave-0 board by chance (fine)")
+	}
+}
+
+// TestSuddenDeathReplayProperty verifies that a full sudden-death match
+// (tie -> tiebreak -> first word wins) replays to the identical final state.
+func TestSuddenDeathReplayProperty(t *testing.T) {
+	cfg := suddenCfg()
+	m, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.AdvanceTicks(WavesPerMatch * WaveTicks)
+	path := findAnyWord(m, 0)
+	if path == nil {
+		t.Fatalf("no 3-letter word on sudden-death board %q", boardString(m))
+	}
+	ev := m.Submit(0, path)
+	if ev.Result != ResultAccepted {
+		t.Fatalf("sudden-death word rejected: %s", ev.WordResultString)
+	}
+	if !m.IsOver() {
+		t.Fatal("match must end after the first sudden-death word")
+	}
+
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range m.Events() {
+		for r.Tick() < e.Tick {
+			r.AdvanceTicks(1)
+		}
+		got := r.Submit(e.Seat, e.CellIDs)
+		if got.Result != e.Result || got.ScoreAdded != e.ScoreAdded {
+			t.Fatalf("replay seq %d: result %s/%d != %s/%d",
+				e.Seq, got.WordResultString, got.ScoreAdded, e.WordResultString, e.ScoreAdded)
+		}
+	}
+	for r.Tick() < m.Tick() {
+		r.AdvanceTicks(1)
+	}
+	if r.Fingerprint() != m.Fingerprint() {
+		t.Fatalf("replay fingerprint mismatch:\n orig=%s\n repl=%s", m.Fingerprint(), r.Fingerprint())
+	}
+	if !r.IsOver() {
+		t.Fatal("replay must end in sudden death win")
+	}
+	if res := r.Result(); res.IsTie || res.WinnerSeat != 0 {
+		t.Fatalf("replay result = %+v", res)
+	}
+}
+
 // dictionary import guard (used in config types via tests above)
 var _ = dictionary.En

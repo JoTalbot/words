@@ -323,6 +323,50 @@ func TestCreateMatchBadLanguage(t *testing.T) {
 	_ = bad
 }
 
+func TestCreateMatchSuddenDeath(t *testing.T) {
+	api := NewAPI()
+	srv := httptest.NewServer(api.Routes())
+	defer srv.Close()
+
+	post := func(body string) createMatchResponse {
+		resp, err := http.Post(srv.URL+"/v1/matches", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create status %d", resp.StatusCode)
+		}
+		var out createMatchResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	sd := post(`{"language":"en","sudden_death":true}`)
+	if !sd.SuddenDeath {
+		t.Fatalf("sudden_death flag not echoed: %+v", sd)
+	}
+	api.mu.Lock()
+	sdRoom := api.rooms[sd.MatchID]
+	api.mu.Unlock()
+	if sdRoom == nil || !sdRoom.Match().SuddenDeathEnabled() {
+		t.Fatal("room match must have sudden death enabled")
+	}
+
+	plain := post(`{"language":"en"}`)
+	if plain.SuddenDeath {
+		t.Fatalf("sudden_death must default to false: %+v", plain)
+	}
+	api.mu.Lock()
+	plainRoom := api.rooms[plain.MatchID]
+	api.mu.Unlock()
+	if plainRoom == nil || plainRoom.Match().SuddenDeathEnabled() {
+		t.Fatal("room match must keep M0 rules by default")
+	}
+}
+
 func TestHealthzOnAPI(t *testing.T) {
 	api := NewAPI()
 	srv := httptest.NewServer(api.Routes())
