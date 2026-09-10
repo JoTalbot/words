@@ -30,10 +30,16 @@ single-process development.
 - `players(id BIGSERIAL PK, nickname, language, created_at, matches_played,
   wins, losses, draws, total_score)` — stats increment with SQL `UPDATE` so
   concurrent matches fold safely.
-- `match_results(match_id BIGINT PK, seed, language, over, winner_seat,
-  is_tie, score0, score1, state_version, server_tick, events JSONB,
+- `match_results(match_id NUMERIC(20,0) PK, seed NUMERIC(20,0), language, over,
+  winner_seat, is_tie, score0, score1, state_version, server_tick, events JSONB,
   recorded_at)` — `events` holds the deterministic replay log; duplicate
   `match_id` inserts are `ON CONFLICT DO NOTHING`.
+  `match_id` and `seed` are Go `uint64`, so they are `NUMERIC(20,0)` — the exact
+  unsigned 64-bit type — and not `BIGINT`. The baseline declared them `BIGINT`
+  (int64) and every value with the top bit set failed to encode, silently
+  dropping the durable result of roughly half of all matches; migration
+  `002_match_results_uint64.sql` widens them and `u64Param`/`scanU64` in
+  `store_pg.go` are the only place that representation is decided.
 
 ## 4. Semantics preserved
 

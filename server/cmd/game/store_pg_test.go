@@ -78,8 +78,27 @@ func TestPostgresResultPutGet(t *testing.T) {
 	}
 	defer api.Stop()
 
+	// Ids are derived from the durable high-water mark instead of being
+	// hard-coded. With a literal 9001 the test was only correct on an empty
+	// database: a second run found 9001 already present (so Put became a no-op
+	// against stale data) and the "absent id" probe below collided with the id
+	// TestPostgresDurabilityAcrossInstances had allocated. That made the whole
+	// Postgres suite non-re-runnable against a live database, which is exactly
+	// how it is run on the deployment host.
+	base := uint64(9001)
+	if repo, ok := api.resultRepo.(interface{ MaxMatchID() (uint64, error) }); ok {
+		max, err := repo.MaxMatchID()
+		if err != nil {
+			t.Fatalf("MaxMatchID: %v", err)
+		}
+		if max >= base {
+			base = max + 1
+		}
+	}
+	absent := base + 1
+
 	res := matchResult{
-		MatchID: 9001, Seed: 1512, Language: "en", Over: true,
+		MatchID: base, Seed: 1512, Language: "en", Over: true,
 		WinnerSeat: 0, IsTie: false, Scores: [2]int64{42, 7},
 		StateVer: 10, ServerTick: 5400, recordedAt: time.Now(),
 		Events: []replayEvent{
@@ -89,7 +108,7 @@ func TestPostgresResultPutGet(t *testing.T) {
 	if err := api.resultRepo.Put(res); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	got, ok, err := api.resultRepo.Get(9001)
+	got, ok, err := api.resultRepo.Get(base)
 	if err != nil || !ok {
 		t.Fatalf("get = ok=%v err=%v", ok, err)
 	}
@@ -101,8 +120,8 @@ func TestPostgresResultPutGet(t *testing.T) {
 	if err := api.resultRepo.Put(res); err != nil {
 		t.Fatalf("duplicate put: %v", err)
 	}
-	if _, ok, _ := api.resultRepo.Get(9002); ok {
-		t.Fatal("unknown match id must not resolve")
+	if _, ok, _ := api.resultRepo.Get(absent); ok {
+		t.Fatalf("id %d was never written but resolved", absent)
 	}
 }
 

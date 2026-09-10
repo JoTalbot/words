@@ -24,7 +24,8 @@ history under `infra/migrations/`.
 
 ```text
 infra/migrations/
-└── 001_init.sql        # baseline: players, match_results
+├── 001_init.sql               # baseline: players, match_results
+└── 002_match_results_uint64.sql  # match_id/seed BIGINT -> NUMERIC(20,0)
 server/cmd/migrate/     # the runner
 ```
 

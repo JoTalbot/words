@@ -10,10 +10,28 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// match_id and seed are Go uint64 but were declared BIGINT (int64) in the
+// baseline schema, so any value with the top bit set failed to encode and the
+// match result was silently dropped. Migration 002 widens both columns to
+// NUMERIC(20,0), the exact unsigned 64-bit type. These two helpers are the only
+// place that representation is decided: binding and scanning as decimal text
+// keeps the round trip lossless and driver-independent, and leaves the stored
+// value identical to the seed the HTTP API reports as JSON.
+func u64Param(v uint64) string { return strconv.FormatUint(v, 10) }
+
+func scanU64(col, s string) (uint64, error) {
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: %s %q is not a uint64: %w", col, s, err)
+	}
+	return v, nil
+}
 
 const pgSchema = `
 CREATE TABLE IF NOT EXISTS players (
@@ -29,8 +47,10 @@ CREATE TABLE IF NOT EXISTS players (
 );
 
 CREATE TABLE IF NOT EXISTS match_results (
-    match_id      BIGINT      PRIMARY KEY,
-    seed          BIGINT      NOT NULL,
+    -- NUMERIC(20,0) is the exact uint64 type: BIGINT (int64) silently rejected
+    -- every seed with the top bit set. See 002_match_results_uint64.sql.
+    match_id      NUMERIC(20,0) PRIMARY KEY,
+    seed          NUMERIC(20,0) NOT NULL,
     language      TEXT        NOT NULL,
     over          BOOLEAN     NOT NULL,
     winner_seat   INT         NOT NULL,
@@ -140,9 +160,10 @@ func (p *pgResultStore) Put(res matchResult) error {
 		INSERT INTO match_results
 			(match_id, seed, language, over, winner_seat, is_tie,
 			 score0, score1, state_version, server_tick, events, recorded_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		VALUES ($1::numeric,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (match_id) DO NOTHING`,
-		res.MatchID, res.Seed, res.Language, res.Over, res.WinnerSeat, res.IsTie,
+		u64Param(res.MatchID), u64Param(res.Seed), res.Language, res.Over,
+		res.WinnerSeat, res.IsTie,
 		res.Scores[0], res.Scores[1], res.StateVer, res.ServerTick, evJSON,
 		res.recordedAt); err != nil {
 		return fmt.Errorf("postgres: put result: %w", err)
@@ -155,10 +176,14 @@ func (p *pgResultStore) Put(res matchResult) error {
 func (p *pgResultStore) MaxMatchID() (uint64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var id uint64
+	var raw string
 	if err := p.db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(match_id), 0) FROM match_results`).Scan(&id); err != nil {
+		`SELECT COALESCE(MAX(match_id), 0)::text FROM match_results`).Scan(&raw); err != nil {
 		return 0, fmt.Errorf("postgres: max match id: %w", err)
+	}
+	id, err := scanU64("max match id", raw)
+	if err != nil {
+		return 0, err
 	}
 	return id, nil
 }
@@ -167,12 +192,13 @@ func (p *pgResultStore) Get(id uint64) (matchResult, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var res matchResult
+	var rawID, rawSeed string
 	var evJSON []byte
 	err := p.db.QueryRowContext(ctx, `
-		SELECT match_id, seed, language, over, winner_seat, is_tie,
+		SELECT match_id::text, seed::text, language, over, winner_seat, is_tie,
 		       score0, score1, state_version, server_tick, events, recorded_at
-		FROM match_results WHERE match_id = $1`, id).Scan(
-		&res.MatchID, &res.Seed, &res.Language, &res.Over, &res.WinnerSeat,
+		FROM match_results WHERE match_id = $1::numeric`, u64Param(id)).Scan(
+		&rawID, &rawSeed, &res.Language, &res.Over, &res.WinnerSeat,
 		&res.IsTie, &res.Scores[0], &res.Scores[1], &res.StateVer,
 		&res.ServerTick, &evJSON, &res.recordedAt)
 	if err == sql.ErrNoRows {
@@ -180,6 +206,12 @@ func (p *pgResultStore) Get(id uint64) (matchResult, bool, error) {
 	}
 	if err != nil {
 		return matchResult{}, false, fmt.Errorf("postgres: get result: %w", err)
+	}
+	if res.MatchID, err = scanU64("match_id", rawID); err != nil {
+		return matchResult{}, false, err
+	}
+	if res.Seed, err = scanU64("seed", rawSeed); err != nil {
+		return matchResult{}, false, err
 	}
 	if err := json.Unmarshal(evJSON, &res.Events); err != nil {
 		return matchResult{}, false, fmt.Errorf("postgres: unmarshal events: %w", err)
