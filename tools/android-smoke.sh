@@ -84,24 +84,42 @@ adb shell pm path "$PKG" || { echo "FAIL: package not installed"; exit 1; }
 # runs were lost to a system dialog holding the foreground, so "is the app
 # actually in front?" is now an explicit, retryable step with its own failure
 # class (INFRA_FAIL) instead of a confusing missing-marker assertion.
+#
+# The gate reads mCurrentFocus only. It used to also accept mFocusedApp, and
+# that alternative was wrong: mFocusedApp names the app the system considers
+# focused for input-method purposes and it stays on our package even while a
+# system sheet owns the window that actually receives input. Unity Android run
+# 30 (2026-09-10, head ec3b7cd) passed the gate on mFocusedApp while the very
+# next diagnostic line printed
+#
+#   mCurrentFocus=Window{7a31fc3 u0 ImmersiveModeConfirmation}
+#
+# i.e. the first-run full-screen confirmation sheet was in front of the board,
+# which is the exact failure this gate exists to catch. Accepting mFocusedApp
+# therefore reported success in the one case the gate was written for.
+#
+# A window name in dumpsys is "<hash> u0 <package>/<activity>", so matching on
+# " $PKG/" pins our activity rather than any window that merely mentions us.
 focused=0
 for attempt in 1 2 3 4 5 6; do
-  if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^ ]* $PKG|mFocusedApp.*$PKG"; then
+  if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
     focused=1
     break
   fi
-  echo "  foreground is not $PKG yet (attempt $attempt); dismissing system dialogs"
+  echo "  input focus is not $PKG yet (attempt $attempt); current focus:"
+  adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | head -2 || true
   adb shell input keyevent 4 >/dev/null 2>&1 || true
   adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   sleep 5
 done
 if [ "$focused" != 1 ]; then
-  echo "INFRA_FAIL: $PKG never took the foreground on $BACKEND"
+  echo "INFRA_FAIL: $PKG never held input focus on $BACKEND (a system window stayed in front)"
   adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | head -5 || true
   adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
   adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
   exit 8
 fi
+echo "input focus held by $PKG:"
 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus" | head -2 || true
 
 echo "--- gesture smoke (batch 17E) ---"

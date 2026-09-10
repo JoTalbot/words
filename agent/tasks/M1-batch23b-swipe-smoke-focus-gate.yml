@@ -1,0 +1,62 @@
+id: M1-batch23b-swipe-smoke-focus-gate
+title: The device smoke focus gate passed on mFocusedApp while a system sheet held input focus
+owner: qa-infra
+priority: high
+complexity: trivial
+status: verified_local_pending_ci
+found_by: >-
+  reading the unity-android.yml run 30 log (id 34503965758, head ec3b7cd) to
+  record the pending 17E verdict: the gate reported the app as foregrounded
+  while the diagnostic immediately after it printed
+  mCurrentFocus=Window{7a31fc3 u0 ImmersiveModeConfirmation}
+inputs:
+  - tools/android-smoke.sh (the focus gate before the batch 17E gesture step)
+  - .github/workflows/unity-android.yml (smoke and smoke-retry legs)
+  - agent/tasks/M1-batch17-gesture-adjacency-swipe-smoke.yml (device_evidence)
+dependencies:
+  - M1-batch17-gesture-adjacency-swipe-smoke
+  - M1-batch21b-ci-retry
+outputs:
+  - >-
+    the gate reads mCurrentFocus only and matches " $PKG/", i.e. our activity,
+    instead of also accepting mFocusedApp.*$PKG
+  - >-
+    the retry loop prints the actual mCurrentFocus/mFocusedApp on every attempt
+    instead of a bare "foreground is not $PKG yet", so the next failure names
+    the window that was in the way
+  - >-
+    docs/unity-ci.md records run 30 end to end and corrects the retry leg from
+    API 34 to API 33, which is what the workflow matrix actually pins
+acceptance:
+  - >-
+    fed the exact dumpsys lines from run 30, the new gate rejects the case the
+    old gate accepted and still accepts a genuinely focused app
+  - the failure class stays INFRA_FAIL with exit 8; no assertion was weakened
+  - bash -n and shellcheck -S warning both clean
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - "shellcheck -S warning tools/android-smoke.sh: clean"
+  - >-
+    behaviour table against the literal run 30 strings - system sheet in front:
+    old PASS / new FAIL; app genuinely focused: old PASS / new PASS; no window
+    info: old PASS / new FAIL
+  - >-
+    not yet validated on a device: the hosted emulator pool has failed the
+    device leg five consecutive times for unrelated reasons, so the gate change
+    is verified by its own inputs rather than by a green device run
+file_ownership:
+  - tools/android-smoke.sh
+  - docs/unity-ci.md
+  - agent/tasks/M1-batch23b-swipe-smoke-focus-gate.yml
+risk: low
+escalation: none
+notes:
+  - >-
+    tools/android-smoke.sh was not listed in any task's file_ownership, so this
+    task claims it. The 17E task file records the finding but deliberately does
+    not touch the script.
+  - >-
+    Expected side effect, and an honest one: the device leg may go red more
+    often, because a system sheet in front of the board now fails the gate
+    instead of silently swallowing the swipe and reporting a missing
+    WORDS_SWIPE marker. That is the distinction the gate was added for.
