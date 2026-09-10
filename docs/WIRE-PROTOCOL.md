@@ -123,7 +123,30 @@ results/event logs are dropped after 5 min.
 All HTTP handlers are wrapped in request logging (method, path, status,
 bytes, duration); WebSocket upgrades are logged on handshake.
 
-## 5. Matchmaking (basic, M1 stub)
+
+## 5. Metrics and telemetry
+
+Counters are served in two formats:
+
+```
+GET /metrics              -> JSON
+GET /metrics/prometheus   -> Prometheus text exposition
+```
+
+Both include match lifecycle/action counters (`matches_created`,
+`matches_finished`, `intents_received`, `words_accepted`, `words_rejected`,
+`active_matches`) plus exporter health (`telemetry_events_enqueued`,
+`telemetry_events_written`, `telemetry_events_dropped`,
+`telemetry_export_errors`).
+
+Optional append-only event export is enabled with
+`WORDARENA_TELEMETRY_JSONL=/path/to/events.jsonl`; each line is a versioned
+JSON event. The exporter is asynchronous and bounded by
+`WORDARENA_TELEMETRY_BUFFER` (default 4096), so analytics backpressure cannot
+block authoritative match handling. Seat token values and credentials are not
+exported. See `docs/M1-TELEMETRY.md` for the event schema.
+
+## 6. Matchmaking (basic, M1 stub)
 
 Two players are paired FIFO per language via a poll-based queue:
 
@@ -144,7 +167,7 @@ folds its outcome into the profile's stats on completion. Anonymous seats
 keep synthetic user ids. Enqueueing the same profile twice in one language
 queue is idempotent: the existing entry is returned.
 
-## 6. Player profiles
+## 7. Player profiles
 
 Profile registry behind `ProfileRepo` — in-memory by default, Postgres when
 `WORDARENA_POSTGRES_DSN` is set (see `docs/M1-PERSISTENCE.md`). Same HTTP
@@ -169,7 +192,7 @@ and the match outcome is folded into both profiles' stats when the match
 ends. Anonymous matches keep synthetic user ids and never touch profile
 stats. Both ids must exist and be distinct (`404`/`400` otherwise).
 
-## 7. Replay
+## 8. Replay
 
 ```
 GET /v1/matches/{id}/replay
@@ -190,7 +213,7 @@ tooling:
 }
 ```
 
-## 8. Reconnect / resume
+## 9. Reconnect / resume
 
 - Reconnect = open the WebSocket again with the same token while the match
   is alive. The server immediately sends the canonical snapshot; the client
@@ -227,14 +250,14 @@ refreshes the deadline.
 - Seat substitution / rotation is out of scope for M0; tokens are
   match-scoped and do not carry across matches.
 
-## 9. Server authority notes
+## 10. Server authority notes
 
 - Intents are applied in receive order under the room lock; simultaneous
   intents resolve identically for both clients because the outcome is a
   deterministic function of the applied order (property-tested).
 - Clients never compute scores, validity or ownership.
 
-## 10. HTTP snapshot (debug/tooling)
+## 11. HTTP snapshot (debug/tooling)
 
 ```
 GET /v1/match/{id}/snapshot
@@ -245,7 +268,7 @@ includes `"phase"` (`active` | `sudden_death` | `over`) and `"sudden_death"`
 (`true` while the tiebreak wave is live), alongside `server_tick`, `wave`,
 `state_version`, `cells` and `players`.
 
-## 11. Conventions
+## 12. Conventions
 
 - Errors: JSON `{"error": "..."}` with proper HTTP status; WS auth failure
   refuses the upgrade (no frame).

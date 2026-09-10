@@ -1,0 +1,42 @@
+id: M1-batch10-telemetry
+title: Telemetry export and scrape pipeline baseline
+owner: backend-observability
+priority: normal
+complexity: medium
+inputs:
+  - docs/ROADMAP.md
+  - docs/ARCHITECTURE.md
+  - docs/WIRE-PROTOCOL.md
+  - server/cmd/game/api.go
+dependencies:
+  - M1 Batch 2 /metrics counters
+  - M1 Batch 8 result/profile storage
+outputs:
+  - server/cmd/game/telemetry.go
+  - server/cmd/game/telemetry_test.go
+  - docs/M1-TELEMETRY.md
+  - docs/WIRE-PROTOCOL.md
+  - docs/ROADMAP.md
+  - agent/state/current.yml
+acceptance:
+  - /metrics remains backward-compatible JSON and exposes exporter health
+  - /metrics/prometheus exposes stable Prometheus-compatible text metrics
+  - optional WORDARENA_TELEMETRY_JSONL writes newline-delimited JSON events
+  - exporter is non-blocking; drops/errors are observable in metrics
+  - telemetry never exports seat token values or becomes competitive authority
+  - regression tests cover Prometheus and JSONL export
+validation:
+  - cd server && go test ./cmd/game -run 'Test(PrometheusMetricsEndpoint|TelemetryJSONLExport)' -count=1 -v
+  - cd server && go vet ./...
+  - cd server && go test -count=1 ./...
+file_ownership:
+  - server/cmd/game/telemetry.go
+  - server/cmd/game/telemetry_test.go
+  - server/cmd/game/api.go
+  - docs/M1-TELEMETRY.md
+  - docs/WIRE-PROTOCOL.md
+  - docs/ROADMAP.md
+  - agent/state/current.yml
+risk: medium
+escalation: strong-model review for architecture/security semantics
+status: verified

@@ -27,6 +27,7 @@ embedded), so the local environment is a single container:
 docker compose -f infra/docker-compose.yml up --build
 # http://127.0.0.1:18080/healthz   -> {"status":"ok"}
 # http://127.0.0.1:18080/metrics   -> telemetry counters (JSON)
+# http://127.0.0.1:18080/metrics/prometheus -> Prometheus text metrics
 # POST http://127.0.0.1:18080/v1/matches  -> create a match
 # ws://127.0.0.1:18080/v1/match/ws        -> live play
 ```
@@ -34,7 +35,9 @@ docker compose -f infra/docker-compose.yml up --build
 `infra/Dockerfile` builds the binary with a multi-stage Go 1.24 → Alpine
 (nonroot) pipeline; build context is the repository root. Runtime limits are
 configurable via `WORDARENA_MAX_ROOMS` / `WORDARENA_MAX_WS_BYTES` (see
-`docs/WIRE-PROTOCOL.md`).
+`docs/WIRE-PROTOCOL.md`). Optional append-only event export is enabled with
+`WORDARENA_TELEMETRY_JSONL`; the compose file mounts a `telemetry` volume at
+`/var/log/wordarena` for this purpose.
 
 ### Staging
 

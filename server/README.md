@@ -26,6 +26,7 @@ curl http://localhost:8080/healthz
 | Match simulation (`internal/match`) | waves, claims, locks, cross-steal, replay, snapshots |
 | Match rooms (`internal/matchroom`) | 30 Hz tick loop, fan-out, tokens |
 | Transport adapter (`cmd/game`) | HTTP create + WebSocket binary protobuf envelopes |
+| Telemetry baseline | JSON `/metrics`, Prometheus `/metrics/prometheus`, optional non-blocking JSONL event sink |
 | Session/reconnect | reconnect with the same token inside the match lifetime |
 | Network fault sim | RTT 50/100/150 ms x loss 0/1/3% matrix green |
 | Load baseline | docs/LOAD-BASELINE.md |
@@ -35,6 +36,13 @@ free of protoc):
 
 ```bash
 protoc -I proto --go_out=server --go_opt=module=github.com/JoTalbot/words/server proto/wordarena/v1/match.proto
+```
+
+Telemetry export (optional):
+
+```bash
+WORDARENA_TELEMETRY_JSONL=/tmp/wordarena-events.jsonl go run ./cmd/game
+curl http://localhost:8080/metrics/prometheus
 ```
 
 Run all checks:

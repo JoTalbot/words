@@ -34,6 +34,10 @@ services:
       WORDARENA_MAX_ROOMS: "128"
       WORDARENA_MAX_WS_BYTES: "65536"
       WORDARENA_POSTGRES_DSN: "postgres://wordarena:wordarena@db:5432/wordarena?sslmode=disable"
+      WORDARENA_TELEMETRY_JSONL: "/var/log/wordarena/events.jsonl"
+      WORDARENA_TELEMETRY_BUFFER: "4096"
+    volumes:
+      - telemetry:/var/log/wordarena
     depends_on:
       db:
         condition: service_healthy
@@ -47,3 +51,4 @@ services:
 
 volumes:
   pgdata:
+  telemetry:

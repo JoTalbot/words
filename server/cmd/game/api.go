@@ -78,6 +78,10 @@ type API struct {
 	// tokenTTL bounds seat-token lifetime (0 = never, M0 default). Set via
 	// WORDARENA_SEAT_TOKEN_TTL_SECONDS.
 	tokenTTL time.Duration
+
+	// telemetry exports optional append-only operational events. It is
+	// non-authoritative and must never block match simulation.
+	telemetry telemetrySink
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -164,6 +168,7 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		resultRepo:    resultRepo,
 		pgDB:          pgDB,
 		tokenTTL:      time.Duration(envInt("WORDARENA_SEAT_TOKEN_TTL_SECONDS", 0)) * time.Second,
+		telemetry:     newTelemetrySinkFromEnv(),
 	}
 	go a.runReaper()
 	return a
@@ -200,6 +205,9 @@ func envInt(key string, def int) int {
 func (a *API) Stop() {
 	a.stopOnce.Do(func() {
 		close(a.stopCh)
+		if a.telemetry != nil {
+			_ = a.telemetry.Close()
+		}
 		if a.pgDB != nil {
 			_ = a.pgDB.Close()
 		}
@@ -293,8 +301,8 @@ func randomSeed() (uint64, error) {
 // tests; random seeds are used when absent. PlayerIDs, when set, bind the
 // seats to registered profiles (stats are updated when the match ends).
 type createMatchRequest struct {
-	Language string `json:"language"`
-	Seed     *uint64    `json:"seed,omitempty"`
+	Language  string     `json:"language"`
+	Seed      *uint64    `json:"seed,omitempty"`
 	PlayerIDs *[2]uint64 `json:"player_ids,omitempty"`
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	// Defaults to false: M0 rules apply and ties are draws.
@@ -326,18 +334,24 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/players", a.handlePlayerCreate)
 	mux.HandleFunc("GET /v1/players/{id}", a.handlePlayerGet)
 	mux.HandleFunc("GET /metrics", a.handleMetrics)
+	mux.HandleFunc("GET /metrics/prometheus", a.handlePrometheusMetrics)
 	return requestLogger(mux)
 }
 
 // handleMetrics serves the JSON telemetry counters.
 func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	m := a.metricsSnapshot()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"matches_created":  a.m.matchesCreated.Load(),
-		"matches_finished": a.m.matchesFinished.Load(),
-		"intents_received": a.m.intentsReceived.Load(),
-		"words_accepted":   a.m.wordsAccepted.Load(),
-		"words_rejected":   a.m.wordsRejected.Load(),
-		"active_matches":   a.activeRooms(),
+		"matches_created":           m.MatchesCreated,
+		"matches_finished":          m.MatchesFinished,
+		"intents_received":          m.IntentsReceived,
+		"words_accepted":            m.WordsAccepted,
+		"words_rejected":            m.WordsRejected,
+		"active_matches":            m.ActiveMatches,
+		"telemetry_events_enqueued": m.TelemetryEventsEnqueued,
+		"telemetry_events_written":  m.TelemetryEventsWritten,
+		"telemetry_events_dropped":  m.TelemetryEventsDropped,
+		"telemetry_export_errors":   m.TelemetryExportErrors,
 	})
 }
 
@@ -456,6 +470,13 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		a.profiledMu.Unlock()
 	}
 	a.m.matchesCreated.Add(1)
+	a.publishTelemetry(telemetryEvent{
+		Type:        "match_created",
+		MatchID:     id,
+		Seed:        s,
+		Language:    lang,
+		SuddenDeath: suddenDeath,
+	})
 	go a.runRoomTicker(id, room)
 	return id, s, [2]string{tok0, tok1}, userIDs, nil
 }
@@ -530,6 +551,12 @@ func (a *API) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	room.SetToken(seat, next)
+	a.publishTelemetry(telemetryEvent{
+		Type:    "seat_token_rotated",
+		MatchID: id,
+		Seat:    telemetryInt(int(seat)),
+		UserID:  room.UserID(seat),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"match_id": id,
 		"seat":     int(seat),
@@ -725,6 +752,7 @@ func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "profile store error")
 		return
 	}
+	a.publishTelemetry(telemetryEvent{Type: "profile_created", UserID: p.ID, Language: p.Language})
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -783,6 +811,18 @@ func (a *API) recordResult(room *matchroom.Room) {
 	a.resultsMu.Unlock()
 	a.reapResults()
 	a.m.matchesFinished.Add(1)
+	a.publishTelemetry(telemetryEvent{
+		Type:         "match_finished",
+		MatchID:      res.MatchID,
+		Seed:         res.Seed,
+		Language:     res.Language,
+		WinnerSeat:   telemetryInt(res.WinnerSeat),
+		IsTie:        telemetryBool(res.IsTie),
+		Score0:       telemetryInt64(res.Scores[0]),
+		Score1:       telemetryInt64(res.Scores[1]),
+		StateVersion: telemetryInt(res.StateVer),
+		ServerTick:   telemetryInt(res.ServerTick),
+	})
 
 	// Mirror the finished result to durable storage (if configured). The
 	// in-memory cache above stays the fast path; a miss reads through here.
@@ -900,6 +940,8 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	if a.maxWSBytes > 0 {
 		conn.SetReadLimit(a.maxWSBytes)
 	}
+	a.publishTelemetry(telemetryEvent{Type: "ws_connected", MatchID: id, Seat: telemetryInt(int(seat)), UserID: room.UserID(seat)})
+	defer a.publishTelemetry(telemetryEvent{Type: "ws_disconnected", MatchID: id, Seat: telemetryInt(int(seat)), UserID: room.UserID(seat)})
 	sub := room.Subscribe(seat)
 	ctx := r.Context()
 
@@ -960,6 +1002,13 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, int(v))
 		}
 		if !a.allowIntent(id, int(seat)) {
+			a.publishTelemetry(telemetryEvent{
+				Type:           "intent_rate_limited",
+				MatchID:        id,
+				Seat:           telemetryInt(int(seat)),
+				UserID:         room.UserID(seat),
+				ClientSequence: telemetryUint32(sw.ClientSequence),
+			})
 			_ = conn.Close(websocket.StatusPolicyViolation, "intent rate limit exceeded")
 			break
 		}
@@ -974,6 +1023,20 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		} else {
 			a.m.wordsRejected.Add(1)
 		}
+		a.publishTelemetry(telemetryEvent{
+			Type:           "word_validated",
+			MatchID:        id,
+			Seat:           telemetryInt(int(seat)),
+			UserID:         room.UserID(seat),
+			ClientSequence: telemetryUint32(frame.ClientSeq),
+			Word:           frame.Word,
+			Result:         wordResultName(frame.Result),
+			ScoreAdded:     telemetryInt64(frame.ScoreAdded),
+			TotalScore:     telemetryInt64(frame.TotalScore),
+			IsSteal:        telemetryBool(frame.IsSteal),
+			StateVersion:   telemetryInt(frame.StateVer),
+			ServerTick:     telemetryInt(frame.Tick),
+		})
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "bye")
 	room.Unsubscribe(seat)
@@ -992,6 +1055,23 @@ func toMatchEvent(f matchroom.EventFrame) match.Event {
 }
 
 // small helpers ---------------------------------------------------------
+
+func wordResultName(r match.WordResult) string {
+	switch r {
+	case match.ResultAccepted:
+		return "accepted"
+	case match.ResultRejectedNotInDict:
+		return "rejected_not_in_dict"
+	case match.ResultBlockedByRule:
+		return "blocked_by_rule"
+	case match.ResultInvalidInput:
+		return "invalid_input"
+	case match.ResultMatchNotActive:
+		return "match_not_active"
+	default:
+		return "unspecified"
+	}
+}
 
 func resultToProto(r match.WordResult) wordarenav1.WordResult {
 	switch r {

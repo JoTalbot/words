@@ -20,9 +20,9 @@ Exit gate: two remote clients can complete repeated matches with identical final
 ## M1 — Vertical Slice
 
 - [~] production-shaped match service (resource limits, request logging,
-  match result persistence, /metrics counters, graceful shutdown,
-  Docker/compose, background reaper, intent rate limiting, seat-token
-  rotation + optional TTL — 2026-09-10)
+  match result persistence, /metrics JSON + Prometheus counters,
+  graceful shutdown, Docker/compose, background reaper, intent rate limiting,
+  seat-token rotation + optional TTL, JSONL telemetry export — 2026-09-10)
 - [ ] shared board UX
 - [ ] Claim / Lock / Cross-Steal
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
@@ -32,8 +32,8 @@ Exit gate: two remote clients can complete repeated matches with identical final
 - [~] player profile (in-memory profiles + stats folding via player_ids done;
   durable PostgreSQL storage done 2026-09-10 — docs/M1-PERSISTENCE.md,
   WORDARENA_POSTGRES_DSN)
-- [~] telemetry baseline (in progress: lifecycle + per-action counters via
-  /metrics; export/pipeline still TODO)
+- [x] telemetry baseline (JSON /metrics, Prometheus text export, optional
+  non-blocking JSONL lifecycle/action event sink — 2026-09-10)
 
 ## M2 — Alpha Core
 
