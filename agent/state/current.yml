@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; batch16_complete_verified; unity_gestures_result_overlay_verified; matchmaking_queue_flow_ci_pending; oci_systemd_live_verified; protocol_fuzz_ci_green; web_m0_e2e_reverified; load_baseline_remeasured_no_regression; m0_swipe_prototype_closed
+status: m1_server_vertical_slice_advancing; batch16_complete_verified; matchmaking_queue_flow_verified; profile_queueing_integration_pending_ci; oci_systemd_live_verified; protocol_fuzz_ci_green; web_m0_e2e_reverified; load_baseline_remeasured_no_regression; m0_swipe_prototype_closed; dual_session_coordination_active
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -121,11 +121,11 @@ completed_tasks:
     enqueue POST /v1/queue, 1.5s poll loop with 410-expiry handling, connect
     with server-issued seat token, lazy seat binding from snapshot user ids,
     queue-token reconnect fallback; live OCI contract check green (two
-    anonymous players matched, distinct tokens); merged 7399c05
+    anonymous players matched, distinct tokens); GitHub CI 34451029325 +
+    Unity Android 34451039903 success — VERIFIED
 active_tasks:
-  - M1-batch17-unity-matchmaking-queue: merged 7399c05; static sanity + go
-    vet + matchmaking tests + live OCI queue contract all green; GitHub CI
-    and Unity Android smoke pending
+  - M1-batch17-profile-queueing: branch 3e49e0f locally green; merging to
+    main next, then GitHub CI + Unity Android smoke
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -236,13 +236,21 @@ task_graph:
       - BenchmarkContains 375.9 ns/op (stable vs 382 ns baseline)
       - docs/LOAD-BASELINE.md re-measurement table committed (1e09f42)
   M1-batch17-unity-matchmaking-queue:
-    status: local_green_ci_pending
+    status: verified
     owner: unity-client
     validation:
       - python static sanity: braces balanced, Batch 17A markers, no forbidden deps: passed
       - go vet ./...: passed; go test -run 'TestMatchmaker|TestQueue': passed
       - live OCI contract: two anonymous enqueues -> matched, per-seat tokens/user_ids
-      - GitHub CI + Unity Android workflow_dispatch: pending after push
+      - GitHub CI run 34451029325 success (head 88e8331, includes queue flow)
+      - Unity Android run 34451039903 success (validate + build + hosted emulator smoke)
+  M1-batch17-profile-queueing:
+    status: branch_green_awaiting_integration
+    owner: unity-client
+    validation:
+      - python static sanity: braces balanced, Batch 17B markers, no forbidden deps: passed
+      - go vet ./...: passed; go test -run 'TestProfile|TestPlayer': passed
+      - branch feat/unity-profile-queueing-20260910 commit 3e49e0f; merge after 17A Unity run
   M1-batch16-oci-ops:
     status: verified_live
     owner: backend-infra
@@ -322,6 +330,6 @@ workers:
     /readyz green, live match EXIT-GATE PASS, profile id=5 durable
   - OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for
     small deterministic drafting tasks with hard timeouts
-last_commit: "7399c05"
-resume_from: "Batch 16 fully closed (all sub-tasks verified: gestures/result overlay CI+Unity green incl. run 34449018045, systemd ops live, 6/6 live exit gate, protocol fuzz CI green, web-m0 E2E re-verified, load baseline no regression). Batch 17A matchmaking queue flow merged on main as 7399c05: local static/go/live-contract validation green; awaiting GitHub CI + Unity Android smoke. OCI healthy under systemd (wordarena.service, readyz green, loopback-only per Q8). Next: verify 17A CI, then Batch 17B profile-aware queueing, 17C Sudden Death result polish, 17D two-client queued live match regression."
+last_commit: "88e8331"
+resume_from: "Batch 16 closed verified. Batch 17A matchmaking queue flow VERIFIED (GitHub CI 34451029325 + Unity Android 34451039903 success on head 88e8331). Batch 17B profile-aware queueing implemented on branch feat/unity-profile-queueing-20260910 (commit 3e49e0f): CreatePlayer/GetPlayer + profile-bound enqueue + terminal stats refresh; static sanity, go vet, profile tests all green locally — merging to main next, then CI + Unity smoke. Dual-session coordination active via agent/COORDINATION.md (session B owns server cmd/game security lane; session A owns client/unity, web-m0, protocol fuzz, OCI ops, state/roadmap docs). OCI healthy under systemd wordarena.service (readyz green, loopback-only per Q8). Next after 17B: 17C Sudden Death result polish, 17D two-client queued live match regression, gesture adjacency/swipe-smoke ports from session B reference branch."
 updated_at: "2026-09-10"
