@@ -1,4 +1,33 @@
-# M0 Release Readiness — Word Arena
+# Release Readiness — Word Arena
+
+## M1 Vertical Slice Readiness (assessment in progress, 2026-09-10)
+
+M1 scope per docs/ROADMAP.md; evidence trail in agent/state/current.yml and
+the batch task files under agent/tasks/.
+
+| M1 item | Status | Evidence |
+|---|---|---|
+| Production-shaped match service | verified live | batches 1–12; systemd wordarena.service on OCI with durable Postgres, JSONL telemetry, /readyz draining, crash-restart, 6/6 live exit gate; docs/M1-OPS.md |
+| Basic matchmaking | verified | server FIFO pairing (batch 3/7), live two-client pairing check, Unity queue flow (batch 17A CI+Unity green) |
+| Player profile + durable storage | verified live | batches 5/8; Postgres durability across restart on OCI; Unity profile-aware queueing + stats refresh (batch 17B CI+Unity green) |
+| Telemetry baseline | verified live | batch 10; JSON /metrics + Prometheus + JSONL on OCI |
+| Shared board UX | verified (CI + hosted emulator) | batches 11–17F: runtime board, server protocol binding, lifecycle controls, prediction shell, swipe gestures with eight-way adjacency + device swipe smoke (pending emulator stability), result overlay, Sudden Death polish, color legend |
+| Claim / Lock / Cross-Steal | server verified; client presentation verified | M0 simulation + Unity intent flow + reconciliation |
+| Combo and Sudden Death | verified | server golden + opt-in tiebreak (docs/M1-SUDDEN-DEATH.md) + result presentation (batch 17C) |
+| Protocol robustness | verified | fuzz targets (batch 16D, ~800k execs 0 crashes), byte stability, compat tests |
+
+Open items before the M1 gate can be declared:
+
+1. Device-level swipe smoke confirmation (batch 17E) — currently blocked by
+   hosted-emulator boot flake (`input keyevent 82` Broken pipe / exit 224);
+   code itself CI-green; retry in flight, will not block indefinitely.
+2. Live OCI via-queue regression (batch 17D) — local validation green; live
+   run pending OCI SSH recovery (degraded since ~08:20Z on 2026-09-10).
+3. External access decision (PRODUCT-DECISIONS.md Q8) — loopback-only until
+   an edge/TLS + abuse review is made; does not block the vertical slice.
+4. B2 uk dictionary legal review — distribution blocker only.
+
+## M0 Release Readiness
 
 Status: SERVER-SIDE COMPLETE (verified 2026-09-09, re-verified live
 2026-09-10). CLIENT UNBLOCKED VIA REMOTE BUILD/DEVICE BACKENDS (B1
