@@ -63,6 +63,42 @@ func TestSnapshotRoundTrip(t *testing.T) {
 // TestGoldenBytes pins the serialized wire bytes for a fixed event so any
 // schema drift (field renumbering/type change) breaks loudly. Values were
 // reviewed against the schema in proto/wordarena/v1/match.proto.
+func TestUnityClientSubmitEnvelopeCompatibility(t *testing.T) {
+	// The package-light Unity bootstrap encoder sends repeated letter_indices
+	// as unpacked varints. Proto3 accepts this form even though generated Go
+	// marshaling chooses packed encoding, so pin the compatibility boundary.
+	payload := []byte{
+		0x08, 0x07, // ClientEnvelope.match_id = 7
+		0x12, 0x0d, // ClientEnvelope.submit_word length = 13
+		0x08, 0x07, // SubmitWordIntent.match_id = 7
+		0x10, 0x09, // client_sequence = 9
+		0x18, 0x02, // letter_indices[0] = 2 (unpacked)
+		0x18, 0x04, // letter_indices[1] = 4 (unpacked)
+		0x18, 0x06, // letter_indices[2] = 6 (unpacked)
+		0x28, 0xd2, 0x09, // client_timestamp_ms = 1234
+	}
+	var env wordarenav1.ClientEnvelope
+	if err := proto.Unmarshal(payload, &env); err != nil {
+		t.Fatal(err)
+	}
+	intent := env.GetSubmitWord()
+	if env.MatchId != 7 || intent == nil {
+		t.Fatalf("unpacked Unity envelope lost header/payload: match_id=%d has_intent=%t", env.MatchId, intent != nil)
+	}
+	if intent.MatchId != 7 || intent.ClientSequence != 9 || intent.ClientTimestampMs != 1234 {
+		t.Fatalf("intent header mismatch: match_id=%d client_sequence=%d client_timestamp_ms=%d", intent.MatchId, intent.ClientSequence, intent.ClientTimestampMs)
+	}
+	want := []uint32{2, 4, 6}
+	if len(intent.LetterIndices) != len(want) {
+		t.Fatalf("letter count = %d, want %d: %+v", len(intent.LetterIndices), len(want), intent.LetterIndices)
+	}
+	for i := range want {
+		if intent.LetterIndices[i] != want[i] {
+			t.Fatalf("letter_indices[%d] = %d, want %d", i, intent.LetterIndices[i], want[i])
+		}
+	}
+}
+
 func TestGoldenBytes(t *testing.T) {
 	ev := match.Event{
 		Seq: 1, Tick: 3, Seat: 0, CellIDs: []int{9, 1, 0}, Word: "cat",

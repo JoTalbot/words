@@ -43,6 +43,7 @@ namespace Words
                 PlayerSettings.applicationIdentifier = "com.jotalbot.words";
                 PlayerSettings.bundleVersion = "0.1.0";
                 PlayerSettings.Android.bundleVersionCode = 1;
+                PlayerSettings.Android.forceInternetPermission = true;
                 PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
                 PlayerSettings.Android.targetArchitectures = buildType == "debug"
                     ? AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64

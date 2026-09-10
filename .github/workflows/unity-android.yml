@@ -50,8 +50,16 @@ jobs:
           test -f "$PROJECT_PATH/Assets/Scenes/Main.unity"
           test -f "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           test -f "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs.meta"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs.meta"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs.meta"
           grep -q 'RuntimeInitializeOnLoadMethod' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
-          grep -q 'Server-authoritative' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'authoritative Go' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'TryDecodeServerEnvelope' "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs"
+          grep -q 'EncodeSubmitWord' "$PROJECT_PATH/Assets/Scripts/WordArenaProtocol.cs"
+          grep -q 'ClientWebSocket' "$PROJECT_PATH/Assets/Scripts/WordArenaNetworkClient.cs"
+          grep -R 'UnityEngine\.UI\|UnityEngine\.EventSystems' "$PROJECT_PATH/Assets/Scripts" && exit 1 || true
           test -f docs/unity-ci.md
           test -f docs/android-build.md
           test -f docs/unity-server-architecture.md

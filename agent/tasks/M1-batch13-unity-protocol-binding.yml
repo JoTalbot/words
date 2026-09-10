@@ -1,0 +1,59 @@
+id: M1-batch13-unity-protocol-binding
+title: Bind Unity runtime UX to authoritative server protocol
+owner: unity-client
+priority: high
+complexity: medium
+status: validating_local_green_unity_ci_pending
+inputs:
+  - proto/wordarena/v1/match.proto
+  - server/internal/protocol/convert.go
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - docs/WIRE-PROTOCOL.md
+dependencies:
+  - M1-batch11-unity-ux-bootstrap
+  - M1-batch12-readiness-draining
+outputs:
+  - client/unity/Assets/Scripts/WordArenaProtocol.cs
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+  - updated client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - server protocol compatibility regression test
+  - docs describing the Unity authoritative binding
+acceptance:
+  - Unity bootstrap can create a server match through POST /v1/matches
+  - Unity bootstrap connects to GET /v1/match/ws with the chosen seat token
+  - Unity bootstrap sends SubmitWordIntent as binary protobuf ClientEnvelope
+  - Unity bootstrap renders server MatchStateSnapshot cells, owners, locks, scores and versions
+  - Unity bootstrap renders WordValidatedEvent feedback without treating local score/ownership as authoritative
+  - No uGUI/EventSystem package dependency is introduced
+  - Server Go tests pin compatibility with the Unity lightweight protobuf encoder
+validation:
+  - python static Unity script sanity: braces, required markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers
+  - cd server && go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v
+  - cd server && go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath' -count=1
+  - cd server && go test ./... -count=1
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaProtocol.cs
+  - client/unity/Assets/Scripts/WordArenaProtocol.cs.meta
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs.meta
+  - client/unity/Assets/Editor/BuildCommand.cs
+  - server/internal/protocol/convert_test.go
+  - .github/workflows/unity-android.yml
+  - docs/ROADMAP.md
+  - docs/unity-server-architecture.md
+risk: medium
+escalation: strong-model
+local_validation:
+  - python static Unity script sanity: passed
+  - go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v: passed
+  - go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath|TestReadyz' -count=1: passed
+  - go test -count=1 ./...: passed
+  - go vet ./...: passed after protobuf test log repair
+  - go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed
+notes:
+  - The C# adapter is intentionally scoped to the current match.proto messages.
+  - Unknown protobuf fields are skipped for forward compatibility.
+  - The server remains authoritative for word validity, score, cell ownership, locks and match completion.
+  - Unity CI is the compile gate because the Arena sandbox has no Unity Editor or C# compiler.

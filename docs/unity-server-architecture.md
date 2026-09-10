@@ -63,3 +63,29 @@ presentation, local touch selection, 3-second lock visualization,
 Cross-Steal-ready ownership colors, combo display and a Sudden Death banner.
 It must be replaced/extended by the server protocol client; the server remains
 the only source of word validity, score, ownership and match completion.
+
+## M1 server-bound protocol slice (2026-09-10)
+
+The runtime bootstrap now includes a package-light authoritative path for
+Android CI and early device testing:
+
+1. `POST /v1/matches` is called with UnityWebRequest to create an `en`/`ru`/`uk`
+   match and receive the two seat tokens.
+2. The selected seat connects to `GET /v1/match/ws?match_id=...&token=...` via
+   `System.Net.WebSockets.ClientWebSocket`.
+3. `client/unity/Assets/Scripts/WordArenaProtocol.cs` encodes
+   `SubmitWordIntent` as binary protobuf `ClientEnvelope` and decodes the
+   current `ServerEnvelope` subset (`MatchStateSnapshot` and
+   `WordValidatedEvent`). Unknown protobuf fields are skipped, preserving
+   forward compatibility with the v1 schema.
+4. `WordArenaBootstrap` renders canonical cells, owners, lock countdowns,
+   player scores, combo multipliers, server tick and state version from server
+   snapshots/events. Local demo scoring remains available only when not in
+   server mode.
+
+This slice intentionally avoids adding a C# protobuf runtime package until the
+client protocol surface grows enough to justify code generation. The Go server
+regression `TestUnityClientSubmitEnvelopeCompatibility` pins that the server
+accepts the Unity encoder's unpacked repeated `letter_indices` representation.
+Unity CI remains the compile/build gate because local Arena tooling has no Unity
+Editor or C# compiler.

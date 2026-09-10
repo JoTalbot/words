@@ -10,3 +10,12 @@ This directory is the single Unity project for the mobile client.
 - Release output: ARM64 APK; signing is supplied by CI secrets, never committed
 
 The project is intentionally a minimal, valid bootstrap. Gameplay, networking and presentation are added incrementally; the server remains authoritative for rules and match state.
+
+## Runtime controls
+
+The IMGUI bootstrap starts in local demo mode. To exercise the authoritative
+path, run the Go game server, enter its base URL in the Server field, then tap
+`Create server match`. The client creates a match over REST, connects the active
+seat to the binary protobuf WebSocket, sends selected cell paths as
+`SubmitWordIntent`, and renders canonical snapshots/events. Android builds force
+INTERNET permission from `Assets/Editor/BuildCommand.cs`.

@@ -28,3 +28,17 @@ The client must not be authoritative for:
 Unity version, packages and build settings are pinned under `client/unity/`. The Android build entry point is `Words.BuildCommand.BuildAndroid`; CI details are documented in [`docs/unity-ci.md`](../docs/unity-ci.md) and [`docs/android-build.md`](../docs/android-build.md).
 
 Keep networking, gameplay state and presentation separated so the simulation can be exercised without rendering.
+
+## Current M1 server-bound bootstrap
+
+The runtime IMGUI bootstrap can operate either as a local presentation demo or
+as an authoritative server-bound client. In server mode it:
+
+- creates a match through `POST /v1/matches`;
+- connects the active seat token to the binary protobuf WebSocket;
+- sends only `SubmitWordIntent` messages for selected cell paths;
+- renders canonical `MatchStateSnapshot` and `WordValidatedEvent` data from the server.
+
+The lightweight C# protobuf adapter is scoped to `proto/wordarena/v1/match.proto`
+and does not make the client authoritative for score, ownership, locks, word
+validity, or match completion.

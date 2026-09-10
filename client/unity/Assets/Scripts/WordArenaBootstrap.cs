@@ -5,10 +5,12 @@ using UnityEngine;
 namespace Words.Client
 {
     /// <summary>
-    /// M1 client UX bootstrap. This is a non-authoritative presentation/demo
-    /// harness: it visualizes the shared board, claim/lock/cross-steal states,
-    /// combo and Sudden Death banners while the server remains the only source
-    /// of competitive truth.
+    /// M1 client UX bootstrap. It now has two modes:
+    ///
+    /// 1. Local demo mode keeps the no-server touch affordances from Batch 11.
+    /// 2. Server mode creates/connects to a match, submits only player intents,
+    ///    and renders canonical snapshots/events from the authoritative Go
+    ///    WebSocket protobuf protocol.
     ///
     /// The object is created at runtime and rendered with IMGUI so the minimal
     /// scene can keep building on CI without requiring a Linux/ARM64 Unity
@@ -24,17 +26,32 @@ namespace Words.Client
         private readonly List<CellViewModel> cells = new List<CellViewModel>();
         private readonly List<int> selected = new List<int>();
         private readonly PlayerViewModel[] players = { new PlayerViewModel("Blue"), new PlayerViewModel("Orange") };
+        private readonly Queue<Action> mainThreadActions = new Queue<Action>();
+        private readonly object mainThreadActionsLock = new object();
 
+        private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
         private GUIStyle bannerStyle;
         private GUIStyle hudStyle;
         private GUIStyle statusStyle;
         private GUIStyle cellStyle;
         private GUIStyle actionStyle;
+        private GUIStyle inputStyle;
         private int activeSeat;
         private bool suddenDeath;
+        private bool serverMode;
+        private bool createInProgress;
         private float lastAcceptedAt = -999f;
-        private string status = "Demo board ready. Server-authoritative networking is the next client slice.";
+        private string serverUrl = "http://127.0.0.1:18080";
+        private string language = "en";
+        private string status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
+        private ulong liveMatchId;
+        private ulong liveSeed;
+        private uint lastServerTick;
+        private uint lastStateVersion;
+        private uint clientSequence;
+        private string[] liveTokens = new string[2];
+        private ulong[] liveUserIds = new ulong[2];
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -51,35 +68,26 @@ namespace Words.Client
 
         private void Awake()
         {
-            for (var index = 0; index < DemoLetters.Length; index++)
+            ResetDemoState();
+            network = new WordArenaNetworkClient();
+            network.StatusChanged += message => EnqueueOnMainThread(() => SetStatus(message));
+            network.SnapshotReceived += snapshot => EnqueueOnMainThread(() => ApplyServerSnapshot(snapshot));
+            network.WordEventReceived += wordEvent => EnqueueOnMainThread(() => ApplyServerEvent(wordEvent));
+        }
+
+        private void OnDestroy()
+        {
+            if (network != null)
             {
-                cells.Add(new CellViewModel(index, DemoLetters[index]));
+                network.Dispose();
+                network = null;
             }
         }
 
         private void Update()
         {
-            var changed = false;
-            for (var index = 0; index < cells.Count; index++)
-            {
-                var cell = cells[index];
-                if (!cell.Locked)
-                {
-                    continue;
-                }
-
-                cell.LockRemaining = Mathf.Max(0f, cell.LockRemaining - Time.deltaTime);
-                if (cell.LockRemaining <= 0f)
-                {
-                    cell.Locked = false;
-                    changed = true;
-                }
-            }
-
-            if (changed)
-            {
-                SetStatus("Locks expired: owned cells can now be cross-stolen in the demo.");
-            }
+            DrainMainThreadActions();
+            TickVisibleLocks();
         }
 
         private void OnGUI()
@@ -98,16 +106,17 @@ namespace Words.Client
             var height = Screen.height / scale;
 
             GUILayout.BeginArea(new Rect(40f, 40f, width - 80f, height - 80f));
-            GUILayout.Label("Word Arena", titleStyle, GUILayout.Height(78f));
-            GUILayout.Label(suddenDeath ? "SUDDEN DEATH — first accepted server word wins" : "Shared board UX prototype", bannerStyle, GUILayout.Height(58f));
-            GUILayout.Label($"Blue {players[0].Score}  —  {players[1].Score} Orange   | active: {players[activeSeat].Name}", hudStyle, GUILayout.Height(50f));
-            GUILayout.Label($"Combo: Blue x{Math.Max(1, players[0].Combo)} / Orange x{Math.Max(1, players[1].Combo)}", hudStyle, GUILayout.Height(44f));
-            GUILayout.Space(20f);
+            GUILayout.Label("Word Arena", titleStyle, GUILayout.Height(72f));
+            GUILayout.Label(BannerText(), bannerStyle, GUILayout.Height(58f));
+            GUILayout.Label(ScoreText(), hudStyle, GUILayout.Height(48f));
+            GUILayout.Label(ComboText(), hudStyle, GUILayout.Height(42f));
+            DrawConnectionPanel();
+            GUILayout.Space(16f);
 
             DrawBoard();
 
-            GUILayout.Space(18f);
-            GUILayout.Label(selected.Count == 0 ? "Tap cells to spell CAT or DOG" : $"Selected: {CurrentWord()}", hudStyle, GUILayout.Height(52f));
+            GUILayout.Space(16f);
+            GUILayout.Label(selected.Count == 0 ? "Tap cells to spell a word path" : "Selected: " + CurrentWord(), hudStyle, GUILayout.Height(50f));
             GUILayout.Label(status, statusStyle, GUILayout.Height(96f));
             GUILayout.FlexibleSpace();
             DrawActions();
@@ -117,19 +126,38 @@ namespace Words.Client
             GUI.matrix = oldMatrix;
         }
 
+        private void DrawConnectionPanel()
+        {
+            GUILayout.Label(ConnectionText(), statusStyle, GUILayout.Height(54f));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Server", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
+            serverUrl = GUILayout.TextField(serverUrl, inputStyle, GUILayout.Height(48f));
+            GUILayout.Label("Lang", hudStyle, GUILayout.Width(90f), GUILayout.Height(48f));
+            language = GUILayout.TextField(language, inputStyle, GUILayout.Width(90f), GUILayout.Height(48f));
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawBoard()
         {
-            for (var row = 0; row < 3; row++)
+            var columns = 4;
+            var rows = Mathf.CeilToInt(cells.Count / (float)columns);
+            for (var row = 0; row < rows; row++)
             {
                 GUILayout.BeginHorizontal();
-                for (var col = 0; col < 4; col++)
+                for (var col = 0; col < columns; col++)
                 {
-                    var index = row * 4 + col;
+                    var index = row * columns + col;
+                    if (index >= cells.Count)
+                    {
+                        GUILayout.Space(238f);
+                        continue;
+                    }
+
                     var cell = cells[index];
                     GUI.backgroundColor = CellColor(cell);
                     if (GUILayout.Button(CellLabel(cell), cellStyle, GUILayout.Width(238f), GUILayout.Height(150f)))
                     {
-                        OnCellTapped(index);
+                        OnCellTapped(cell.CellId);
                     }
                 }
 
@@ -141,7 +169,7 @@ namespace Words.Client
         private void DrawActions()
         {
             GUILayout.BeginHorizontal();
-            DrawActionButton("Claim selected", OnClaimSelected, new Color32(63, 137, 255, 255));
+            DrawActionButton(serverMode ? "Send selected" : "Claim selected", OnClaimSelected, new Color32(63, 137, 255, 255));
             DrawActionButton("Switch seat", OnSwitchSeat, new Color32(255, 142, 63, 255));
             GUILayout.EndHorizontal();
             GUILayout.Space(12f);
@@ -149,30 +177,74 @@ namespace Words.Client
             DrawActionButton("Clear path", OnClearSelection, new Color32(90, 105, 128, 255));
             DrawActionButton("Sudden Death", OnToggleSuddenDeath, new Color32(155, 84, 255, 255));
             GUILayout.EndHorizontal();
+            GUILayout.Space(12f);
+            GUILayout.BeginHorizontal();
+            DrawActionButton(createInProgress ? "Creating..." : "Create server match", OnCreateServerMatch, new Color32(54, 172, 118, 255));
+            DrawActionButton(serverMode ? "Reconnect seat" : "Reset demo", serverMode ? (Action)ReconnectActiveSeat : ResetDemoState, new Color32(96, 112, 146, 255));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawActionButton(string label, Action action, Color32 color)
         {
             GUI.backgroundColor = color;
-            if (GUILayout.Button(label, actionStyle, GUILayout.Height(76f)))
+            if (GUILayout.Button(label, actionStyle, GUILayout.Height(74f)))
             {
                 action();
             }
         }
 
-        private void OnCellTapped(int index)
+        private void OnCellTapped(int cellId)
         {
-            if (selected.Contains(index))
+            if (selected.Contains(cellId))
             {
-                selected.Remove(index);
+                selected.Remove(cellId);
             }
             else
             {
-                selected.Add(index);
+                selected.Add(cellId);
             }
         }
 
         private void OnClaimSelected()
+        {
+            if (serverMode)
+            {
+                SubmitSelectedToServer();
+                return;
+            }
+
+            ApplyLocalDemoClaim();
+        }
+
+        private void SubmitSelectedToServer()
+        {
+            if (liveMatchId == 0)
+            {
+                SetStatus("No live match id. Create a server match first.");
+                return;
+            }
+
+            if (network == null || !network.IsConnected)
+            {
+                SetStatus("Not connected. Reconnecting active seat before submit.");
+                ReconnectActiveSeat();
+                return;
+            }
+
+            if (selected.Count < 3)
+            {
+                SetStatus("Select at least three cells. The server will validate the real word path.");
+                return;
+            }
+
+            clientSequence++;
+            var submitCells = selected.ToArray();
+            selected.Clear();
+            network.SubmitWord(liveMatchId, clientSequence, submitCells);
+            SetStatus("Submitted intent #" + clientSequence + " for '" + WordForCells(submitCells) + "'; waiting for authoritative event/snapshot.");
+        }
+
+        private void ApplyLocalDemoClaim()
         {
             var word = CurrentWord();
             if (word.Length < 3)
@@ -183,25 +255,35 @@ namespace Words.Client
 
             if (!DemoWords.Contains(word))
             {
-                SetStatus($"'{word}' rejected in local UX demo. Production validity is server-side only.");
+                SetStatus("'" + word + "' rejected in local UX demo. Production validity is server-side only.");
                 selected.Clear();
                 return;
             }
 
             var stole = false;
-            foreach (var index in selected)
+            for (var index = 0; index < selected.Count; index++)
             {
-                var cell = cells[index];
+                var cell = FindCell(selected[index]);
+                if (cell == null)
+                {
+                    continue;
+                }
+
                 if (cell.Locked && cell.OwnerSeat != activeSeat)
                 {
-                    SetStatus($"Cell {index} is locked for {cell.LockRemaining:0.0}s; wait before a Cross-Steal.");
+                    SetStatus("Cell " + cell.CellId + " is locked for " + cell.LockRemaining.ToString("0.0") + "s; wait before a Cross-Steal.");
                     return;
                 }
             }
 
-            foreach (var index in selected)
+            for (var index = 0; index < selected.Count; index++)
             {
-                var cell = cells[index];
+                var cell = FindCell(selected[index]);
+                if (cell == null)
+                {
+                    continue;
+                }
+
                 if (cell.OwnerSeat >= 0 && cell.OwnerSeat != activeSeat)
                 {
                     stole = true;
@@ -212,18 +294,24 @@ namespace Words.Client
                 cell.LockRemaining = LockSeconds;
             }
 
-            ApplyScore(word, stole);
+            ApplyDemoScore(word, stole);
             selected.Clear();
             SetStatus(stole
-                ? $"{players[activeSeat].Name} cross-stole '{word}'. Server event will be authoritative."
-                : $"{players[activeSeat].Name} claimed '{word}' and locked the cells for 3s.");
+                ? players[activeSeat].Name + " cross-stole '" + word + "'. Server event will be authoritative in live mode."
+                : players[activeSeat].Name + " claimed '" + word + "' and locked the cells for 3s.");
         }
 
         private void OnSwitchSeat()
         {
             activeSeat = 1 - activeSeat;
             selected.Clear();
-            SetStatus($"Active seat: {players[activeSeat].Name}. Shared board remains identical for both players.");
+            if (serverMode)
+            {
+                ReconnectActiveSeat();
+                return;
+            }
+
+            SetStatus("Active seat: " + players[activeSeat].Name + ". Shared board remains identical for both players.");
         }
 
         private void OnClearSelection()
@@ -240,25 +328,194 @@ namespace Words.Client
                 : "Sudden Death presentation off: tied matches render as draws.");
         }
 
-        private void ApplyScore(string word, bool stole)
+        private void OnCreateServerMatch()
+        {
+            if (createInProgress || network == null)
+            {
+                return;
+            }
+
+            createInProgress = true;
+            selected.Clear();
+            StartCoroutine(network.CreateMatch(serverUrl, SanitizedLanguage(), suddenDeath, HandleCreateMatchResult));
+        }
+
+        private void HandleCreateMatchResult(CreateMatchResult result)
+        {
+            createInProgress = false;
+            if (result == null || !result.Success)
+            {
+                SetStatus(result == null ? "Create match failed." : result.Error);
+                return;
+            }
+
+            serverMode = true;
+            liveMatchId = result.MatchId;
+            liveSeed = result.Seed;
+            suddenDeath = result.SuddenDeath;
+            liveTokens = result.Tokens;
+            liveUserIds = result.UserIds;
+            for (var index = 0; index < players.Length && index < liveUserIds.Length; index++)
+            {
+                players[index].UserId = liveUserIds[index];
+            }
+
+            activeSeat = 0;
+            clientSequence = 0;
+            ReconnectActiveSeat();
+        }
+
+        private void ReconnectActiveSeat()
+        {
+            if (network == null || liveTokens == null || activeSeat < 0 || activeSeat >= liveTokens.Length || string.IsNullOrEmpty(liveTokens[activeSeat]))
+            {
+                SetStatus("No token for active seat. Create a server match first.");
+                return;
+            }
+
+            network.Connect(serverUrl, liveMatchId, liveTokens[activeSeat]);
+            SetStatus("Connecting " + players[activeSeat].Name + " to match " + liveMatchId + ".");
+        }
+
+        private void ApplyServerSnapshot(WordArenaSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            serverMode = true;
+            liveMatchId = snapshot.MatchId == 0 ? liveMatchId : snapshot.MatchId;
+            lastServerTick = snapshot.ServerTick;
+            lastStateVersion = snapshot.StateVersion;
+
+            for (var index = 0; index < snapshot.Players.Count && index < players.Length; index++)
+            {
+                var player = snapshot.Players[index];
+                players[index].UserId = player.UserId;
+                if (index < liveUserIds.Length && liveUserIds[index] == 0)
+                {
+                    liveUserIds[index] = player.UserId;
+                }
+
+                players[index].Score = (int)player.Score;
+                players[index].Combo = Mathf.Max(1f, player.ComboMultiplier);
+                players[index].Eliminated = player.IsEliminated;
+                players[index].Rank = (int)player.RankPosition;
+            }
+
+            var ordered = new List<WordArenaBoardCell>(snapshot.Cells);
+            ordered.Sort((left, right) => left.CellId.CompareTo(right.CellId));
+            cells.Clear();
+            for (var index = 0; index < ordered.Count; index++)
+            {
+                var remote = ordered[index];
+                var cell = new CellViewModel((int)remote.CellId, remote.Letter);
+                cell.OwnerSeat = SeatForUser(remote.OwnerUserId);
+                cell.Locked = remote.IsLocked;
+                cell.LockRemaining = remote.LockRemainingMs / 1000f;
+                cells.Add(cell);
+            }
+
+            if (snapshot.Over)
+            {
+                SetStatus("Match over. Final authoritative score: " + ScoreText());
+            }
+        }
+
+        private void ApplyServerEvent(WordArenaValidatedEvent wordEvent)
+        {
+            if (wordEvent == null)
+            {
+                return;
+            }
+
+            lastServerTick = wordEvent.ServerTick;
+            if (wordEvent.StateVersion > lastStateVersion)
+            {
+                lastStateVersion = wordEvent.StateVersion;
+            }
+
+            var seat = SeatForUser(wordEvent.UserId);
+            if (seat >= 0 && seat < players.Length)
+            {
+                players[seat].Score = (int)wordEvent.TotalScore;
+                players[seat].Combo = Mathf.Max(1f, wordEvent.ComboMultiplier);
+            }
+
+            SetStatus("Server event #" + wordEvent.EventId + " seq=" + wordEvent.ClientSequence + ": "
+                + ResultText(wordEvent.Result) + " '" + wordEvent.NormalizedWord + "'"
+                + " +" + wordEvent.ScoreAdded + (wordEvent.IsSteal ? " Cross-Steal" : string.Empty));
+        }
+
+        private void ApplyDemoScore(string word, bool stole)
         {
             var now = Time.time;
             var player = players[activeSeat];
-            player.Combo = now - lastAcceptedAt <= ComboWindowSeconds ? player.Combo + 1 : 1;
+            player.Combo = now - lastAcceptedAt <= ComboWindowSeconds ? player.Combo + 1f : 1f;
             lastAcceptedAt = now;
 
-            var comboBonus = Math.Max(0, player.Combo - 1);
+            var comboBonus = Mathf.Max(0, Mathf.RoundToInt(player.Combo) - 1);
             var stealBonus = stole ? 2 : 0;
             var suddenBonus = suddenDeath ? 1 : 0;
             player.Score += word.Length + comboBonus + stealBonus + suddenBonus;
         }
 
+        private void TickVisibleLocks()
+        {
+            var changed = false;
+            for (var index = 0; index < cells.Count; index++)
+            {
+                var cell = cells[index];
+                if (!cell.Locked)
+                {
+                    continue;
+                }
+
+                cell.LockRemaining = Mathf.Max(0f, cell.LockRemaining - Time.deltaTime);
+                if (cell.LockRemaining <= 0f)
+                {
+                    cell.Locked = false;
+                    changed = true;
+                }
+            }
+
+            if (changed && !serverMode)
+            {
+                SetStatus("Locks expired: owned cells can now be cross-stolen in the demo.");
+            }
+        }
+
         private string CurrentWord()
         {
             var result = string.Empty;
-            foreach (var index in selected)
+            for (var index = 0; index < selected.Count; index++)
             {
-                result += cells[index].Letter;
+                var cell = FindCell(selected[index]);
+                if (cell != null)
+                {
+                    result += cell.Letter;
+                }
+            }
+
+            return result;
+        }
+
+        private string WordForCells(int[] cellIds)
+        {
+            var result = string.Empty;
+            if (cellIds == null)
+            {
+                return result;
+            }
+
+            for (var index = 0; index < cellIds.Length; index++)
+            {
+                var cell = FindCell(cellIds[index]);
+                if (cell != null)
+                {
+                    result += cell.Letter;
+                }
             }
 
             return result;
@@ -267,14 +524,14 @@ namespace Words.Client
         private string CellLabel(CellViewModel cell)
         {
             var owner = cell.OwnerSeat < 0 ? "Free" : players[cell.OwnerSeat].Name;
-            var lockText = cell.Locked ? $"\nLOCK {cell.LockRemaining:0.0}s" : string.Empty;
-            var selectedText = selected.Contains(cell.Index) ? "\nSELECTED" : string.Empty;
-            return $"{cell.Letter}\n{owner}{lockText}{selectedText}";
+            var lockText = cell.Locked ? "\nLOCK " + cell.LockRemaining.ToString("0.0") + "s" : string.Empty;
+            var selectedText = selected.Contains(cell.CellId) ? "\nSELECTED" : string.Empty;
+            return cell.Letter + "\n" + owner + lockText + selectedText;
         }
 
         private Color32 CellColor(CellViewModel cell)
         {
-            if (selected.Contains(cell.Index))
+            if (selected.Contains(cell.CellId))
             {
                 return new Color32(248, 210, 88, 255);
             }
@@ -292,9 +549,170 @@ namespace Words.Client
             return new Color32(54, 67, 91, 255);
         }
 
+        private string BannerText()
+        {
+            if (serverMode)
+            {
+                return suddenDeath ? "LIVE SERVER — SUDDEN DEATH ENABLED" : "LIVE SERVER — canonical snapshots/events";
+            }
+
+            return suddenDeath ? "DEMO SUDDEN DEATH — first accepted server word wins" : "Shared board UX prototype";
+        }
+
+        private string ScoreText()
+        {
+            return players[0].DisplayName + " " + players[0].Score + "  —  " + players[1].Score + " " + players[1].DisplayName
+                + "   | active: " + players[activeSeat].DisplayName;
+        }
+
+        private string ComboText()
+        {
+            return "Combo: " + players[0].DisplayName + " x" + Mathf.Max(1f, players[0].Combo).ToString("0.##")
+                + " / " + players[1].DisplayName + " x" + Mathf.Max(1f, players[1].Combo).ToString("0.##");
+        }
+
+        private string ConnectionText()
+        {
+            if (!serverMode)
+            {
+                return "Mode: local presentation demo. Server mode uses REST create + binary protobuf WebSocket.";
+            }
+
+            var connected = network != null && network.IsConnected ? "connected" : "disconnected";
+            return "Mode: server " + connected + " | match=" + liveMatchId + " seed=" + liveSeed
+                + " tick=" + lastServerTick + " version=" + lastStateVersion;
+        }
+
+        private string ResultText(WordArenaWordResult result)
+        {
+            switch (result)
+            {
+                case WordArenaWordResult.Accepted:
+                    return "accepted";
+                case WordArenaWordResult.RejectedNotInDictionary:
+                    return "rejected: not in dictionary";
+                case WordArenaWordResult.AlreadyClaimed:
+                    return "rejected: already claimed";
+                case WordArenaWordResult.BlockedByRule:
+                    return "blocked by rule";
+                case WordArenaWordResult.InvalidInput:
+                    return "invalid input";
+                case WordArenaWordResult.MatchNotActive:
+                    return "match not active";
+                default:
+                    return "unspecified";
+            }
+        }
+
+        private string SanitizedLanguage()
+        {
+            var value = string.IsNullOrEmpty(language) ? "en" : language.Trim().ToLowerInvariant();
+            if (value != "en" && value != "ru" && value != "uk")
+            {
+                return "en";
+            }
+
+            return value;
+        }
+
+        private int SeatForUser(ulong userId)
+        {
+            if (userId == 0)
+            {
+                return -1;
+            }
+
+            for (var index = 0; index < liveUserIds.Length; index++)
+            {
+                if (liveUserIds[index] == userId)
+                {
+                    return index;
+                }
+            }
+
+            for (var index = 0; index < players.Length; index++)
+            {
+                if (players[index].UserId == userId)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        private CellViewModel FindCell(int cellId)
+        {
+            for (var index = 0; index < cells.Count; index++)
+            {
+                if (cells[index].CellId == cellId)
+                {
+                    return cells[index];
+                }
+            }
+
+            return null;
+        }
+
+        private void ResetDemoState()
+        {
+            if (network != null)
+            {
+                network.Disconnect();
+            }
+
+            serverMode = false;
+            createInProgress = false;
+            liveMatchId = 0;
+            liveSeed = 0;
+            lastServerTick = 0;
+            lastStateVersion = 0;
+            clientSequence = 0;
+            liveTokens = new string[2];
+            liveUserIds = new ulong[2];
+            activeSeat = 0;
+            selected.Clear();
+            cells.Clear();
+            for (var index = 0; index < DemoLetters.Length; index++)
+            {
+                cells.Add(new CellViewModel(index, DemoLetters[index]));
+            }
+
+            players[0].Reset("Blue");
+            players[1].Reset("Orange");
+            status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
+        }
+
         private void SetStatus(string message)
         {
             status = message;
+        }
+
+        private void EnqueueOnMainThread(Action action)
+        {
+            lock (mainThreadActionsLock)
+            {
+                mainThreadActions.Enqueue(action);
+            }
+        }
+
+        private void DrainMainThreadActions()
+        {
+            while (true)
+            {
+                Action action;
+                lock (mainThreadActionsLock)
+                {
+                    if (mainThreadActions.Count == 0)
+                    {
+                        return;
+                    }
+
+                    action = mainThreadActions.Dequeue();
+                }
+
+                action();
+            }
         }
 
         private void EnsureStyles()
@@ -314,21 +732,21 @@ namespace Words.Client
             bannerStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 34,
+                fontSize = 32,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color32(255, 224, 92, 255) }
             };
             hudStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 30,
+                fontSize = 29,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = Color.white }
             };
             statusStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 25,
+                fontSize = 23,
                 wordWrap = true,
                 normal = { textColor = new Color32(218, 228, 244, 255) }
             };
@@ -342,23 +760,29 @@ namespace Words.Client
             actionStyle = new GUIStyle(GUI.skin.button)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 28,
+                fontSize = 27,
                 fontStyle = FontStyle.Bold,
                 wordWrap = true
+            };
+            inputStyle = new GUIStyle(GUI.skin.textField)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 24,
+                wordWrap = false
             };
         }
 
         private sealed class CellViewModel
         {
-            public CellViewModel(int index, string letter)
+            public CellViewModel(int cellId, string letter)
             {
-                Index = index;
+                CellId = cellId;
                 Letter = letter;
                 OwnerSeat = -1;
             }
 
-            public int Index { get; }
-            public string Letter { get; }
+            public int CellId { get; private set; }
+            public string Letter { get; private set; }
             public int OwnerSeat { get; set; }
             public bool Locked { get; set; }
             public float LockRemaining { get; set; }
@@ -368,12 +792,33 @@ namespace Words.Client
         {
             public PlayerViewModel(string name)
             {
-                Name = name;
+                Reset(name);
             }
 
-            public string Name { get; }
+            public string Name { get; private set; }
+            public ulong UserId { get; set; }
             public int Score { get; set; }
-            public int Combo { get; set; }
+            public float Combo { get; set; }
+            public int Rank { get; set; }
+            public bool Eliminated { get; set; }
+
+            public string DisplayName
+            {
+                get
+                {
+                    return UserId == 0 ? Name : Name + " #" + UserId;
+                }
+            }
+
+            public void Reset(string name)
+            {
+                Name = name;
+                UserId = 0;
+                Score = 0;
+                Combo = 1f;
+                Rank = 0;
+                Eliminated = false;
+            }
         }
     }
 }
