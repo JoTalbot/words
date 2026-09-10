@@ -187,7 +187,31 @@ GitHub-hosted runners for anything CPU-bound.
 Two SSH outages on 2026-09-10 (08:20Z and ~11:15Z) were traced to host load
 spikes, not to the service: `wordarena.service` stayed `active` throughout.
 
-## Handoff notes
+## Session D (Arena orchestrator, started 2026-09-10 ~14:00 UTC)
+
+Sessions A/B/C are idle (no worker processes on the OCI host, no tmux/screen,
+all their branches merged into `main` at `c2079e8`). Session D resumes the
+orchestrator role and therefore holds **every** lane listed above for the
+duration of this batch, with one exception recorded for honesty:
+
+- **Batch 21A takes over the session B security lane** (`server/cmd/game/api.go`,
+  `server/internal/security/**`, `docs/SECURITY-REVIEW-M1.md`,
+  `agent/tasks/M1-sec*`). Session B never delivered it; the claim is stale and
+  is hereby satisfied rather than left dangling.
+- It also touches `infra/**` and `.github/workflows/container-smoke.yml`
+  (session C lanes) *additively*: four new contract checks in `infra/smoke.sh`
+  and two compose environment keys. No session C file is restructured.
+- `server/cmd/game/api.go` origin handling changed from
+  `OriginPatterns: ["*"]` to the `internal/security.OriginPolicy` gate.
+
+Verification run by session D (do not re-run blindly, reuse or extend):
+live `main` build at `c2079e8` on the OCI host, `:18081` in-memory instance —
+`-via-queue -rounds 2 -seeds 1,2,3` => 6/6 `EXIT-GATE: PASS`;
+direct `-rounds 1 -seeds 1512,1513,1517` => `EXIT-GATE: PASS` with baseline
+scores `43:45 / 37:60 / 44:40`; `infra/smoke.sh` => 18 passed / 0 failed.
+That closes **batch 17D**.
+
+Handoff notes
 
 - Session B found Batch 15 (`5dbcc42`) fully green: push CI `34443200741` and
   Unity Android `34443210534` both success. Recorded in `agent/state/current.yml`.

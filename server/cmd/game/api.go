@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/JoTalbot/words/server/internal/match"
 	"github.com/JoTalbot/words/server/internal/matchroom"
 	"github.com/JoTalbot/words/server/internal/protocol"
+	"github.com/JoTalbot/words/server/internal/security"
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 )
@@ -83,6 +86,25 @@ type API struct {
 	// telemetry exports optional append-only operational events. It is
 	// non-authoritative and must never block match simulation.
 	telemetry telemetrySink
+
+	// --- transport-level abuse protection (M1 security hardening) -------
+	// These gates may reject a request; they never change what an accepted
+	// request means, so match determinism is unaffected.
+
+	// origins decides which browser origins may open a WebSocket.
+	origins *security.OriginPolicy
+	// mutators rate-limits state-changing calls per caller identity.
+	mutators *security.Limiter
+	// trustProxy enables X-Forwarded-For based caller identity. It must only
+	// be set when the service sits behind a proxy that overwrites the header.
+	trustProxy bool
+	// allowExplicitSeed permits clients to pin a match seed. Deterministic
+	// seeds are the backbone of replay tooling, so the default is permissive
+	// on dev deployments; a public edge must set this to false (a pinned
+	// seed lets an attacker precompute the whole board).
+	allowExplicitSeed bool
+	// maxBodyBytes caps a JSON request body.
+	maxBodyBytes int64
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -156,20 +178,25 @@ func NewAPIWithPostgres(dsn string) (*API, error) {
 // pgDB may be nil for memory-only operation.
 func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 	a := &API{
-		rooms:         map[uint64]*matchroom.Room{},
-		stopCh:        make(chan struct{}),
-		maxRooms:      envInt("WORDARENA_MAX_ROOMS", 128),
-		maxWSBytes:    int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
-		results:       map[uint64]matchResult{},
-		mm:            newMatchmaker(),
-		intentsPerSec: envInt("WORDARENA_INTENTS_PER_SEC", 60),
-		seatWindows:   map[uint64][]time.Time{},
-		profiles:      profiles,
-		profiled:      map[uint64]bool{},
-		resultRepo:    resultRepo,
-		pgDB:          pgDB,
-		tokenTTL:      time.Duration(envInt("WORDARENA_SEAT_TOKEN_TTL_SECONDS", 0)) * time.Second,
-		telemetry:     newTelemetrySinkFromEnv(),
+		rooms:             map[uint64]*matchroom.Room{},
+		stopCh:            make(chan struct{}),
+		maxRooms:          envInt("WORDARENA_MAX_ROOMS", 128),
+		maxWSBytes:        int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
+		results:           map[uint64]matchResult{},
+		mm:                newMatchmaker(),
+		intentsPerSec:     envInt("WORDARENA_INTENTS_PER_SEC", 60),
+		seatWindows:       map[uint64][]time.Time{},
+		profiles:          profiles,
+		profiled:          map[uint64]bool{},
+		resultRepo:        resultRepo,
+		pgDB:              pgDB,
+		tokenTTL:          time.Duration(envInt("WORDARENA_SEAT_TOKEN_TTL_SECONDS", 0)) * time.Second,
+		telemetry:         newTelemetrySinkFromEnv(),
+		origins:           security.NewOriginPolicy(os.Getenv("WORDARENA_WS_ALLOWED_ORIGINS")),
+		mutators:          security.NewLimiter(envInt("WORDARENA_MUTATIONS_PER_MIN", 120), time.Minute, 0),
+		trustProxy:        envBool("WORDARENA_TRUST_PROXY_HEADERS", false),
+		allowExplicitSeed: envBool("WORDARENA_ALLOW_EXPLICIT_SEED", true),
+		maxBodyBytes:      int64(envInt("WORDARENA_MAX_BODY_BYTES", 16<<10)),
 	}
 	go a.runReaper()
 	return a
@@ -187,8 +214,23 @@ func (a *API) runReaper() {
 		case <-t.C:
 			a.mm.reap()
 			a.reapResults()
+			a.mutators.Reap()
 		}
 	}
+}
+
+// envBool parses a boolean environment variable ("1", "true", "yes" are
+// true) with a default for unset or unparseable values.
+func envBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	return def
 }
 
 // envInt parses an integer environment variable with a default.
@@ -403,13 +445,57 @@ func (a *API) rejectIfDraining(w http.ResponseWriter) bool {
 	return true
 }
 
+// decodeJSON reads a request body into v with a hard byte cap. Without the
+// cap a single request could make the service allocate arbitrarily much before
+// the decoder rejects it.
+func (a *API) decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	body := r.Body
+	if a.maxBodyBytes > 0 {
+		body = http.MaxBytesReader(w, r.Body, a.maxBodyBytes)
+	}
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return false
+	}
+	return true
+}
+
+// allowMutation applies the per-caller limit to unauthenticated, state
+// creating endpoints. Authenticated seat traffic is bounded separately by
+// the per-seat intent limit, so a NATed household of players is not queued
+// behind the creation budget.
+func (a *API) allowMutation(w http.ResponseWriter, r *http.Request) bool {
+	if a.mutators == nil {
+		return true
+	}
+	key := security.ClientIP(r, a.trustProxy)
+	if a.mutators.Allow(key) {
+		return true
+	}
+	if d := a.mutators.RetryAfter(key); d > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(d.Seconds()))))
+	}
+	httpError(w, http.StatusTooManyRequests, "too many requests from this caller")
+	return false
+}
+
 func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	if a.rejectIfDraining(w) {
 		return
 	}
+	if !a.allowMutation(w, r) {
+		return
+	}
 	var req createMatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpError(w, http.StatusBadRequest, "invalid json body")
+	if !a.decodeJSON(w, r, &req) {
+		return
+	}
+	// A pinned seed is a replay tool on a dev deployment and a fairness hole
+	// on a public one: whoever fixes the seed already knows the board.
+	if req.Seed != nil && !a.allowExplicitSeed {
+		httpError(w, http.StatusBadRequest, "explicit seed is not accepted by this deployment")
 		return
 	}
 	lang := req.Language
@@ -448,7 +534,8 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
 			return
 		}
-		httpError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("create match failed: %v", err)
+		httpError(w, http.StatusInternalServerError, "match creation failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, createMatchResponse{
@@ -578,7 +665,7 @@ func (a *API) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+	if !a.decodeJSON(w, r, &req) || req.Token == "" {
 		httpError(w, http.StatusBadRequest, "token required")
 		return
 	}
@@ -614,6 +701,13 @@ func (a *API) handleTokenRotate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSnapshot serves the authoritative board of a live match. It is the
+// one read endpoint that exposes in-progress game state, so it requires a
+// seat credential: with sequential match ids an unauthenticated observer could
+// otherwise enumerate live matches and watch every board, lock and score.
+// That is a cheating channel, not just a privacy leak (docs/ARCHITECTURE.md
+// makes the server the only source of competitive truth, and a spectator feed
+// must be an explicit product decision, never a side effect).
 func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
@@ -625,6 +719,15 @@ func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	if !ok {
 		httpError(w, http.StatusNotFound, "match not found or finished")
+		return
+	}
+	tok := bearerToken(r)
+	if tok == "" {
+		httpError(w, http.StatusUnauthorized, "seat token required: send Authorization: Bearer <token> or ?token=<token>")
+		return
+	}
+	if _, ok := room.SeatForToken(tok); !ok {
+		httpError(w, http.StatusForbidden, "invalid or expired seat token")
 		return
 	}
 	dsnap := room.Match().Snapshot()
@@ -725,6 +828,9 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 	if a.rejectIfDraining(w) {
 		return
 	}
+	if !a.allowMutation(w, r) {
+		return
+	}
 	var req struct {
 		Language string `json:"language"`
 		PlayerID uint64 `json:"player_id"`
@@ -779,17 +885,23 @@ func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
 	if a.rejectIfDraining(w) {
 		return
 	}
+	if !a.allowMutation(w, r) {
+		return
+	}
 	var req struct {
 		Nickname string `json:"nickname"`
 		Language string `json:"language"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpError(w, http.StatusBadRequest, "invalid json body")
+	if !a.decodeJSON(w, r, &req) {
 		return
 	}
 	nick := req.Nickname
-	if nick == "" || len(nick) > 32 {
-		httpError(w, http.StatusBadRequest, "nickname must be 1..32 characters")
+	// Character policy lives in one place so the same rule applies to the
+	// in-memory and Postgres backends: no control characters (they would
+	// forge log lines), no spaces (the UI renders names inline), letters and
+	// digits plus _-. only, Latin or Cyrillic.
+	if !security.ValidateNickname(nick) {
+		httpError(w, http.StatusBadRequest, "nickname must be 1..32 characters using letters, digits, '-', '_' or '.'")
 		return
 	}
 	lang := req.Language
@@ -991,7 +1103,14 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
+	// Origin gate. Native clients send no Origin header and are unaffected;
+	// a browser page from a foreign site is refused even if it holds a valid
+	// token, which is what makes the token-leak blast radius finite.
+	if !a.origins.Allow(r) {
+		httpError(w, http.StatusForbidden, "origin not allowed")
+		return
+	}
+	conn, err := websocket.Accept(w, r, a.wsAcceptOptions())
 	if err != nil {
 		return
 	}
@@ -1113,6 +1232,31 @@ func toMatchEvent(f matchroom.EventFrame) match.Event {
 }
 
 // small helpers ---------------------------------------------------------
+
+// bearerToken extracts a seat credential from the Authorization header,
+// falling back to the query parameter used by WebSocket and the M0 web page.
+// The header is preferred so tokens stop appearing in URL-shaped logs.
+func bearerToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); h != "" {
+		if len(h) >= 7 && strings.EqualFold(h[:7], "bearer ") {
+			return strings.TrimSpace(h[7:])
+		}
+	}
+	return r.URL.Query().Get("token")
+}
+
+// wsAcceptOptions returns the handshake options for an upgrade that has
+// already passed the service origin gate.
+//
+// InsecureSkipVerify is set because the decision is made once, in
+// OriginPolicy, against the deployment allowlist (including loopback
+// origins, which coder/websocket would otherwise reject for the web-m0 proof
+// page). Duplicating the rule as a second pattern list is how the two
+// definitions would drift apart; the single gate is enforced before Accept
+// and is covered directly by TestWSOriginPolicy.
+func (a *API) wsAcceptOptions() *websocket.AcceptOptions {
+	return &websocket.AcceptOptions{InsecureSkipVerify: true}
+}
 
 func wordResultName(r match.WordResult) string {
 	switch r {

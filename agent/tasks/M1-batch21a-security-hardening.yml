@@ -1,0 +1,66 @@
+id: M1-batch21a-security-hardening
+title: Transport abuse hardening and the M1 security review
+owner: backend-security
+priority: critical
+complexity: large
+status: verified_local_pending_ci
+inputs:
+  - server/cmd/game/api.go (all HTTP/WS handlers)
+  - server/cmd/game/main.go (listener timeouts)
+  - infra/smoke.sh (contract checks)
+  - docs/WIRE-PROTOCOL.md, docs/M1-OPS.md, infra/docker-compose.yml
+dependencies:
+  - M1-batch18-infra-compose
+  - M1-batch16-oci-ops
+outputs:
+  - server/internal/security/security.go (origin policy, caller limiter, body/nickname policy)
+  - server/internal/security/security_test.go
+  - server/cmd/game/security_test.go (one test per gate, both halves)
+  - seat-credential gate on GET /v1/match/{id}/snapshot
+  - origin gate on /v1/match/ws replacing OriginPatterns ["*"]
+  - 16 KiB body cap + unknown-field rejection on every JSON handler
+  - per-caller mutation budget (default 120/min) with Retry-After
+  - WORDARENA_ALLOW_EXPLICIT_SEED fairness gate; static 500 text; HTTP timeouts
+  - docs/SECURITY-REVIEW-M1.md (9 findings with dispositions)
+  - docs/WIRE-PROTOCOL.md S-1 contract + conventions; docs/M1-OPS.md knob list
+  - infra/smoke.sh four new contract checks; compose hardening keys
+acceptance:
+  - an anonymous live-board read is impossible (401), a bad token is 403, a
+    rotated-away token is 403, and both authorized forms still return the board
+  - a foreign browser Origin cannot open a WebSocket; no-Origin (native) and
+    loopback origins can; an explicitly allowlisted origin can
+  - an oversized or unknown-field JSON body is a 400, not an allocation
+  - a caller over the mutation budget gets 429 + Retry-After on create/queue/
+    player, while reads and already-connected seats stay available
+  - the limiter's own key map is bounded and reaped
+  - explicit seed can be refused by configuration without touching the queue path
+  - every gate above is pinned by a test that fails if the gate is removed
+  - no existing behaviour regresses: full Go suite + race + smoke all green
+validation:
+  - cd server && gofmt -l internal/security cmd/game (empty)
+  - cd server && go vet ./...
+  - cd server && go test -count=1 ./...
+  - cd server && go test -race ./cmd/game ./internal/security ./internal/match ./internal/matchroom -count=1
+  - go build -o /tmp/wa ./cmd/game && WORDARENA_ADDR=127.0.0.1:18181 /tmp/wa & infra/smoke.sh http://127.0.0.1:18181
+  - GitHub CI + Container smoke on the merge commit
+file_ownership:
+  - server/internal/security/**
+  - server/cmd/game/api.go
+  - server/cmd/game/main.go
+  - server/cmd/game/security_test.go
+  - docs/SECURITY-REVIEW-M1.md
+  - docs/WIRE-PROTOCOL.md
+  - docs/M1-OPS.md
+  - infra/smoke.sh
+  - infra/docker-compose.yml
+  - agent/COORDINATION.md
+  - agent/tasks/M1-batch21a-security-hardening.yml
+risk: high
+escalation: strong-model
+notes:
+  - Result/replay enumeration (S-2) is deliberately NOT closed here; see
+    agent/tasks/M1-batch21g-match-codes.yml for the schema-correct fix.
+  - No limit in this batch may influence a match outcome; each one only refuses
+    a request earlier. That boundary is what keeps determinism tests valid.
+  - DisallowUnknownFields was checked against every client body in the repo
+    (Unity, headless-bot, web-m0, smoke.sh, all Go tests) before enabling.

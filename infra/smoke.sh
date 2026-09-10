@@ -143,6 +143,27 @@ if [ -n "${MATCH_ID:-}" ]; then
   check "WS rejects a missing seat token with 401" "401" "$CODE"
 fi
 
+# ------------------------------------------- live board requires a seat ---
+# The REST snapshot exposes the in-progress board, locks and scores. Match
+# ids are sequential, so an anonymous read would turn the service into a
+# spectator feed anyone could enumerate. Both halves are pinned: the abuse is
+# refused and an authorized seat still works.
+if [ -n "${MATCH_ID:-}" ]; then
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+    "$BASE/v1/match/$MATCH_ID/snapshot")
+  check "GET /v1/match/{id}/snapshot is 401 without a seat token" "401" "$CODE"
+
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+    "$BASE/v1/match/$MATCH_ID/snapshot?token=not-a-valid-token")
+  check "GET /v1/match/{id}/snapshot is 403 with a bad seat token" "403" "$CODE"
+
+  CODE=$(curl -s -o /tmp/wa_snapshot.json -w '%{http_code}' -m 10 \
+    -H "Authorization: Bearer $TOKEN0" "$BASE/v1/match/$MATCH_ID/snapshot")
+  check "GET /v1/match/{id}/snapshot is 200 with a bearer seat token" "200" "$CODE"
+  PHASE=$(json_field "$(cat /tmp/wa_snapshot.json 2>/dev/null)" phase)
+  check_in "authorized snapshot reports a match phase" "active,sudden_death,over" "$PHASE"
+fi
+
 # ------------------------------------------------- WS canonical snapshot ---
 # A real RFC 6455 handshake over the standard library: the service must accept
 # the upgrade and immediately push a binary canonical snapshot envelope.
@@ -249,7 +270,8 @@ if [ -n "${MATCH_ID:-}" ]; then
 fi
 
 rm -f /tmp/wa_healthz.json /tmp/wa_readyz.json /tmp/wa_metrics.json \
-      /tmp/wa_prom.txt /tmp/wa_match.json /tmp/wa_player.json /tmp/wa_player_get.json /tmp/wa_replay.json
+      /tmp/wa_prom.txt /tmp/wa_match.json /tmp/wa_player.json /tmp/wa_player_get.json /tmp/wa_replay.json \
+      /tmp/wa_snapshot.json
 
 printf '\nsmoke result: %d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ] || exit 1
