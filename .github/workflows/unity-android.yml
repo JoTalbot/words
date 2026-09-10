@@ -218,7 +218,10 @@ jobs:
           arch: x86_64
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          disable-animations: true
+          # disable-animations triggers `settings put` right after boot, which
+          # flakes on API 35 x86_64 ("Broken pipe (32)"). The smoke test below
+          # does not need animations disabled.
+          disable-animations: false
           script: |
             # NOTE: this action runs the script with /bin/sh (dash), which does
             # not support `set -o pipefail`. Use plain `set -eu`.
