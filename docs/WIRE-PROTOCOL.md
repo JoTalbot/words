@@ -320,3 +320,36 @@ follow-up that replaces sequential ids with unguessable match codes.
 - Frame payloads are protobuf v3; proto3 scalars default to zero values.
 - Field numbers are never reused; breaking changes need a version
   transition and compatibility window (docs/ARCHITECTURE.md).
+
+## The first snapshot a socket receives is not a synchronisation point
+
+Recorded 2026-09-11 from batch 22b, which had to prove this from code before it
+could decide whether a measured flake was a server defect or a bad check.
+
+The room ticker starts when the room is created. For a match created through
+`POST /v1/matches` that is the request; for a match created by the matchmaker it
+is the moment the two seats are paired. Each WebSocket is sent a canonical
+snapshot when it connects, not when the room starts.
+
+Consequences that clients and test harnesses must not get wrong:
+
+- Two sockets on the same match can receive first frames with different
+  `server_tick`, `state_version` and `remaining_time_ms`. This is normal for a
+  30 Hz stream and is not a desync.
+- If a wave boundary falls between the two connections, the first frames carry
+  different `current_wave` and different `cells`. Also normal.
+- What *is* guaranteed, and what a conformance check should assert: the same
+  `match_id`; the same board, ownership and scores once both sockets have reached
+  the same `current_wave`; identical event streams from then on; and exactly one
+  terminal `over=true` snapshot that is identical for both seats.
+
+A client that needs both seats to render the same board at join must wait for its
+own first snapshot and key rendering off `current_wave`, not off the assumption
+that the peer saw the same tick. Reconciling to the canonical snapshot is already
+the required behaviour for prediction rollback, so this adds no new mechanism.
+
+Measurement behind the decision: 147 queue-created matches on 2026-09-10 produced
+12 failures (~8%), of which 4 were this clock-skew class and 5 were the offline
+planner being unable to cover an arbitrary board. After separating the planner
+class and comparing the game rather than the clock, 98 further queue matches
+produced 0 divergence failures and 5 planner skips (5.1%).
