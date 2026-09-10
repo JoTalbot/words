@@ -3,7 +3,7 @@ title: Add Unity authoritative session lifecycle UX
 owner: unity-client
 priority: high
 complexity: medium
-status: validating_local_green_unity_ci_pending
+status: verified
 inputs:
   - docs/WIRE-PROTOCOL.md
   - server/cmd/game/api.go
@@ -30,8 +30,8 @@ validation:
   - cd server && go test -count=1 ./...
   - cd server && go vet ./...
   - cd server && go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1
-  - GitHub CI push run after commit
-  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+  - GitHub CI push run 34441243977
+  - GitHub Unity Android workflow_dispatch run 34441252156 build_type=debug run_smoke_tests=true
 file_ownership:
   - client/unity/Assets/Scripts/WordArenaBootstrap.cs
   - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
@@ -49,6 +49,9 @@ local_validation:
   - go test -count=1 ./...: passed
   - go vet ./...: passed
   - go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+ci_validation:
+  - GitHub CI push run 34441243977: success
+  - Unity Android run 34441252156: Validate Unity project success; Build Android debug success; Android emulator smoke test success
 notes:
   - This is still an engineering bootstrap, not final mobile UX.
   - The client stores seat tokens in memory to reconnect but must not print them in the on-screen UI or docs.
