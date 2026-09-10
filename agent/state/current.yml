@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; unity_ux_bootstrap_static_green; unity_android_ci_green_pre_batch11; oci_ssh_degraded
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; unity_ux_bootstrap_repaired_imgui_static_green; unity_android_ci_green_pre_batch11; oci_ssh_degraded
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -63,7 +63,7 @@ completed_tasks:
     board at scene load without Editor-authored GameObjects; demonstrates cell
     selection, claim, 3-second lock, cross-steal-ready ownership colors,
     combo display and Sudden Death banner; explicitly non-authoritative and
-    pending server protocol binding + Unity Android CI build/smoke
+    pending server protocol binding + repaired Unity Android CI build/smoke; first CI failed because UnityEngine.UI/EventSystems were unavailable, repaired to IMGUI
 active_tasks: []
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
@@ -101,11 +101,12 @@ task_graph:
       - local binary smoke with WORDARENA_TELEMETRY_JSONL and /metrics/prometheus
     remote_validation: pending_oci_ssh_degraded
   M1-batch11-unity-ux-bootstrap:
-    status: verified_static_pending_unity_ci
+    status: repaired_static_pending_unity_ci
     owner: unity-client
     validation:
       - python static sanity for C# markers/delimiters/package JSON/meta GUIDs
-      - GitHub Actions Unity Android workflow_dispatch build_type=debug run_smoke_tests=true pending
+      - first GitHub Actions Unity Android run 34435380589 failed at compile: UnityEngine.UI/EventSystems missing
+      - repair a42a868 rewrote bootstrap to IMGUI (com.unity.modules.imgui only); rerun workflow_dispatch pending
   M1-client-ux:
     status: protocol_binding_available_after_batch11_ci
     owner: unity-client
@@ -119,8 +120,8 @@ tests:
     ./internal/matchroom -count=1; targeted telemetry tests green; binary
     smoke on 127.0.0.1:18180 with WORDARENA_TELEMETRY_JSONL green
   ci: GitHub CI green for Batch 10 state commit 52145b0 (run 34435254937);
-    Unity Android fully green pre-Batch11 (run 34420554448); Batch11 Unity
-    Android workflow dispatch pending after push
+    Unity Android fully green pre-Batch11 (run 34420554448); Batch11 first Unity run 34435380589 failed on UI/EventSystems compile;
+    IMGUI repair a42a868 committed locally; rerun pending after push
   docker: Docker unavailable in Arena sandbox; OCI Docker present but not used
     during Batch 10 because SSH degraded; Dockerfile/compose statically checked
     and compose now includes optional telemetry volume wiring
@@ -140,9 +141,9 @@ workers:
     id=1 verified before SSH degradation
   - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
     but timed out/spinner under host load; do not rely on it until load drops
-last_commit: "616fd9e"
-resume_from: "Batch 11 Unity UX bootstrap committed locally at 616fd9e; state commit follows.
-  Next: push main, trigger Unity Android debug smoke workflow, monitor CI, repair
+last_commit: "a42a868"
+resume_from: "Batch 11 Unity UX bootstrap repaired to IMGUI at a42a868; state commit follows.
+  Next: push main, rerun Unity Android debug smoke workflow, monitor CI, repair
   if needed; retry OCI SSH/deploy validation when host responds. Do not restart
-  project; do not repeat completed telemetry or UX bootstrap work."
+  project; do not repeat completed telemetry work or pre-repair uGUI approach."
 updated_at: "2026-09-10"
