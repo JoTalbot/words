@@ -48,6 +48,10 @@ jobs:
           test -f "$PROJECT_PATH/Packages/packages-lock.json"
           test -f "$PROJECT_PATH/Assets/Editor/BuildCommand.cs"
           test -f "$PROJECT_PATH/Assets/Scenes/Main.unity"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          test -f "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs.meta"
+          grep -q 'RuntimeInitializeOnLoadMethod' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'Server-authoritative' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           test -f docs/unity-ci.md
           test -f docs/android-build.md
           test -f docs/unity-server-architecture.md

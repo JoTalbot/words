@@ -48,3 +48,17 @@ ARM-сервер не изменяет существующие контейне
 5. Реализовать Unity gameplay/network slice поверх серверного authoritative protocol.
 
 Если GitHub-hosted runner или Unity license недоступны, альтернативой является отдельный x86_64 build runner. ARM64 server остаётся backend host и не становится Unity Editor host через эмуляцию.
+
+
+## M1 client UX bootstrap (2026-09-10)
+
+`client/unity/Assets/Scripts/WordArenaBootstrap.cs` creates the initial runtime
+UI from code at scene load. This avoids hand-authoring scene objects on the
+ARM64 server where Unity Editor is unavailable, while still letting GitHub's
+x86_64 Unity CI compile/build the APK.
+
+The bootstrap is intentionally non-authoritative: it demonstrates shared board
+presentation, local touch selection, 3-second lock visualization,
+Cross-Steal-ready ownership colors, combo display and a Sudden Death banner.
+It must be replaced/extended by the server protocol client; the server remains
+the only source of word validity, score, ownership and match completion.

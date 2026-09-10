@@ -23,11 +23,11 @@ Exit gate: two remote clients can complete repeated matches with identical final
   match result persistence, /metrics JSON + Prometheus counters,
   graceful shutdown, Docker/compose, background reaper, intent rate limiting,
   seat-token rotation + optional TTL, JSONL telemetry export — 2026-09-10)
-- [ ] shared board UX
-- [ ] Claim / Lock / Cross-Steal
+- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server protocol binding pending)
+- [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; authoritative network binding pending)
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
-  Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; client
-  presentation pending)
+  Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo
+  presentation added 2026-09-10; protocol binding pending)
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09)
 - [~] player profile (in-memory profiles + stats folding via player_ids done;
   durable PostgreSQL storage done 2026-09-10 — docs/M1-PERSISTENCE.md,

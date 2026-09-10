@@ -1,0 +1,39 @@
+id: M1-batch11-unity-ux-bootstrap
+title: Unity runtime shared-board UX bootstrap
+owner: unity-client
+priority: normal
+complexity: medium
+inputs:
+  - docs/ROADMAP.md
+  - docs/unity-server-architecture.md
+  - client/unity/Assets/Scenes/Main.unity
+  - client/unity/Assets/Editor/BuildCommand.cs
+dependencies:
+  - Unity Android CI pipeline green
+  - M0 server authoritative rules and protocol docs
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts.meta
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs.meta
+  - .github/workflows/unity-android.yml
+  - docs/unity-server-architecture.md
+  - docs/ROADMAP.md
+acceptance:
+  - runtime script creates a visible shared board UI without manual scene editing
+  - UX demonstrates selection, claim, 3-second lock, cross-steal-ready ownership colors, combo, and Sudden Death presentation
+  - comments/docs state the prototype is non-authoritative and must bind to server protocol next
+  - Unity Android workflow preflight validates the bootstrap asset exists
+  - static asset/meta checks pass locally; GitHub Unity Android build/smoke is the validation backend
+validation:
+  - python static sanity for C# markers, balanced delimiters, JSON package files, unique meta GUIDs
+  - GitHub Actions Unity Android workflow_dispatch build_type=debug run_smoke_tests=true (after push)
+file_ownership:
+  - client/unity/Assets/Scripts.meta
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs.meta
+  - .github/workflows/unity-android.yml
+  - docs/unity-server-architecture.md
+  - docs/ROADMAP.md
+risk: medium
+escalation: Unity CI compile failure requires repair loop; server authority must not be weakened
+status: verified_static_pending_ci
