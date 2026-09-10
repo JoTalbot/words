@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_session_lifecycle_ci_green; unity_prediction_shell_local_green; unity_android_latest_main_green; oci_ssh_degraded
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_session_lifecycle_ci_green; unity_prediction_shell_verified_ci_green; oci_recovered_deployed_5dbcc42_live_exit_gate_pass; batch16_starting
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -78,8 +78,26 @@ completed_tasks:
     /readyz check, active-seat token rotation with redacted UI, authoritative
     result fetch and automatic terminal-over result fetch; GitHub CI run
     34441243977 success; Unity Android run 34441252156 success
+  - Batch 15 (M1 client): Unity pending-intent prediction/reconciliation
+    shell: visible pending overlay tied to client_sequence, event
+    accept/rollback correlation, canonical snapshot cleanup, no local
+    authoritative score/ownership mutation; GitHub CI run 34443200741
+    success; Unity Android run 34443210534 success (commit 5dbcc42)
+  - OCI recovery + production deploy of main 5dbcc42 (2026-09-10): /opt/words
+    reset to origin/main, go vet + full go test green on host (go 1.27.1),
+    focused Postgres validation green (ProfileCRUD/ResultPutGet/
+    DurabilityAcrossInstances), new binary live on 127.0.0.1:18080 with
+    durable DSN + JSONL telemetry (/opt/words/telemetry/events.jsonl),
+    /readyz reports storage=postgres, Prometheus endpoint live, live
+    headless-bot match EXIT-GATE PASS (seed 1512, 43:45, streams equal),
+    profile id=5 durable across service restart
 active_tasks:
-  - M1-batch15-unity-prediction-reconciliation: local_static_go_green_unity_ci_pending
+  - M1-batch16-unity-gestures-result-ux: drag/swipe multi-cell selection +
+    production result overlay (owner unity-client, branch worktree)
+  - M1-batch16-oci-ops: systemd unit for wordarena service + docs/M1-OPS.md
+    runbook (owner backend-infra)
+  - M1-batch16-exit-gate-live: full 6-match exit gate re-run against deployed
+    5dbcc42 build (owner qa)
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -87,25 +105,26 @@ blocked_tasks:
     development must use GitHub-hosted x86_64 Unity/Android CI or another
     authorized remote build/device backend
 failed_tasks:
-  - OCI isolated Batch 10 Postgres validation/deploy retry pending: SSH banner
-    timed out while host load was high (~20+) after a focused `/tmp/words-batch10`
-    go test worker hung; latest short probe after Batch 13 state also timed out
-    during banner exchange; not a code failure and not a human blocker
+  - (resolved 2026-09-10) OCI isolated Batch 10 Postgres validation/deploy:
+    SSH recovered, leftover worker absent, focused Postgres validation green,
+    current main deployed and smoke-verified live; no code failure existed
   - Unity Android latest-main run 34437012338 failed in hosted emulator unlock
     before APK install (`adb shell input keyevent 82` Broken pipe/exit 224);
     same head retried as run 34437841806 and completed success, so treat
     34437012338 as runner/emulator flake unless it recurs
 next_tasks:
-  - Retry OCI SSH recovery when host responds: kill leftover `/tmp/words-batch10`
-    test worker if still present, run focused Postgres validation with /opt/go,
-    then deploy current main binary to 127.0.0.1:18080 with durable DSN + JSONL
-    telemetry enabled
-  - M1 client follow-up (Unity): Batch 15 pending-intent prediction/reconciliation shell is locally green and pending Unity Android CI; after CI continue richer gesture path/result presentation and live-device/server configuration when OCI stabilizes
-  - Android QA fallback hierarchy (hosted emulator wired; APK artifact
-    words-android-debug); if local Android unavailable, use authorized remote
-    device backend without bypassing auth/CAPTCHA/limits
-  - M1 production shape follow-up: deploy /readyz + telemetry build and run
-    live smoke once OCI SSH is stable
+  - Batch 16A (Unity): drag/swipe multi-cell selection gesture path +
+    production result overlay (winner/final scores) on top of reconciliation
+    shell; validate via python static sanity + go protocol tests + GitHub CI
+    + Unity Android workflow_dispatch smoke
+  - Batch 16B (OCI ops): install systemd unit wordarena.service (restart on
+    crash, journal logging, env DSN/telemetry) replacing ad-hoc nohup; write
+    docs/M1-OPS.md runbook; re-run live smoke after unit cutover
+  - Batch 16C (QA): re-run full 6-match exit gate (rounds 2, seeds
+    1512,1513,1517) against deployed 5dbcc42 for parity with 2026-09-09
+  - M1 client follow-up after Batch 16: live-device/server configuration
+    (runtime server endpoint field) once OCI edge exposure decision is made;
+    loopback-only until then
 task_graph:
   M1-batch10-telemetry:
     status: verified_local_and_ci
@@ -161,7 +180,7 @@ task_graph:
       - GitHub CI push run 34441243977: success
       - Unity Android run 34441252156: success (preflight, build, hosted emulator smoke)
   M1-batch15-unity-prediction-reconciliation:
-    status: local_static_go_green_unity_ci_pending
+    status: verified
     owner: unity-client
     validation:
       - python static Unity script sanity with pending/reconciliation markers/token-redaction: passed
@@ -169,10 +188,19 @@ task_graph:
       - go test -count=1 ./...: passed
       - go vet ./...: passed
       - go test -race ./cmd/game ./internal/protocol -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
-      - GitHub CI and Unity Android workflow_dispatch: pending after push
+      - GitHub CI run 34443200741 success (commit 5dbcc42)
+      - Unity Android run 34443210534 success (commit 5dbcc42)
   M1-oci-deploy:
-    status: blocked_by_transient_server_load_or_ssh_banner_timeout
+    status: deployed_live_verified_2026-09-10
     owner: infra
+    validation:
+      - ssh recovered; no leftover test worker; load average ~6 and falling
+      - /opt/words reset to origin/main 5dbcc42; go vet + full go test green (go 1.27.1)
+      - focused Postgres validation green (ProfileCRUD/ResultPutGet/DurabilityAcrossInstances)
+      - binary /tmp/words-game.live rebuilt from 5dbcc42, live on 127.0.0.1:18080
+      - /readyz {"status":"ready","storage":"postgres"}; /metrics/prometheus live
+      - live headless-bot match EXIT-GATE PASS (seed 1512, final 43:45, streams equal)
+      - profile id=5 durable across service restart; JSONL telemetry events.jsonl writing
 tests:
   server: green locally in Arena sandbox with temporary Go 1.24.7
     (GOPATH/GOCACHE/GOMODCACHE under /home/user/.cache): go vet ./...;
@@ -203,15 +231,16 @@ android_backend: GitHub-hosted x86_64 emulator (reactivecircus, API 35)
   (myandroid.org etc.) are interactive-only unless authorized automation is
   available; do not bypass protection.
 workers:
-  - Arena sandbox: temporary Go 1.24.7 in /tmp/go; Node 20/npm 10/Python 3.13;
-    Docker/ADB/Ollama absent locally
-  - OCI host arm-server-01: SSH initially recovered; /opt/words main clean at
-    ddf6191; /opt/go/bin/go 1.27.1; Docker 29.7.2; Postgres 16.15; Ollama
-    models qwen2.5 0.5/1.5/7b, llama3.2:3b, deepseek-r1:7b; live service
-    /tmp/words-game.latest on 127.0.0.1:18080 with durable Postgres profile
-    id=1 verified before SSH degradation
-  - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
-    but timed out/spinner under host load; do not rely on it until load drops
-last_commit: "4326edf"
-resume_from: "Batch 15 Unity pending-intent prediction/reconciliation shell implemented locally on top of 4326edf: visible pending overlay tied to client_sequence, event accept/rollback correlation, canonical snapshot cleanup, no local authoritative score/ownership mutation. Local static/Go/vet/race validation passed. Next: commit/push Batch 15, monitor GitHub CI and Unity Android debug smoke, then mark verified or repair. OCI remains SSH banner-timeout degraded."
+  - Arena sandbox: temporary Go 1.24.7 amd64 in /tmp/go (GOPATH/GOCACHE/GOMODCACHE
+    under /home/user/.cache); Node 20/npm 10/Python 3.13; full server suite
+    green locally (go vet + go test ./...); Docker/ADB/Ollama absent locally
+  - OCI host arm-server-01: SSH recovered; /opt/words at 5dbcc42; /opt/go/bin/go
+    1.27.1; Docker 29.7.2; Postgres 16.15; Ollama models qwen2.5 0.5/1.5/7b,
+    llama3.2:3b, deepseek-r1:7b; live service /tmp/words-game.latest built from
+    5dbcc42 on 127.0.0.1:18080 with durable Postgres DSN + JSONL telemetry,
+    /readyz green, live match EXIT-GATE PASS, profile id=5 durable
+  - OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for
+    small deterministic drafting tasks with hard timeouts
+last_commit: "5dbcc42"
+resume_from: "Session resumed 2026-09-10: repo re-cloned, Batch 15 confirmed verified (CI 34443200741 + Unity Android 34443210534), OCI SSH recovered, leftover worker absent, focused Postgres validation green, current main 5dbcc42 deployed live with DSN + JSONL telemetry, live headless-bot match EXIT-GATE PASS, profile durable across restart. Next: Batch 16A Unity drag/swipe gesture + result overlay (worktree branch), Batch 16B OCI systemd unit + docs/M1-OPS.md, Batch 16C full 6-match live exit-gate re-run; then integrate, push, CI + Unity Android smoke, state update."
 updated_at: "2026-09-10"
