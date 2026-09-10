@@ -24,16 +24,19 @@ file_ownership:
 risk: low
 escalation: none
 local_validation:
-  - OCI SSH recovered at ~10:17 UTC after the 08:20Z degradation window; the
-    systemd service had stayed active throughout, so this was an access
-    problem and never a service regression
-  - via-queue: 6/6 matches EXIT-GATE PASS, all terminal snapshots and client
-    streams equal, 12 intents per match
-  - direct control: 6/6 EXIT-GATE PASS with scores identical to the
-    2026-09-09 baseline (43:45 / 37:60 / 44:40 across seeds 1512/1513/1517)
-  - /metrics after the run: 180 intents received, 180 words accepted,
-    0 rejected, 242 telemetry events written, 0 dropped, 0 export errors
+  - >-
+    OCI SSH recovered at ~10:17 UTC after the 08:20Z degradation window; the systemd service had
+    stayed active throughout, so this was an access problem and never a service regression
+  - >-
+    via-queue: 6/6 matches EXIT-GATE PASS, all terminal snapshots and client streams equal, 12
+    intents per match
+  - >-
+    direct control: 6/6 EXIT-GATE PASS with scores identical to the 2026-09-09 baseline (43:45 /
+    37:60 / 44:40 across seeds 1512/1513/1517)
+  - >-
+    /metrics after the run: 180 intents received, 180 words accepted, 0 rejected, 242 telemetry
+    events written, 0 dropped, 0 export errors
 notes:
-  - This executes session A's batch 17D task; the headless-bot source and the
-    OCI ops lane remain session A's. Session C only ran the validation and
-    recorded the evidence.
+  - >-
+    This executes session A's batch 17D task; the headless-bot source and the OCI ops lane remain
+    session A's. Session C only ran the validation and recorded the evidence.

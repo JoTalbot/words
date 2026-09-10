@@ -25,7 +25,7 @@ acceptance:
   - Local demo mode remains available and non-authoritative
   - No uGUI/EventSystem package dependency is introduced
 validation:
-  - python static Unity script sanity: braces, required lifecycle markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers, no raw-token UI markers
+  - "python static Unity script sanity: braces, required lifecycle markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers, no raw-token UI markers"
   - cd server && go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1
   - cd server && go test -count=1 ./...
   - cd server && go vet ./...
@@ -44,14 +44,14 @@ file_ownership:
 risk: medium
 escalation: strong-model
 local_validation:
-  - python static Unity script sanity with lifecycle markers and token-redaction check: passed
-  - go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed
-  - go test -count=1 ./...: passed
-  - go vet ./...: passed
-  - go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+  - "python static Unity script sanity with lifecycle markers and token-redaction check: passed"
+  - "go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed"
+  - "go test -count=1 ./...: passed"
+  - "go vet ./...: passed"
+  - "go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed"
 ci_validation:
-  - GitHub CI push run 34441243977: success
-  - Unity Android run 34441252156: Validate Unity project success; Build Android debug success; Android emulator smoke test success
+  - "GitHub CI push run 34441243977: success"
+  - "Unity Android run 34441252156: Validate Unity project success; Build Android debug success; Android emulator smoke test success"
 notes:
   - This is still an engineering bootstrap, not final mobile UX.
   - The client stores seat tokens in memory to reconnect but must not print them in the on-screen UI or docs.

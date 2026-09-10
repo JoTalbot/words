@@ -11,18 +11,20 @@ inputs:
 dependencies:
   - M1-batch16-unity-gestures-result-ux
 outputs:
-  - drag extension restricted to eight-way adjacency with single-cell
-    bridging for fast pointers, backtrack preserved, MaxPathCells=12 cap
+  - >-
+    drag extension restricted to eight-way adjacency with single-cell bridging for fast pointers,
+    backtrack preserved, MaxPathCells=12 cap
   - WORDS_SWIPE Debug.Log marker on committed multi-cell swipes
-  - unity-android smoke step: real adb input swipe across the board rows +
-    logcat grep for WORDS_SWIPE (device-level gesture verification)
+  - >-
+    unity-android smoke step: real adb input swipe across the board rows + logcat grep for
+    WORDS_SWIPE (device-level gesture verification)
 acceptance:
   - adjacency rules are client-side presentation only; server still validates paths
   - fast swipes still capture paths via the bridge rule
   - hosted-emulator smoke asserts the gesture fired on a real device input event
   - direct CI and Unity build remain green
 validation:
-  - python static Unity script sanity: braces, Batch 17E markers, workflow yaml parse
+  - "python static Unity script sanity: braces, Batch 17E markers, workflow yaml parse"
   - cd server && go vet ./...
   - GitHub CI push run after integration
   - GitHub Unity Android workflow_dispatch run_smoke_tests=true (now includes swipe assertion)
@@ -33,8 +35,10 @@ file_ownership:
 risk: medium
 escalation: strong-model
 notes:
-  - Ports the two accepted ideas from session B's unmerged reference branch
-    (adjacency+cap, adb swipe smoke) per COORDINATION.md; the duplicate
-    WordArenaSwipeInput.cs file itself stays unmerged.
-  - If the swipe smoke flakes on emulator geometry, treat as runner flake and
-    retry once before adjusting coordinates (precedent: run 34437012338).
+  - >-
+    Ports the two accepted ideas from session B's unmerged reference branch (adjacency+cap, adb
+    swipe smoke) per COORDINATION.md; the duplicate WordArenaSwipeInput.cs file itself stays
+    unmerged.
+  - >-
+    If the swipe smoke flakes on emulator geometry, treat as runner flake and retry once before
+    adjusting coordinates (precedent: run 34437012338).

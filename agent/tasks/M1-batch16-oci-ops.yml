@@ -32,9 +32,11 @@ file_ownership:
 risk: medium
 escalation: strong-model
 local_validation:
-  - OCI (2026-09-10): unit enabled+active; crash restart verified; readyz green;
-    EXIT-GATE PASS 6/6 (seeds 1512,1513,1517 x2 rounds) on build 5dbcc42
+  - >-
+    OCI (2026-09-10): unit enabled+active; crash restart verified; readyz green; EXIT-GATE PASS
+    6/6 (seeds 1512,1513,1517 x2 rounds) on build 5dbcc42
 notes:
   - Secrets stay in EnvironmentFile (600), not in the unit file.
-  - Runbook pre-deploy checklist drafted by host-local qwen2.5:1.5b and cleaned
-    by the orchestrating agent.
+  - >-
+    Runbook pre-deploy checklist drafted by host-local qwen2.5:1.5b and cleaned by the
+    orchestrating agent.

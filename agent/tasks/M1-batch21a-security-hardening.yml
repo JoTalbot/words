@@ -25,17 +25,20 @@ outputs:
   - docs/WIRE-PROTOCOL.md S-1 contract + conventions; docs/M1-OPS.md knob list
   - infra/smoke.sh four new contract checks; compose hardening keys
 acceptance:
-  - an anonymous live-board read is impossible (401), a bad token is 403, a
-    rotated-away token is 403, and both authorized forms still return the board
-  - a foreign browser Origin cannot open a WebSocket; no-Origin (native) and
-    loopback origins can; an explicitly allowlisted origin can
+  - >-
+    an anonymous live-board read is impossible (401), a bad token is 403, a rotated-away token is
+    403, and both authorized forms still return the board
+  - >-
+    a foreign browser Origin cannot open a WebSocket; no-Origin (native) and loopback origins can;
+    an explicitly allowlisted origin can
   - an oversized or unknown-field JSON body is a 400, not an allocation
-  - a caller over the mutation budget gets 429 + Retry-After on create/queue/
-    player, while reads and already-connected seats stay available
+  - >-
+    a caller over the mutation budget gets 429 + Retry-After on create/queue/ player, while reads
+    and already-connected seats stay available
   - the limiter's own key map is bounded and reaped
   - explicit seed can be refused by configuration without touching the queue path
   - every gate above is pinned by a test that fails if the gate is removed
-  - no existing behaviour regresses: full Go suite + race + smoke all green
+  - "no existing behaviour regresses: full Go suite + race + smoke all green"
 validation:
   - cd server && gofmt -l internal/security cmd/game (empty)
   - cd server && go vet ./...
@@ -58,9 +61,12 @@ file_ownership:
 risk: high
 escalation: strong-model
 notes:
-  - Result/replay enumeration (S-2) is deliberately NOT closed here; see
+  - >-
+    Result/replay enumeration (S-2) is deliberately NOT closed here; see
     agent/tasks/M1-batch21g-match-codes.yml for the schema-correct fix.
-  - No limit in this batch may influence a match outcome; each one only refuses
-    a request earlier. That boundary is what keeps determinism tests valid.
-  - DisallowUnknownFields was checked against every client body in the repo
-    (Unity, headless-bot, web-m0, smoke.sh, all Go tests) before enabling.
+  - >-
+    No limit in this batch may influence a match outcome; each one only refuses a request earlier.
+    That boundary is what keeps determinism tests valid.
+  - >-
+    DisallowUnknownFields was checked against every client body in the repo (Unity, headless-bot,
+    web-m0, smoke.sh, all Go tests) before enabling.

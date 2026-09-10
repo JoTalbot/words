@@ -196,3 +196,22 @@ jobs:
 
       - name: Check monitoring assets against source constants
         run: python3 tools/check-monitoring-assets.py
+
+      # The task graph is the protocol's durable contract
+      # (docs/TASK-PROTOCOL.md): acceptance criteria and validation evidence
+      # bind only if the files load. Thirteen of twenty-eight did not parse,
+      # and nothing noticed, because no reader existed. Run it in CI so the
+      # next unquoted ": " inside a task description fails a build instead of
+      # silently deleting a task from the machine-readable graph.
+      - name: Ensure PyYAML for the task-graph check
+        run: |
+          if python3 -c 'import yaml' 2>/dev/null; then
+            echo "PyYAML already importable"
+          else
+            python3 -m pip install --quiet --disable-pip-version-check \
+              --break-system-packages pyyaml ||
+              python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          fi
+
+      - name: Validate the task graph
+        run: python3 tools/check-task-yaml.py

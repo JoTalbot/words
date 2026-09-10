@@ -15,26 +15,29 @@ outputs:
   - server/cmd/game/idalias_test.go (bug reproduction + fix + empty-store/no-repo cases)
   - docs/M1-PERSISTENCE.md section on id resumption
 acceptance:
-  - without priming the harness reproduces the defect (first id 1, replay of a
-    live match answers 200 from the aliased durable row)
-  - with priming the first id continues the durable sequence, replay of a live
-    match answers 404, and a fresh result is actually stored (no silent
-    conflict drop)
+  - >-
+    without priming the harness reproduces the defect (first id 1, replay of a live match answers
+    200 from the aliased durable row)
+  - >-
+    with priming the first id continues the durable sequence, replay of a live match answers 404,
+    and a fresh result is actually stored (no silent conflict drop)
   - an empty durable store and an in-memory deployment behave exactly as before
   - startup fails fast if the high-water mark cannot be read
 validation:
   - cd server && go vet ./... && go test -count=1 ./...
   - cd server && go test -race ./cmd/game ./internal/security -count=1
-  - on OCI: restart wordarena.service with the new binary, then
-    bash infra/smoke.sh http://127.0.0.1:18080   # expect 22 passed / 0 failed
+  - >-
+    on OCI: restart wordarena.service with the new binary, then bash infra/smoke.sh
+    http://127.0.0.1:18080 # expect 22 passed / 0 failed
   - live headless-bot direct + via-queue exit gate on the promoted build
 risk: medium
 escalation: strong-model
 notes:
-  - CI could never have caught this: every CI run starts with an empty
-    database, so id reuse only manifests against a deployment with durable
-    history. Recorded so the next review does not call CI coverage sufficient
-    for restart behaviour.
-  - Related open item, not touched here: the queue exit gate reported one
-    "initial snapshots diverge" failure in 3 matches; see
+  - >-
+    CI could never have caught this: every CI run starts with an empty database, so id reuse only
+    manifests against a deployment with durable history. Recorded so the next review does not call
+    CI coverage sufficient for restart behaviour.
+  - >-
+    Related open item, not touched here: the queue exit gate reported one "initial snapshots
+    diverge" failure in 3 matches; see
     agent/tasks/M1-batch22b-queue-initial-snapshot-comparison.yml.

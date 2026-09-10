@@ -117,3 +117,30 @@ Prefer work in this order:
 10. nonessential optimization.
 
 Never allow cosmetic work to starve correctness or release-critical work.
+
+## Machine-readable form (enforced in CI since 2026-09-10)
+
+Every file under `agent/tasks/` must load as YAML and carry, at minimum:
+
+| key | rule |
+|---|---|
+| `id` | string, equal to the file name without `.yml` |
+| `title` | string |
+| `status` | one snake_case token; qualified states are encouraged (`verified_local_pending_ci`, `validated_local_live_pending`) because they carry the evidence class |
+| `acceptance` | non-empty list of strings |
+| `validation` | non-empty list of strings |
+| `risk` | string |
+
+`tools/check-task-yaml.py` enforces this in the Container-smoke workflow and
+prints the status vocabulary it sees, so vocabulary drift stays visible without
+being frozen into an enum. `tools/normalize-task-yaml.py` is the repair tool and
+is never run by CI.
+
+Why this exists: when the rule was introduced, 13 of 28 task files could not be
+parsed at all, and several others had silently become single-entry mappings
+because a description contained ": " — for example a validation step written as
+`python static Unity script sanity: braces, markers` loaded as
+`{'python static Unity script sanity': 'braces, markers'}` instead of the string
+it was meant to be. The protocol's guarantee that a session reads acceptance
+criteria before starting and writes evidence before finishing was therefore not
+machine-checkable for most of the graph.

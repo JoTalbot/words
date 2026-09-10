@@ -13,12 +13,14 @@ dependencies:
 outputs:
   - .github/workflows/container-smoke.yml
 acceptance:
-  - a new workflow file is ADDED; .github/workflows/ci.yml and
-    .github/workflows/unity-android.yml are not modified
-  - workflow triggers: push to main, pull_request to main, workflow_dispatch
+  - >-
+    a new workflow file is ADDED; .github/workflows/ci.yml and .github/workflows/unity-android.yml
+    are not modified
+  - "workflow triggers: push to main, pull_request to main, workflow_dispatch"
   - job builds the image with the repository root as build context
-  - job starts the compose stack, waits for both healthchecks, runs
-    infra/smoke.sh, and always tears the stack down (if: always())
+  - >-
+    job starts the compose stack, waits for both healthchecks, runs infra/smoke.sh, and always
+    tears the stack down (if: always())
   - job fails when any smoke assertion fails
   - workflow file parses as valid YAML and actions are pinned by version tag
 validation:
@@ -31,5 +33,6 @@ file_ownership:
 risk: low
 escalation: none
 notes:
-  - Deliberately a separate workflow so the existing Unity Android and Go CI
-    pipelines owned by other sessions keep their current behaviour.
+  - >-
+    Deliberately a separate workflow so the existing Unity Android and Go CI pipelines owned by
+    other sessions keep their current behaviour.

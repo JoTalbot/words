@@ -25,7 +25,7 @@ acceptance:
   - Stats refresh fires once per finished match and never blocks gameplay
   - No uGUI/EventSystem dependency introduced
 validation:
-  - python static Unity script sanity: braces, Batch 17B markers, no forbidden deps
+  - "python static Unity script sanity: braces, Batch 17B markers, no forbidden deps"
   - cd server && go vet ./...
   - cd server && go test ./cmd/game -run 'TestProfile|TestPlayer' -count=1
   - GitHub CI push run after integration
@@ -37,7 +37,9 @@ file_ownership:
 risk: medium
 escalation: strong-model
 notes:
-  - Profile creation and stats folding are server-authoritative (PostgreSQL on
-    the live service); the client only renders the returned record.
-  - Per COORDINATION.md this lane stays inside client/unity; no server files
-    touched while session B owns the api.go security lane.
+  - >-
+    Profile creation and stats folding are server-authoritative (PostgreSQL on the live service);
+    the client only renders the returned record.
+  - >-
+    Per COORDINATION.md this lane stays inside client/unity; no server files touched while session
+    B owns the api.go security lane.

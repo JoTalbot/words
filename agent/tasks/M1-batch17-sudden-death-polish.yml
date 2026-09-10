@@ -19,7 +19,7 @@ acceptance:
   - the tiebreak word line is explicitly client-observed and never claims authority
   - state resets on new match (create/queue) and demo reset
 validation:
-  - python static Unity script sanity: braces, Batch 17C markers, no forbidden deps
+  - "python static Unity script sanity: braces, Batch 17C markers, no forbidden deps"
   - cd server && go vet ./...
   - GitHub CI push run after integration
   - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
@@ -29,5 +29,6 @@ file_ownership:
 risk: low
 escalation: strong-model
 notes:
-  - Presentation-only change inside the existing result overlay; server
-    Sudden Death semantics (docs/M1-SUDDEN-DEATH.md) unchanged.
+  - >-
+    Presentation-only change inside the existing result overlay; server Sudden Death semantics
+    (docs/M1-SUDDEN-DEATH.md) unchanged.

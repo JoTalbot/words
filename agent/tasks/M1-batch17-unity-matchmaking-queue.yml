@@ -25,10 +25,10 @@ acceptance:
   - Local demo mode and Create server match flow unchanged
   - No uGUI/EventSystem dependency introduced
 validation:
-  - python static Unity script sanity: braces, Batch 17A markers, no forbidden deps
+  - "python static Unity script sanity: braces, Batch 17A markers, no forbidden deps"
   - cd server && go vet ./...
   - cd server && go test ./cmd/game -run 'TestMatchmaker|TestQueue' -count=1
-  - live OCI queue contract check: two enqueues -> both matched, distinct seat tokens
+  - "live OCI queue contract check: two enqueues -> both matched, distinct seat tokens"
   - GitHub CI push run after integration
   - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
 file_ownership:
@@ -38,11 +38,12 @@ file_ownership:
 risk: medium
 escalation: strong-model
 local_validation:
-  - python static sanity: passed (braces balanced, markers present, forbidden deps absent)
-  - go vet ./...: passed
-  - go test -run 'TestMatchmaker|TestQueue': passed
-  - live OCI queue contract: enqueue A waiting -> enqueue B matched immediately -> poll A matched, match_id/tokens/user_ids per seat
+  - "python static sanity: passed (braces balanced, markers present, forbidden deps absent)"
+  - "go vet ./...: passed"
+  - "go test -run 'TestMatchmaker|TestQueue': passed"
+  - "live OCI queue contract: enqueue A waiting -> enqueue B matched immediately -> poll A matched, match_id/tokens/user_ids per seat"
 notes:
-  - Pairing, seat tokens and match creation remain fully server-side; the
-    client only transports the issued credentials, keeping matchmaking
-    authoritative and replayable (docs/ARCHITECTURE.md).
+  - >-
+    Pairing, seat tokens and match creation remain fully server-side; the client only transports
+    the issued credentials, keeping matchmaking authoritative and replayable
+    (docs/ARCHITECTURE.md).

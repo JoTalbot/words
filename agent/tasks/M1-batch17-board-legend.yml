@@ -10,15 +10,16 @@ dependencies:
   - M1-batch16-unity-gestures-result-ux
 outputs:
   - Show/Hide color legend control in the action area
-  - legend text explaining ownership (blue/orange), lock brightness,
-    selection/pending (yellow), accepted (green), rolled back (red), free (grey)
+  - >-
+    legend text explaining ownership (blue/orange), lock brightness, selection/pending (yellow),
+    accepted (green), rolled back (red), free (grey)
   - explicit note that ownership is authoritative from server snapshots
 acceptance:
   - legend is collapsed by default and toggles without affecting match state
   - wording makes server authority explicit
   - no uGUI/EventSystem dependency introduced
 validation:
-  - python static Unity script sanity: braces, Batch 17F markers, no forbidden deps
+  - "python static Unity script sanity: braces, Batch 17F markers, no forbidden deps"
   - cd server && go vet ./...
   - GitHub CI push run after integration
   - Unity Android coverage via the next scheduled smoke run

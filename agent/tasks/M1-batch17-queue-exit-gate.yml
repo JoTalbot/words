@@ -14,14 +14,15 @@ outputs:
   - createMatchViaQueue with retry on outside-pairing interference
   - offline solve bound to the authoritative join-info seed
 acceptance:
-  - queue-created matches satisfy the same exit-gate invariants as direct matches
-    (identical terminal snapshots, identical client streams, live scores == offline replay)
+  - >-
+    queue-created matches satisfy the same exit-gate invariants as direct matches (identical
+    terminal snapshots, identical client streams, live scores == offline replay)
   - FIFO seat order (first enqueue = seat 0) drives the deterministic intent script
   - direct mode unchanged (same exit-gate output as before)
 validation:
   - cd server && go vet ./cmd/headless-bot
-  - local direct mode: -rounds 1 -seeds 1512 -> EXIT-GATE PASS (43:45)
-  - local queue mode: -via-queue -rounds 1 -seeds 1 -> EXIT-GATE PASS (server seed, 59:44)
+  - "local direct mode: -rounds 1 -seeds 1512 -> EXIT-GATE PASS (43:45)"
+  - "local queue mode: -via-queue -rounds 1 -seeds 1 -> EXIT-GATE PASS (server seed, 59:44)"
   - live OCI queue-mode run after merge (deployed service)
 file_ownership:
   - server/cmd/headless-bot/main.go
@@ -29,5 +30,6 @@ file_ownership:
 risk: low
 escalation: strong-model
 notes:
-  - headless-bot is QA tooling outside session B's api.go security lane
-    (agent/COORDINATION.md); no production server files touched.
+  - >-
+    headless-bot is QA tooling outside session B's api.go security lane (agent/COORDINATION.md);
+    no production server files touched.

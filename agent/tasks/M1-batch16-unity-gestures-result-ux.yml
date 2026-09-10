@@ -16,7 +16,7 @@ outputs:
   - ordered selection display (SEL #n) and live drag feedback (DRAG #n)
   - backtrack-on-swipe-back gesture behaviour
   - production MATCH OVER result overlay (authoritative REST result preferred)
-  - overlay actions: play again, refresh result, dismiss
+  - "overlay actions: play again, refresh result, dismiss"
 acceptance:
   - A swipe across board cells selects the path in order without reloading the scene
   - A single tap preserves the legacy toggle behaviour
@@ -26,7 +26,7 @@ acceptance:
   - Overlay never claims authority over the REST result endpoint text
   - No uGUI/EventSystem package dependency is introduced
 validation:
-  - python static Unity script sanity: braces, gesture/overlay markers, no UnityEngine.UI/EventSystems
+  - "python static Unity script sanity: braces, gesture/overlay markers, no UnityEngine.UI/EventSystems"
   - cd server && go test -count=1 ./...
   - cd server && go vet ./...
   - GitHub CI push run after integration
@@ -37,8 +37,10 @@ file_ownership:
 risk: medium
 escalation: strong-model
 notes:
-  - Gesture hit-testing uses previous-frame cell rectangles captured via
-    GUILayoutUtility.GetLastRect and converts pointer coordinates through the
-    OnGUI scale matrix and the root BeginArea offset.
-  - The overlay renders from MatchResultSummary (REST) when available and from
-    snapshot scores as a preview otherwise.
+  - >-
+    Gesture hit-testing uses previous-frame cell rectangles captured via
+    GUILayoutUtility.GetLastRect and converts pointer coordinates through the OnGUI scale matrix
+    and the root BeginArea offset.
+  - >-
+    The overlay renders from MatchResultSummary (REST) when available and from snapshot scores as
+    a preview otherwise.

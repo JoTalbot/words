@@ -11,9 +11,9 @@ inputs:
 dependencies:
   - M1-batch13-unity-protocol-binding
 outputs:
-  - server/internal/protocol/fuzz_test.go with three fuzz targets:
-    FuzzClientEnvelopeDecode, FuzzClientEnvelopeMutation,
-    FuzzSnapshotEncodeDecode
+  - >-
+    server/internal/protocol/fuzz_test.go with three fuzz targets: FuzzClientEnvelopeDecode,
+    FuzzClientEnvelopeMutation, FuzzSnapshotEncodeDecode
 acceptance:
   - arbitrary/mutated wire bytes never panic the decode path
   - EnvelopeToIntent is deterministic for any parseable envelope
@@ -31,10 +31,11 @@ file_ownership:
 risk: low
 escalation: strong-model
 local_validation:
-  - go vet: passed
-  - seed-corpus go test -run Fuzz: passed
-  - -fuzztime 12s per target: 286k/218k/296k execs, new interesting inputs found, 0 crashes
-  - full go test ./... in worktree: passed
+  - "go vet: passed"
+  - "seed-corpus go test -run Fuzz: passed"
+  - "-fuzztime 12s per target: 286k/218k/296k execs, new interesting inputs found, 0 crashes"
+  - "full go test ./... in worktree: passed"
 notes:
-  - Generated fuzz corpora are intentionally not committed; seeds live in code
-    (f.Add) so CI coverage stays deterministic and repository size bounded.
+  - >-
+    Generated fuzz corpora are intentionally not committed; seeds live in code (f.Add) so CI
+    coverage stays deterministic and repository size bounded.

@@ -3,37 +3,90 @@ title: Decide what "identical initial snapshots" means when the clock starts at 
 owner: qa
 priority: high
 complexity: small
-status: queued
-found_by: live via-queue exit gate on the OCI deployment (1 of 3 matches failed)
+status: measured_ready_for_decision
+found_by: "live re-verification of the promoted OCI deployment"
 inputs:
-  - server/cmd/headless-bot/main.go (playOne, the proto.Equal(s0, s1) check)
-  - server/cmd/game/matchmaking.go (pairing -> createRoom -> ticker start)
-  - server/cmd/game/api.go (runRoomTicker, sendSnapshot on connect)
+  - "server/cmd/headless-bot/main.go (playOne, the proto.Equal(s0, s1) check)"
+  - "server/cmd/game/matchmaking.go (pairing -> createRoom -> ticker start)"
+  - "server/cmd/game/api.go (runRoomTicker, sendSnapshot on connect)"
 outputs:
-  - a decision recorded in docs/M0.md / docs/WIRE-PROTOCOL.md: either the room
-    must not advance until both seats have connected, or the harness must
-    compare tick-aligned snapshots (same server_tick / state_version) instead
-    of the first frame each socket happens to receive
+  - >-
+    a decision recorded in docs/M0.md and docs/WIRE-PROTOCOL.md: either the room
+    must not advance until both seats have connected, or the harness compares
+    tick-aligned snapshots (same server_tick / state_version) instead of the
+    first frame each socket happens to receive
 acceptance:
-  - the flake rate is measured over at least 20 queue-created matches, both
+  - >-
+    the flake rate is measured over at least 20 queue-created matches, both
     before and after the change, not argued from one sample
-  - if the conclusion is "the clock must wait for both seats", the change lands
-    with a deterministic test and the M0 acceptance wording is updated
-  - if the conclusion is "the comparison was wrong", the harness compares
+  - >-
+    if the conclusion is that the clock must wait for both seats, the change
+    lands with a deterministic test and the M0 acceptance wording is updated
+  - >-
+    if the conclusion is that the comparison was wrong, the harness compares
     tick-matched frames and a regression test pins that a wave boundary between
     connections is not reported as divergence
 validation:
-  - cd server && go test ./cmd/game -run 'TestExitGate|TestMatchmaking' -count=1 -v
-  - on OCI: headless-bot -via-queue -rounds 6 -seeds 1,2,3,4,5,6 (repeat 3x)
+  - "cd server && go test ./cmd/game -run 'TestExitGate|TestMatchmaking' -count=1 -v"
+  - "on OCI: headless-bot -via-queue -rounds 6 -seeds 1,2,3,4,5,6 (repeat 3x)"
+file_ownership:
+  - server/cmd/headless-bot/main.go
+  - docs/M0.md
+  - docs/WIRE-PROTOCOL.md
+  - agent/tasks/M1-batch22b-queue-initial-snapshot-comparison.yml
 risk: medium
 escalation: strong-model
+measurement:
+  - >-
+    Live OCI service at ff4606c, 2026-09-10, three independent passes of
+    -via-queue -rounds 7 -seeds 21..27, each pass being 49 queue-created matches
+    with server-chosen seeds: 4, 3 and 5 failures, 12 of 147, about 8 percent.
+  - >-
+    Split by message: initial snapshots diverge 4 (2.7 percent); wave 0 not fully
+    claimable 3 and wave 2 not fully claimable 2, so 5 (3.4 percent) from the
+    offline planner. The planner failure is headless-bot coverWave returning nil
+    for a board whose wave cannot be fully covered by dictionary words, a
+    harness precondition on an arbitrary board and not a server fault; the direct
+    path never reports it because that path runs curated seeds.
+  - >-
+    The same seeds through the direct path in the same window: 0 failures,
+    EXIT-GATE PASS. Every match that ran to completion in either mode reported
+    terminal_snapshots_equal=true and client_streams_equal=true, so the M0
+    determinism property held on all 147 queue matches and all direct ones.
+  - >-
+    Harness semantics learned while measuring: -via-queue -rounds R -seeds s1..sN
+    runs R*N matches and ignores the listed seeds because the server chooses them,
+    so rounds is per seed set, not per match.
+mechanism:
+  - >-
+    Consistent with the data: the room starts its 30 Hz ticker when the queue
+    pairs the two players, while the harness dials the two sockets sequentially,
+    so the two first frames can be different ticks. The queue path dials more
+    slowly than the direct path (an HTTP enqueue plus a match poll between the two
+    connections), which is why only it shows the skew.
+  - >-
+    NOT YET PROVEN FROM CODE: the deciding step must confirm it by printing both
+    frames' server_tick and state_version on divergence.
+decision_needed:
+  - >-
+    Product or harness. If both seats must see the identical board at join is an
+    M1 property, the room must not advance waves until both seats have connected,
+    a server change with a deterministic test. If the property is what the
+    terminal state proves, which is what M0 acceptance actually states, then the
+    harness must compare tick-aligned frames and the current check is over-strict
+    for a 30 Hz stream.
+next_step:
+  - >-
+    Make the harness print server_tick and state_version of both first frames on
+    divergence, re-run 49 queue matches, and only then change either side.
+  - >-
+    Independently of that: give the bot a fallback plan, or seed the offline
+    planner from the live snapshot, so an under-coverable board is skipped rather
+    than counted as a failure; otherwise every random-seed queue run wastes about
+    3 percent of its samples on a planner limitation.
 notes:
-  - Observed on 2026-09-10: `-via-queue -rounds 1 -seeds 9,10,11` produced
-    "FAIL seed=10 round=1: seed 7996944792814624157: initial snapshots diverge"
-    while the same build passed 6/6 on an isolated instance and the direct
-    control passed 3/3 with baseline scores. A room starts its 30 Hz ticker at
-    creation, and the two seats connect sequentially, so the two "initial"
-    frames can legitimately be different ticks. Reproducing before designing is
-    mandatory: this must not be dismissed as a flake, and it must not be
-    "fixed" by relaxing an acceptance criterion without deciding which of the
-    two properties the project actually wants.
+  - >-
+    First observed as a single failure in -via-queue -rounds 1 -seeds 9,10,11. It
+    was neither dismissed as a flake nor fixed by relaxing an acceptance
+    criterion: the rate was measured over 147 matches and the two failure classes
+    separated before any change, and the mechanism still has to be proven.

@@ -1,6 +1,7 @@
 id: M0-autonomous-bootstrap
 title: Establish autonomous M0 development loop
 owner: orchestrator
+status: "verified"  # M0 is closed in docs/M0.md; the field was added to the protocol after this file was written
 priority: critical
 complexity: medium
 inputs:

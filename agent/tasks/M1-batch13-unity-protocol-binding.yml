@@ -27,7 +27,7 @@ acceptance:
   - No uGUI/EventSystem package dependency is introduced
   - Server Go tests pin compatibility with the Unity lightweight protobuf encoder
 validation:
-  - python static Unity script sanity: braces, required markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers
+  - "python static Unity script sanity: braces, required markers, meta GUIDs, no UnityEngine.UI/EventSystems, no secret-like markers"
   - cd server && go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v
   - cd server && go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath' -count=1
   - cd server && go test ./... -count=1
@@ -47,15 +47,15 @@ file_ownership:
 risk: medium
 escalation: strong-model
 local_validation:
-  - python static Unity script sanity: passed
-  - go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v: passed
-  - go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath|TestReadyz' -count=1: passed
-  - go test -count=1 ./...: passed
-  - go vet ./...: passed after protobuf test log repair
-  - go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed
+  - "python static Unity script sanity: passed"
+  - "go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v: passed"
+  - "go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath|TestReadyz' -count=1: passed"
+  - "go test -count=1 ./...: passed"
+  - "go vet ./...: passed after protobuf test log repair"
+  - "go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed"
 ci_validation:
-  - GitHub CI push run 34439234247: success
-  - Unity Android run 34439238378: Validate Unity project success; Build Android debug success; Android emulator smoke test success
+  - "GitHub CI push run 34439234247: success"
+  - "Unity Android run 34439238378: Validate Unity project success; Build Android debug success; Android emulator smoke test success"
 notes:
   - The C# adapter is intentionally scoped to the current match.proto messages.
   - Unknown protobuf fields are skipped for forward compatibility.

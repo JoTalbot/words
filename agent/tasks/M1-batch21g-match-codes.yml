@@ -13,13 +13,15 @@ inputs:
   - infra/migrations (must gain a paired 002_*.sql)
 outputs:
   - match id stays internal; clients receive a 128-bit match code that maps to it
-  - a read capability stored with the result so finished matches survive restart
-    without a credential-free read
+  - >-
+    a read capability stored with the result so finished matches survive restart without a
+    credential-free read
   - migration 002 + pgSchema update (the drift test enforces the pair)
 acceptance:
-  - GET result/replay by raw sequential id is not possible on a hardened
-    deployment (WORDARENA_REQUIRE_READ_CAPABILITY=true, default true once the
-    Unity/web-m0/headless-bot clients all send the capability)
+  - >-
+    GET result/replay by raw sequential id is not possible on a hardened deployment
+    (WORDARENA_REQUIRE_READ_CAPABILITY=true, default true once the Unity/web-m0/headless-bot
+    clients all send the capability)
   - a durable read after service restart still succeeds (batch 8 criterion kept)
   - the schema drift test passes with both sides updated
   - docs/WIRE-PROTOCOL.md documents the transition window for the old form
@@ -31,6 +33,7 @@ validation:
 risk: medium
 escalation: strong-model
 notes:
-  - Filed 2026-09-10 from docs/SECURITY-REVIEW-M1.md finding S-2: the live-board
-    leak is closed (S-1), the finished-match enumeration stays accepted for the
-    loopback deployment until this lands.
+  - >-
+    Filed 2026-09-10 from docs/SECURITY-REVIEW-M1.md finding S-2: the live-board leak is closed
+    (S-1), the finished-match enumeration stays accepted for the loopback deployment until this
+    lands.
