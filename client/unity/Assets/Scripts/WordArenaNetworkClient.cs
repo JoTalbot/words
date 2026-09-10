@@ -259,6 +259,89 @@ namespace Words.Client
             }
         }
 
+        // Batch 17A: basic 1v1 matchmaking. Enqueue posts to /v1/queue; the
+        // server pairs FIFO per language. The returned entry is "waiting"
+        // until a partner arrives, then "matched" with this seat's match id,
+        // seed, seat token and user id. Polling GET /v1/queue/{id} observes
+        // that transition. The match itself is still created and authorised
+        // entirely server-side; the queue only delivers credentials.
+        public IEnumerator EnqueueQueue(string serverBaseUrl, string language, ulong playerId, Action<QueueEntryResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/queue";
+            var body = "{\"language\":\"" + EscapeJson(language) + "\",\"player_id\":" + playerId + "}";
+            var request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST);
+            var payload = Encoding.UTF8.GetBytes(body);
+            request.uploadHandler = new UploadHandlerRaw(payload);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.timeout = 10;
+
+            EmitStatus("Joining matchmaking queue at " + url);
+            yield return request.SendWebRequest();
+
+            var result = ParseQueueEntry(request, "enqueue");
+            request.Dispose();
+            EmitStatus(result.Success ? "Queued for a match (" + result.Status + ")." : result.Error);
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        public IEnumerator PollQueue(string serverBaseUrl, string queueId, Action<QueueEntryResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/queue/" + queueId;
+            var request = UnityWebRequest.Get(url);
+            request.timeout = 10;
+            yield return request.SendWebRequest();
+
+            var result = ParseQueueEntry(request, "poll");
+            request.Dispose();
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        private static QueueEntryResult ParseQueueEntry(UnityWebRequest request, string verb)
+        {
+            var result = new QueueEntryResult();
+            result.HttpStatus = request.responseCode;
+            result.Success = RequestSucceeded(request);
+            if (!result.Success)
+            {
+                result.Error = "queue " + verb + " failed: HTTP " + request.responseCode + " " + request.error;
+                return result;
+            }
+
+            try
+            {
+                var parsed = JsonUtility.FromJson<QueueEntryResponseJson>(request.downloadHandler.text);
+                if (parsed == null || string.IsNullOrEmpty(parsed.queue_id))
+                {
+                    result.Success = false;
+                    result.Error = "queue " + verb + " returned incomplete JSON";
+                    return result;
+                }
+
+                result.QueueId = parsed.queue_id;
+                result.Language = parsed.language;
+                result.Status = parsed.status;
+                result.PlayerId = (ulong)Math.Max(0L, parsed.player_id);
+                result.MatchId = (ulong)Math.Max(0L, parsed.match_id);
+                result.Seed = (ulong)Math.Max(0L, parsed.seed);
+                result.Token = parsed.token ?? string.Empty;
+                result.UserId = (ulong)Math.Max(0L, parsed.user_id);
+            }
+            catch (Exception exception)
+            {
+                result.Success = false;
+                result.Error = "queue " + verb + " JSON parse failed: " + exception.Message;
+            }
+
+            return result;
+        }
+
         public void Connect(string serverBaseUrl, ulong matchId, string token)
         {
             Disconnect();
@@ -647,6 +730,63 @@ namespace Words.Client
                 return "match=" + MatchId + " " + scoreText + " " + winnerText + " version=" + StateVersion;
             }
         }
+    }
+
+    // Batch 17A: matchmaking queue entry view for /v1/queue.
+    public sealed class QueueEntryResult
+    {
+        public bool Success;
+        public long HttpStatus;
+        public string Error = string.Empty;
+        public string QueueId = string.Empty;
+        public string Language = string.Empty;
+        // "waiting" | "matched" | "expired"
+        public string Status = string.Empty;
+        public ulong PlayerId;
+        public ulong MatchId;
+        public ulong Seed;
+        // Token is this seat's credential once matched; empty while waiting.
+        public string Token = string.Empty;
+        public ulong UserId;
+
+        public bool IsMatched
+        {
+            get
+            {
+                return Success && Status == "matched" && MatchId != 0 && !string.IsNullOrEmpty(Token);
+            }
+        }
+
+        public string DisplayText
+        {
+            get
+            {
+                if (!Success)
+                {
+                    return string.IsNullOrEmpty(Error) ? "queue unavailable" : Error;
+                }
+
+                if (Status == "matched")
+                {
+                    return "matched: match=" + MatchId + " user=" + UserId;
+                }
+
+                return Status + " in queue " + QueueId;
+            }
+        }
+    }
+
+    [Serializable]
+    public class QueueEntryResponseJson
+    {
+        public string queue_id;
+        public string language;
+        public string status;
+        public long player_id;
+        public long match_id;
+        public long seed;
+        public string token;
+        public long user_id;
     }
 
 }

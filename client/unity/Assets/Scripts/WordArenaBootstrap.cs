@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -41,6 +42,18 @@ namespace Words.Client
         private bool matchOver;
         private bool resultOverlayDismissed;
         private MatchResultSummary lastResult;
+
+        // Batch 17A matchmaking queue state. The queue is a server-side FIFO
+        // pairing; the client only enqueues, polls, and connects with the
+        // seat token the server issues on match. Match authority is unchanged.
+        private bool queueInProgress;
+        private bool queuePolling;
+        private bool queuePollActive;
+        private string queueId = string.Empty;
+        private string queueSummary = "Queue: idle";
+        private float nextQueuePollAt;
+        private ulong queueUserId;
+        private string queueToken = string.Empty;
 
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
@@ -110,6 +123,35 @@ namespace Words.Client
             DrainMainThreadActions();
             TickVisibleLocks();
             TickPendingIntents();
+            TickQueuePolling();
+        }
+
+        // Batch 17A: poll the matchmaking entry while searching for an
+        // opponent. Poll failures retry on the next interval; HTTP 410
+        // (expired) stops the search with guidance.
+        private void TickQueuePolling()
+        {
+            if (!queuePolling || queuePollActive || network == null || string.IsNullOrEmpty(queueId))
+            {
+                return;
+            }
+
+            if (Time.time < nextQueuePollAt)
+            {
+                return;
+            }
+
+            nextQueuePollAt = Time.time + 1.5f;
+            StartCoroutine(PollQueueOnce());
+        }
+
+        private IEnumerator PollQueueOnce()
+        {
+            queuePollActive = true;
+            QueueEntryResult polled = null;
+            yield return StartCoroutine(network.PollQueue(serverUrl, queueId, entry => polled = entry));
+            queuePollActive = false;
+            HandleQueuePollResult(polled);
         }
 
         private void OnGUI()
@@ -157,6 +199,7 @@ namespace Words.Client
             GUILayout.Label(ConnectionText(), statusStyle, GUILayout.Height(54f));
             GUILayout.Label(readySummary + "   |   " + resultSummary, statusStyle, GUILayout.Height(54f));
             GUILayout.Label(predictionSummary, statusStyle, GUILayout.Height(46f));
+            GUILayout.Label(queueSummary, statusStyle, GUILayout.Height(46f));
             GUILayout.BeginHorizontal();
             GUILayout.Label("Server", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
             serverUrl = GUILayout.TextField(serverUrl, inputStyle, GUILayout.Height(48f));
@@ -347,6 +390,21 @@ namespace Words.Client
             DrawActionButton(resultFetchInProgress ? "Fetching result..." : "Fetch result", OnFetchResult, new Color32(80, 120, 210, 255));
             DrawActionButton("Local demo reset", ResetDemoState, new Color32(90, 105, 128, 255));
             GUILayout.EndHorizontal();
+            GUILayout.Space(12f);
+            GUILayout.BeginHorizontal();
+            DrawActionButton(QueueButtonLabel(), OnFindMatchQueue, new Color32(64, 160, 120, 255));
+            DrawActionButton("Stop searching", OnStopQueueSearch, new Color32(90, 105, 128, 255));
+            GUILayout.EndHorizontal();
+        }
+
+        private string QueueButtonLabel()
+        {
+            if (queueInProgress)
+            {
+                return "Queueing...";
+            }
+
+            return queuePolling ? "Searching for opponent..." : "Find match (queue)";
         }
 
         // Batch 16 production result presentation overlay: a centered,
@@ -585,6 +643,112 @@ namespace Words.Client
         }
 
 
+        // Batch 17A: matchmaking queue handlers. The client enqueues
+        // anonymously (player_id=0 until profiles are bound), polls the entry
+        // while waiting, and on "matched" connects with the server-issued seat
+        // token. The server remains the only authority for pairing and seats.
+        private void OnFindMatchQueue()
+        {
+            if (queueInProgress || queuePolling || network == null)
+            {
+                return;
+            }
+
+            queueInProgress = true;
+            queueSummary = "Queue: joining...";
+            StartCoroutine(network.EnqueueQueue(serverUrl, SanitizedLanguage(), 0, HandleEnqueueResult));
+        }
+
+        private void OnStopQueueSearch()
+        {
+            queuePolling = false;
+            queuePollActive = false;
+            queueSummary = "Queue: stopped (server entry expires on its own TTL)";
+            SetStatus(queueSummary);
+        }
+
+        private void HandleEnqueueResult(QueueEntryResult entry)
+        {
+            queueInProgress = false;
+            if (entry == null || !entry.Success)
+            {
+                queueSummary = "Queue: " + (entry == null ? "enqueue failed" : entry.Error);
+                SetStatus(queueSummary);
+                return;
+            }
+
+            queueId = entry.QueueId;
+            if (entry.IsMatched)
+            {
+                StartQueuedMatch(entry);
+                return;
+            }
+
+            queuePolling = true;
+            nextQueuePollAt = 0f;
+            queueSummary = "Queue: waiting for opponent (" + queueId + ")";
+            SetStatus(queueSummary);
+        }
+
+        private void HandleQueuePollResult(QueueEntryResult entry)
+        {
+            if (!queuePolling)
+            {
+                return;
+            }
+
+            if (entry == null || !entry.Success)
+            {
+                if (entry != null && entry.HttpStatus == 410)
+                {
+                    queuePolling = false;
+                    queueSummary = "Queue: entry expired — press Find match to requeue";
+                    SetStatus(queueSummary);
+                }
+                else
+                {
+                    queueSummary = "Queue: poll failed (" + (entry == null ? "no response" : entry.Error) + "); retrying";
+                }
+
+                return;
+            }
+
+            if (entry.IsMatched)
+            {
+                StartQueuedMatch(entry);
+                return;
+            }
+
+            queueSummary = "Queue: waiting for opponent (" + queueId + ")";
+        }
+
+        private void StartQueuedMatch(QueueEntryResult entry)
+        {
+            queuePolling = false;
+            queuePollActive = false;
+            queueSummary = "Queue: matched into match " + entry.MatchId;
+
+            serverMode = true;
+            liveMatchId = entry.MatchId;
+            liveSeed = entry.Seed;
+            liveTokens = new string[2];
+            liveUserIds = new ulong[2];
+            queueToken = entry.Token;
+            queueUserId = entry.UserId;
+            activeSeat = 0;
+            clientSequence = 0;
+            terminalResultFetchRequested = false;
+            matchOver = false;
+            resultOverlayDismissed = false;
+            lastResult = null;
+            selected.Clear();
+            pendingIntents.Clear();
+            resultSummary = "Result: pending for match " + liveMatchId;
+
+            network.Connect(serverUrl, liveMatchId, queueToken);
+            SetStatus("Matched via queue into match " + liveMatchId + "; connecting with the issued seat token.");
+        }
+
         private void OnReadyCheck()
         {
             if (readyCheckInProgress || network == null)
@@ -727,6 +891,11 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            queuePolling = false;
+            queuePollActive = false;
+            queueToken = string.Empty;
+            queueUserId = 0;
+            queueSummary = "Queue: idle";
             resultSummary = "Result: pending for match " + liveMatchId;
             ReconnectActiveSeat();
         }
@@ -735,6 +904,15 @@ namespace Words.Client
         {
             if (network == null || liveTokens == null || activeSeat < 0 || activeSeat >= liveTokens.Length || string.IsNullOrEmpty(liveTokens[activeSeat]))
             {
+                // Batch 17A: queue-created matches bind the seat lazily from
+                // snapshots; until then the queue-issued token reconnects.
+                if (!string.IsNullOrEmpty(queueToken) && liveMatchId != 0)
+                {
+                    network.Connect(serverUrl, liveMatchId, queueToken);
+                    SetStatus("Reconnecting with the queue-issued seat token for match " + liveMatchId + ".");
+                    return;
+                }
+
                 SetStatus("No token for active seat. Create a server match first.");
                 return;
             }
@@ -768,6 +946,31 @@ namespace Words.Client
                 players[index].Combo = Mathf.Max(1f, player.ComboMultiplier);
                 players[index].Eliminated = player.IsEliminated;
                 players[index].Rank = (int)player.RankPosition;
+            }
+
+            // Batch 17A: a queue-issued token carries only this seat's user
+            // id, so the seat index is derived from the authoritative snapshot
+            // once both user ids are known. Until bound, the queued token is
+            // the reconnect credential.
+            if (queueUserId != 0)
+            {
+                var boundSeat = SeatForUser(queueUserId);
+                if (boundSeat >= 0)
+                {
+                    activeSeat = boundSeat;
+                    if (boundSeat < liveUserIds.Length)
+                    {
+                        liveUserIds[boundSeat] = queueUserId;
+                    }
+
+                    if (boundSeat < liveTokens.Length)
+                    {
+                        liveTokens[boundSeat] = queueToken;
+                    }
+
+                    queueUserId = 0;
+                    SetStatus("Queue seat bound: " + players[boundSeat].DisplayName + " in match " + liveMatchId + ".");
+                }
             }
 
             var ordered = new List<WordArenaBoardCell>(snapshot.Cells);
@@ -1175,6 +1378,13 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            queueInProgress = false;
+            queuePolling = false;
+            queuePollActive = false;
+            queueId = string.Empty;
+            queueToken = string.Empty;
+            queueUserId = 0;
+            queueSummary = "Queue: idle";
             cells.Clear();
             for (var index = 0; index < DemoLetters.Length; index++)
             {
