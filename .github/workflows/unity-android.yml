@@ -249,4 +249,7 @@ jobs:
             # runs each with a separate `sh -c` (script-parser.ts), so state
             # does not persist across lines: chain the whole smoke flow on one
             # line with &&. Backend marker: ANDROID_BACKEND=github-hosted-emulator.
-            apk=$(find artifact -name '*.apk' -type f | head -1) && test -n "$apk" && adb install -r "$apk" && adb shell monkey -p com.jotalbot.words 1 && adb shell pm path com.jotalbot.words
+            # Batch 17E: after launch, perform a real swipe across the board
+            # rows (pixel_2 = 1080x1920; the board grid renders ~y660-1150)
+            # and assert the client logged the WORDS_SWIPE gesture marker.
+            apk=$(find artifact -name '*.apk' -type f | head -1) && test -n "$apk" && adb install -r "$apk" && adb shell monkey -p com.jotalbot.words 1 && adb shell pm path com.jotalbot.words && sleep 14 && adb logcat -c && adb shell input swipe 100 880 950 880 800 && sleep 3 && adb logcat -d | grep -q WORDS_SWIPE && echo WORDS_SWIPE_SMOKE_OK

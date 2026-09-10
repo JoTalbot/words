@@ -350,6 +350,88 @@ namespace Words.Client
             return -1;
         }
 
+        // Batch 17E gesture rules (ported from session B's
+        // batch16-arena-swipe reference ideas, agent/COORDINATION.md):
+        // drag extension follows eight-way adjacency, bridges a single
+        // skipped cell when the pointer moves too fast, backtracks when the
+        // pointer returns to the previous cell, and enforces a hard path cap.
+        private const int BoardColumns = 4;
+        private const int MaxPathCells = 12;
+
+        private static void GridPosition(int index, out int row, out int col)
+        {
+            if (index < 0)
+            {
+                row = -10;
+                col = -10;
+                return;
+            }
+
+            row = index / BoardColumns;
+            col = index % BoardColumns;
+        }
+
+        private static bool CellsAdjacent(int indexA, int indexB)
+        {
+            if (indexA < 0 || indexB < 0 || indexA == indexB)
+            {
+                return false;
+            }
+
+            int rowA, colA, rowB, colB;
+            GridPosition(indexA, out rowA, out colA);
+            GridPosition(indexB, out rowB, out colB);
+            return Mathf.Abs(rowA - rowB) <= 1 && Mathf.Abs(colA - colB) <= 1;
+        }
+
+        private int IndexOfCell(int cellId)
+        {
+            for (var index = 0; index < cells.Count; index++)
+            {
+                if (cells[index].CellId == cellId)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        private bool TryBridgeCells(int fromCellId, int toCellId, out int bridgeIndex)
+        {
+            bridgeIndex = -1;
+            var fromIndex = IndexOfCell(fromCellId);
+            var toIndex = IndexOfCell(toCellId);
+            if (fromIndex < 0 || toIndex < 0)
+            {
+                return false;
+            }
+
+            int rowFrom, colFrom, rowTo, colTo;
+            GridPosition(fromIndex, out rowFrom, out colFrom);
+            GridPosition(toIndex, out rowTo, out colTo);
+            if (Mathf.Abs(rowTo - rowFrom) > 2 || Mathf.Abs(colTo - colFrom) > 2)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < cells.Count; index++)
+            {
+                if (index == fromIndex || index == toIndex || dragPath.Contains(cells[index].CellId))
+                {
+                    continue;
+                }
+
+                if (CellsAdjacent(fromIndex, index) && CellsAdjacent(index, toIndex))
+                {
+                    bridgeIndex = index;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void ExtendDragPath(Vector2 screenPoint)
         {
             var cellId = HitTestBoardCell(BoardLocalPoint(screenPoint));
@@ -366,8 +448,33 @@ namespace Words.Client
                 return;
             }
 
-            if (!dragPath.Contains(cellId))
+            if (dragPath.Contains(cellId))
             {
+                return;
+            }
+
+            if (count == 0)
+            {
+                dragPath.Add(cellId);
+                return;
+            }
+
+            if (count >= MaxPathCells)
+            {
+                return;
+            }
+
+            var lastCellId = dragPath[count - 1];
+            if (CellsAdjacent(IndexOfCell(lastCellId), IndexOfCell(cellId)))
+            {
+                dragPath.Add(cellId);
+                return;
+            }
+
+            int bridgeIndex;
+            if (count + 1 < MaxPathCells && TryBridgeCells(lastCellId, cellId, out bridgeIndex))
+            {
+                dragPath.Add(cells[bridgeIndex].CellId);
                 dragPath.Add(cellId);
             }
         }
@@ -386,6 +493,9 @@ namespace Words.Client
                 selected.Clear();
                 selected.AddRange(dragPath);
                 SetStatus("Swipe path '" + CurrentWord() + "' selected (" + selected.Count + " cells). Send when ready.");
+                // Batch 17E marker: lets the hosted-emulator smoke verify the
+                // gesture path with `adb shell input swipe` + logcat grep.
+                Debug.Log("[WORDS_SWIPE] cells=" + selected.Count + " word=" + CurrentWord());
             }
 
             dragPath.Clear();
