@@ -1,9 +1,12 @@
 # M0 Release Readiness — Word Arena
 
-Status: SERVER-SIDE COMPLETE (verified 2026-09-09). Client blocked on B1
-(Unity/ARM64). Web transport proof created as an interim (client/web-m0/).
+Status: SERVER-SIDE COMPLETE (verified 2026-09-09, re-verified live
+2026-09-10). CLIENT UNBLOCKED VIA REMOTE BUILD/DEVICE BACKENDS (B1
+mitigated 2026-09-09/10): Unity builds on GitHub-hosted x86_64 Unity CI and
+the Android APK is installed/launched on a GitHub-hosted emulator. The Unity
+client is an M1 vertical-slice feature on top of the completed M0 server.
 
-Evidence (verified by code and tests on the dev host):
+Evidence (verified by code and tests on the dev host and in CI):
 - deterministic board seed (prng golden, replay fixture seed 1512)
 - simultaneous claims identical (match lock + deterministic apply)
 - prediction convergence via canonical snapshot (reconnect + grace)
@@ -18,23 +21,48 @@ Evidence (verified by code and tests on the dev host):
   (TestExitGateRepeatedFullMatches: 2 rounds x seeds 1512/1513/1517,
   identical terminal state on both clients, live scores reproduce the
   offline replay; protocol carries a terminal over=true snapshot)
-- web client proof: client/web-m0/index.html + test-smoke.py (Playwright)
+- live exit gate re-run against deployed build 5dbcc42 on OCI (2026-09-10):
+  6/6 matches EXIT-GATE PASS with scores identical to the 2026-09-09 baseline
+  (43:45 / 37:60 / 44:40 across seeds 1512/1513/1517)
+- protocol decode path fuzz-hardened (server/internal/protocol/fuzz_test.go;
+  ~800k execs across three targets with 0 crashes, seed corpus in CI)
+- web client proof: client/web-m0/index.html + test-smoke.py (Playwright),
+  re-verified 2026-09-10 with headless Chromium against a local build of
+  current main: authoritative WebSocket OPEN with a real match token
 
-Validation commands (all green on the dev host, 2026-09-09):
+Client-side M0 criteria status (B1 mitigation path):
+- Unity swipe prototype: implemented as the runtime IMGUI gesture path in
+  client/unity (drag/swipe multi-cell selection, tap toggle, swipe-back
+  undo); built and smoke-tested on the GitHub-hosted emulator pipeline.
+- Client prediction with rollback: pending-intent overlay + canonical
+  snapshot/event reconciliation shell (batch 15); richer mobile rollback
+  animation remains an M1 UX item.
+
+Validation commands (green on the dev host 2026-09-09 and re-run on OCI and
+in GitHub CI 2026-09-10):
 
 ```bash
 cd /opt/words/server && go vet ./... && go test ./...
+WORDARENA_ADDR=http://127.0.0.1:18080 /tmp/headless-bot -rounds 2 -seeds 1512,1513,1517
 ```
 
+Operational state (2026-09-10): systemd unit wordarena.service on OCI with
+durable Postgres + JSONL telemetry; runbook docs/M1-OPS.md; loopback-only
+exposure pending the edge/TLS decision (PRODUCT-DECISIONS.md Q8).
+
 Blocked (documented, not hidden):
-- B1 Unity Editor/CLI unavailable for Linux/ARM64 → Unity swipe prototype +
-  client prediction/rollback + Android AVD
 - B2 UK dictionary GPL-3.0+ derivative → legal review required before
   distribution (dictionary/NOTICE.md)
+- (mitigated) B1 Unity Editor/CLI unavailable for Linux/ARM64 → replaced by
+  GitHub-hosted x86_64 Unity CI + hosted Android emulator; see
+  docs/unity-ci.md and docs/android-build.md. Local ARM64 editor sessions
+  remain unavailable but no longer gate the pipeline.
 
 Release gate recommendation:
-- If B1 resolves via a remote Unity build host or an approved Unity Linux/ARM64
-  build, the remaining M0 client criteria can be demonstrated immediately; the
-  server side already satisfies M0 criteria 1-8.
-- If B1 stays unresolved, the M0 server gate is complete; client/web-m0/ is an
-  interim transport proof, with the Unity client as a follow-up M1 feature.
+- M0 server gate: COMPLETE (criteria 1–8 verified; re-verified live
+  2026-09-10).
+- M0 client gate: satisfied via the remote build/device backends for the
+  transport, prediction shell and swipe prototype; remaining polish
+  (rollback animation, production UX) is tracked as M1 roadmap [~] items.
+- B2 remains the only hard legal blocker and only affects uk-dictionary
+  distribution, not the en/ru vertical slice.

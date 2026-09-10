@@ -48,6 +48,15 @@ The proposed LPI needs empirical calibration against actual dictionaries/corpora
 ### Q7 — Soft-launch geography
 The proposed Poland/Canada/Australia cohort should be treated as a hypothesis. Region selection should consider payment support, language coverage, UA costs, platform review requirements and legal/privacy readiness.
 
+### Q8 — External access to the dev match service
+The live M1 service on OCI is loopback-only (127.0.0.1:18080). Exposing it
+for device testing requires an edge/TLS decision: public exposure needs TLS
+termination, origin allowlisting for the Unity client, and an abuse review of
+unauthenticated match creation (rate limiting exists but was sized for a
+single developer). Safe default until decided: keep loopback-only and test
+via host-local clients (web-m0, headless-bot) or an authorized tunnel.
+Recorded 2026-09-10 alongside docs/M1-OPS.md.
+
 ## Rules for future changes
 
 - Gameplay changes require an explicit design note and deterministic test update.
