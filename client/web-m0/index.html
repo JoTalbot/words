@@ -8,10 +8,15 @@ h1{color:#89b4fa}.status{padding:10px;border-radius:6px;margin:8px 0}
 <p>Server authority verified; binary protobuf protocol; client never computes scores.</p>
 <script>
 const s=document.getElementById("s");
-try{const ws=new WebSocket("ws://127.0.0.1:18080/v1/match/ws?match_id=1&token=t");
+try{
+const q=new URLSearchParams(location.search);
+const mid=q.get("match_id")||"1";
+const tok=q.get("token")||"t";
+const ws=new WebSocket("ws://127.0.0.1:18080/v1/match/ws?match_id="+encodeURIComponent(mid)+"&token="+encodeURIComponent(tok));
+ws.binaryType="arraybuffer";
 ws.onopen=function(){s.innerHTML="<div class=ok>WebSocket OPEN — M0 transport verified</div>";};
 ws.onerror=function(){s.innerHTML="<div class=err>WebSocket error — valid token required</div>";};
-ws.onmessage=function(m){s.innerHTML+="<br>Event bytes: "+m.data.byteLength;};
+ws.onmessage=function(m){s.innerHTML+="<br>Event bytes: "+(m.data&&m.data.byteLength!==undefined?m.data.byteLength:String(m.data).length);};
 ws.onclose=function(){s.innerHTML+="<br>Closed";};
 }catch(e){s.innerHTML="<div class=err>Exception: "+e+"</div>";}
 </script></body></html>
