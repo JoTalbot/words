@@ -115,3 +115,23 @@ Production GitHub Release автоматически не создаётся. С
 - GameCI Builder: https://game.ci/docs/github/builder/
 - GameCI Activation: https://game.ci/docs/github/activation/
 - Unity 6000.0.59f2 release: https://unity.com/releases/editor/whats-new/6000.0.59f2
+
+## Эмуляторный smoke и жест-ассершен (batch 17E)
+
+`run_smoke_tests=true` дополнительно выполняет на эмуляторе реальный жест:
+`adb shell input swipe 100 880 950 880 800` по строкам доски и проверяет в
+logcat маркер `WORDS_SWIPE`, который пишет клиент при зафиксированном
+свайпе (клиентская презентация; авторитетность пути проверяет сервер).
+
+Известный класс фейлов hosted-эмулятора (не код проекта):
+
+- `adb shell monkey ...` — "Monkey aborted due to error" при падении
+  системного провайдера (напр. media.module);
+- `adb shell input keyevent 82` — Broken pipe / exit 224 на этапе
+  разблокировки эмулятора;
+- `adb install` — "Failure calling service package: Broken pipe".
+
+Правило: такой фейл считается инфраструктурным, один повторный прогон; при
+повторении — задача не блокируется, устройство-ассершен остаётся в статусе
+"ожидает стабилизации hosted-эмулятора" (прецеденты: 34437012338 →
+34437841806; серия 34455925881/34457772896/34459251481).
