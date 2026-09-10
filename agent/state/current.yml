@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_repaired_imgui_ci_green; unity_android_latest_main_green; oci_ssh_degraded
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_android_latest_main_green; oci_ssh_degraded
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -69,8 +69,12 @@ completed_tasks:
     remains liveness; Postgres-backed readiness pings storage; Stop marks API
     draining; new mutating work and WebSocket upgrades return 503 while
     draining; regression tests added; GitHub CI run 34436316582 success
-active_tasks:
-  - M1-batch13-unity-protocol-binding: local_static_go_green_unity_ci_pending
+  - Batch 13 (M1 client): Unity runtime UX binds to authoritative server
+    protocol: REST match create, binary protobuf WebSocket connect,
+    SubmitWordIntent encoder, ServerEnvelope snapshot/event decoder, canonical
+    cells/owners/locks/scores/version rendering; local demo kept non-authoritative;
+    GitHub CI run 34439234247 success; Unity Android run 34439238378 success
+active_tasks: []
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -90,7 +94,7 @@ next_tasks:
     test worker if still present, run focused Postgres validation with /opt/go,
     then deploy current main binary to 127.0.0.1:18080 with durable DSN + JSONL
     telemetry enabled
-  - M1 client work (Unity): Batch 13 server-bound protocol adapter is locally green and pending Unity Android CI; follow-up after CI is richer gesture/reconnect/result UX
+  - M1 client follow-up (Unity): richer gesture/reconnect/result UX over the server-bound protocol; improve Android live-device/server configuration after OCI deploy stabilizes
   - Android QA fallback hierarchy (hosted emulator wired; APK artifact
     words-android-debug); if local Android unavailable, use authorized remote
     device backend without bypassing auth/CAPTCHA/limits
@@ -128,7 +132,7 @@ task_graph:
       - GitHub CI run 34436316582 success
       - Unity Android latest-main retry 34437841806 success
   M1-batch13-unity-protocol-binding:
-    status: local_static_go_green_unity_ci_pending
+    status: verified
     owner: unity-client
     validation:
       - python static Unity script sanity: passed
@@ -137,7 +141,8 @@ task_graph:
       - go test -count=1 ./...: passed
       - go vet ./...: passed
       - go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed
-      - Unity Android workflow_dispatch: pending after push
+      - GitHub CI push run 34439234247: success
+      - Unity Android run 34439238378: success (preflight, build, hosted emulator smoke)
   M1-oci-deploy:
     status: blocked_by_transient_server_load_or_ssh_banner_timeout
     owner: infra
@@ -149,17 +154,20 @@ tests:
     targeted tests green; binary smoke on 127.0.0.1:18180 with
     WORDARENA_TELEMETRY_JSONL green
   ci: GitHub CI green for Batch 10 state commit 52145b0 (run 34435254937);
-    Batch 12 push CI green for 816fe37 (run 34436316582); Unity Android fully
-    green pre-Batch11 (run 34420554448); Batch11 first Unity run 34435380589
-    failed on UI/EventSystems compile; IMGUI repair run 34435705752 success;
+    Batch 12 push CI green for 816fe37 (run 34436316582); state commit
+    7dfa72b push CI green (run 34438730364); Batch 13 push CI green for
+    f671506 (run 34439234247); Unity Android fully green pre-Batch11
+    (run 34420554448); Batch11 first Unity run 34435380589 failed on
+    UI/EventSystems compile; IMGUI repair run 34435705752 success;
     latest-main Unity run 34437012338 failed at hosted emulator unlock before
-    APK install, retry 34437841806 success for same head 816fe37
+    APK install, retry 34437841806 success for same head 816fe37; Batch 13
+    Unity Android run 34439238378 success for f671506
   docker: Docker unavailable in Arena sandbox; OCI Docker present but not used
     during Batch 10 because SSH degraded; Dockerfile/compose statically checked
     and compose now includes optional telemetry volume wiring
 android_backend: GitHub-hosted x86_64 emulator (reactivecircus, API 35)
   WORKS — build + install + monkey-launch + pm path verify all green
-  (runs 34420554448, 34435705752, 34437841806). Local Arena sandbox has no
+  (runs 34420554448, 34435705752, 34437841806, 34439238378). Local Arena sandbox has no
   adb/emulator. OCI has adb server but no emulator binary found in PATH;
   hosted emulator remains the validated automated backend. Remote providers
   (myandroid.org etc.) are interactive-only unless authorized automation is
@@ -174,6 +182,6 @@ workers:
     id=1 verified before SSH degradation
   - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
     but timed out/spinner under host load; do not rely on it until load drops
-last_commit: "7dfa72b"
-resume_from: "Batch 13 Unity protocol binding is implemented locally on top of 7dfa72b: REST match create, binary protobuf WebSocket connect, SubmitWordIntent encoder, ServerEnvelope snapshot/event decoder, canonical UI rendering; local static/Go/vet/race validation passed. Next: commit/push Batch 13, run GitHub CI and Unity Android debug smoke, then mark verified or repair compile/smoke failures. OCI remains SSH-degraded; retry only short focused recovery."
+last_commit: "f671506"
+resume_from: "Batch 13 Unity protocol binding committed and pushed at f671506. GitHub CI 34439234247 success and Unity Android 34439238378 success (preflight/build/hosted emulator smoke). Next: either retry OCI deploy only with short focused SSH recovery, or continue Unity follow-up UX/reconnect/result polish over the now server-bound protocol. Do not restart project or repeat completed telemetry/readiness/IMGUI/protocol-binding work."
 updated_at: "2026-09-10"
