@@ -126,6 +126,28 @@ Explicitly does NOT own (do not edit):
    once (load went to ~255 on the 15-minute average). Recommendation for all
    sessions: run at most one heavy job on the OCI host at a time.
 
+## Session C — batch 19 (2026-09-10, ~11:00 UTC)
+
+Same lane as batch 18. Added **versioned schema migrations**:
+
+- `infra/migrations/001_init.sql` — baseline schema.
+- `server/cmd/migrate` — runner (`-plan`, applies each migration in one
+  transaction, records it in `schema_migrations`, skips applied versions).
+- `docs/M1-MIGRATIONS.md`.
+- `.github/workflows/container-smoke.yml` — new `migrations` job (additive; the
+  database is exposed through a generated compose override so the committed
+  compose file is unchanged).
+
+Constraint respected: `server/cmd/game/store_pg.go` is **not** modified. The
+service keeps its idempotent `CREATE TABLE IF NOT EXISTS` bootstrap so a fresh
+dev database still works without the runner;
+`TestBaselineMigrationMatchesServiceSchema` parses both sources and fails the
+build on drift (verified by mutation).
+
+Gap reported, not fixed (not session C's lane): the service has no way to
+*evolve* the schema through `pgSchema` alone. When a column is needed, add
+`002_*.sql` **and** update `pgSchema`, otherwise the drift test fails.
+
 ## Handoff notes
 
 - Session B found Batch 15 (`5dbcc42`) fully green: push CI `34443200741` and

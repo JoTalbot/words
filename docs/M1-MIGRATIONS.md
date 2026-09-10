@@ -1,5 +1,13 @@
 # M1 — Durable schema migrations
 
+## Status
+
+Verified 2026-09-10 on the OCI arm64 host against a disposable
+`postgres:16-alpine`: plan → apply → no-op re-apply, `schema_migrations`
+recorded `1 / init`, and the match service started against the *migrated*
+database passed `infra/smoke.sh` 19/19 with `storage=postgres`. CI runs the
+same sequence on every push.
+
 ## Why
 
 The match service applies its schema idempotently on connect: `openPostgres`

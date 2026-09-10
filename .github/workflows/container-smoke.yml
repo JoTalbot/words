@@ -88,6 +88,85 @@ jobs:
         run: |
           docker compose -f infra/docker-compose.yml down -v || true
 
+  migrations:
+    name: Apply schema migrations against Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Expose the database on a fixed host port
+        run: |
+          set -euo pipefail
+          cat > /tmp/compose-migrate.yml <<'YAML'
+          services:
+            db:
+              ports:
+                - "55432:5432"
+          YAML
+          docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml up -d db
+          for i in $(seq 1 40); do
+            if docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml ps --format '{{.Service}} {{.Health}}' | grep -q '^db healthy$'; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::database did not become healthy"
+          docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml logs db
+          exit 1
+
+      - name: Plan reports the baseline as pending
+        working-directory: server
+        env:
+          DSN: postgres://wordarena:wordarena@127.0.0.1:55432/wordarena?sslmode=disable
+        run: |
+          set -euo pipefail
+          out="$(go run ./cmd/migrate -dsn "$DSN" -plan)"
+          echo "$out"
+          echo "$out" | grep -q '001_init.sql'
+
+      - name: Apply the migrations
+        working-directory: server
+        env:
+          DSN: postgres://wordarena:wordarena@127.0.0.1:55432/wordarena?sslmode=disable
+        run: |
+          set -euo pipefail
+          out="$(go run ./cmd/migrate -dsn "$DSN")"
+          echo "$out"
+          echo "$out" | grep -q 'applying 001_init.sql'
+
+      - name: Re-applying is a no-op
+        working-directory: server
+        env:
+          DSN: postgres://wordarena:wordarena@127.0.0.1:55432/wordarena?sslmode=disable
+        run: |
+          set -euo pipefail
+          out="$(go run ./cmd/migrate -dsn "$DSN")"
+          echo "$out"
+          echo "$out" | grep -q 'schema up to date'
+          if echo "$out" | grep -q 'applying'; then
+            echo "::error::migration re-applied on a second run"
+            exit 1
+          fi
+
+      - name: History and tables are recorded
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml exec -T db \
+            psql -U wordarena -d wordarena -c 'SELECT version, name FROM schema_migrations ORDER BY version;'
+          docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml exec -T db \
+            psql -U wordarena -d wordarena -c '\dt'
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f infra/docker-compose.yml -f /tmp/compose-migrate.yml down -v || true
+
   test-assets:
     name: Validate test data assets
     runs-on: ubuntu-latest

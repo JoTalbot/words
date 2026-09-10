@@ -3,7 +3,24 @@ title: Versioned schema migrations for the durable Postgres store
 owner: backend-infra
 priority: high
 complexity: medium
-status: validated_local_pending_live
+status: verified_live_oci
+local_validation:
+  - go vet ./... and go test -count=1 ./... green; go test ./cmd/migrate -v -> 9/9
+  - mutation check: adding a `rating` column to pgSchema only made
+    TestBaselineMigrationMatchesServiceSchema fail with a precise diff; restored
+  - OCI, disposable postgres:16-alpine on 127.0.0.1:55432 (live wordarena
+    database untouched):
+      -plan -> "1 pending migration(s): 001_init.sql"
+      apply -> "applying 001_init.sql ... ok" / "schema up to date"
+      re-apply -> "schema up to date" (no re-apply)
+      -plan after -> "schema up to date; no pending migrations"
+      tables -> match_results, players, schema_migrations
+      history -> version 1, name init
+  - end-to-end: the service started against the MIGRATED database reported
+    /readyz {"status":"ready","storage":"postgres"} and infra/smoke.sh scored
+    19 passed / 0 failed; the profile written by the smoke run is visible in
+    the migrated players table (id 1, smoke-bot, en)
+  - the disposable container was removed; 0 leftovers
 inputs:
   - server/cmd/game/store_pg.go (const pgSchema — read only)
   - docs/M1-PERSISTENCE.md
