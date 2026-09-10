@@ -1,0 +1,40 @@
+id: M1-batch16-protocol-fuzz
+title: Protocol robustness fuzz targets for client decode path
+owner: backend-security
+priority: high
+complexity: small
+status: validated_local_ci_pending
+inputs:
+  - server/internal/protocol/convert.go
+  - proto/wordarena/v1/match.proto
+  - server/cmd/game/api.go (live decode path reference)
+dependencies:
+  - M1-batch13-unity-protocol-binding
+outputs:
+  - server/internal/protocol/fuzz_test.go with three fuzz targets:
+    FuzzClientEnvelopeDecode, FuzzClientEnvelopeMutation,
+    FuzzSnapshotEncodeDecode
+acceptance:
+  - arbitrary/mutated wire bytes never panic the decode path
+  - EnvelopeToIntent is deterministic for any parseable envelope
+  - submit-intent round-trip (parse -> re-encode -> parse) is lossless
+  - snapshot envelope encode/decode preserves match id, version, over, cell count
+  - CI runs every target against its seed corpus as part of go test ./...
+validation:
+  - cd server && go vet ./internal/protocol
+  - cd server && go test ./internal/protocol -count=1 -run Fuzz
+  - cd server && go test -run '^$' -fuzz <target> -fuzztime 12s (3 targets, ~800k execs, 0 crashes)
+  - cd server && go test -count=1 ./...
+file_ownership:
+  - server/internal/protocol/fuzz_test.go
+  - agent/tasks/M1-batch16-protocol-fuzz.yml
+risk: low
+escalation: strong-model
+local_validation:
+  - go vet: passed
+  - seed-corpus go test -run Fuzz: passed
+  - -fuzztime 12s per target: 286k/218k/296k execs, new interesting inputs found, 0 crashes
+  - full go test ./... in worktree: passed
+notes:
+  - Generated fuzz corpora are intentionally not committed; seeds live in code
+    (f.Add) so CI coverage stays deterministic and repository size bounded.
