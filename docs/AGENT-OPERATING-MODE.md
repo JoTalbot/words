@@ -199,3 +199,30 @@ Each completed task should leave enough evidence to answer:
 - whether they passed;
 - which commit contains the change;
 - what remains blocked.
+
+## 7a. Worker capability map (measured on the OCI host, 2026-09-10)
+
+Numbers below come from executed jobs in this repository, not from model
+marketing. They exist so the next session does not rediscover them by burning
+a worker slot.
+
+| Tier | Backend | Measured result | Use it for | Do not use it for |
+|---|---|---|---|---|
+| micro | `qwen2.5:0.5b` | not attempted | nothing load-bearing | anything that must be correct |
+| micro | `qwen2.5:1.5b` | completed 1400 tokens in < 200 s; output unusable as code: violated "stdlib only" (`import git`), inverted the allow-list rule (flagged the two files that were explicitly allowed), then degraded into repeated identical statements and stopped mid-sentence | prose drafts, checklist text, naming, summaries - each reviewed line by line | any code, any test, any config that lands in `main` |
+| small | `qwen2.5:7b`, `deepseek-r1:7b` | **timed out at 420 s / 3200 tokens, nothing written**, while also pushing the host into an SSH-unreachable state | short answers when the host is otherwise idle | batch work; treat as unavailable on a shared 4-core box |
+| strong | Arena/orchestrator session | implemented and verified batch 21A (security hardening, 9 findings) and 21B/21C end to end | architecture, security, protocol, gameplay, networking, debugging, integration | routine drafting, where it wastes itself |
+
+Rules that follow from the table:
+
+1. Route by *verifiability*, not by task size alone: a 1.5b draft is acceptable
+   only where a deterministic check exists and the orchestrator reads every
+   line.
+2. Every local job goes through `tools/llm-micro-worker.sh`. It refuses to
+   start above `1.2 * nproc` load1, caps `num_thread` at 2, holds the model for
+   only 30 s, and fails loudly on an empty or truncated completion instead of
+   writing a partial file.
+3. A worker failure is a harness question before it is a model question. Twice
+   in one day a "model failure" was actually a quoting bug (`bash` expanded the
+   jq variable before `jq` saw it, so Ollama answered "missing request body").
+   Fix the layer, then re-run.

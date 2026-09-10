@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch17_closed_verified; batch20_closed_verified; batch21a_security_merged; batch21c_hygiene_merged; batch21b_unity_ci_retry_in_flight; oci_host_capacity_saturated_local_llm_capped; android_local_emulator_impossible_measured
+status: m1_vertical_slice_advancing; batch21a_21c_merged_verified; batch21b_device_leg_still_running; batch22a_id_alias_fix_in_pr7; oci_deployed_to_e0240db_then_pending_22a; live_reverification_found_two_real_defects; local_llm_tier_calibrated
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -178,19 +178,53 @@ completed_tasks:
     (history deliberately NOT rewritten — that is a human decision); tools/llm-micro-worker.sh adds
     a bounded local-LLM runner with a host capacity guard. CI #11x + Container smoke success on the
     branch including the new job.
+  - >-
+    OCI promotion executed 2026-09-10: /opt/words reset to main e0240db, ARM go
+    vet + full go test green on the host, binary installed to
+    /opt/words/bin/wordarena-server (root, 755), service restarted - active,
+    NRestarts=0, readyz storage=postgres, live direct exit gate 3/3 PASS with
+    baseline scores 43:45 / 37:60 / 44:40, profile id=7 durable across the
+    restart.
+  - >-
+    DEFECT FOUND BY LIVE RE-VERIFICATION (fixed in PR #7, branch
+    fix/m1-batch22a-id-monotonicity at ea6a405): match ids restart at 1 while
+    match_results is keyed by match_id, so after a restart (a) reads of a live
+    match returned a previous match's result/replay - infra/smoke.sh caught it
+    as replay 404 expected / 200 got - and (b) the new match's own result was
+    silently dropped by ON CONFLICT DO NOTHING. NewAPIWithPostgres now resumes
+    the counter from MAX(match_id) and refuses to start if that read fails;
+    TestAliasingReproducesWithoutPriming pins the bug,
+    TestMatchIDsDoNotAliasAcrossRestarts the fix. CI structurally cannot catch
+    this class (every run starts from an empty database) - which is the
+    argument for keeping live re-verification in the loop.
+  - >-
+    SECOND live finding, filed not fixed (agent/tasks/M1-batch22b-queue-initial-snapshot-comparison.yml):
+    the via-queue gate reported 1/3 matches with "initial snapshots diverge".
+    A room starts its 30 Hz ticker at creation while the two seats connect
+    sequentially, so the two first frames can legitimately be different ticks.
+    The task requires measuring the rate over >=20 queue matches and deciding
+    whether the clock must wait for both seats or the harness must compare
+    tick-aligned snapshots - no relaxing of an acceptance criterion without a
+    decision.
+  - >-
+    Local-LLM capability map written into docs/AGENT-OPERATING-MODE.md section
+    7a from measured runs: qwen2.5:1.5b finished (1400 tokens, under 200 s) but
+    produced unusable code - it violated stdlib-only (import git), inverted the
+    allow-list rule, then looped and stopped mid-sentence; qwen2.5:7b timed out
+    at 420 s. Conclusion recorded: route by verifiability, review every local
+    model line, keep code that lands in main with the strong tier.
+
 active_tasks:
   - >-
-    M1-batch21b-ci-retry: >-
-      branch feat/m1-batch21b-ci-retry @46b33f7 (PR #5). Device smoke moved out of inline YAML into
-      tools/android-smoke.sh with retried install/launch/swipe, ANR-dialog suppression, an explicit
-      "app owns mCurrentFocus" gate, INFRA_FAIL vs PRODUCT_FAIL classification, a logcat+screenshot
-      diagnostic artifact on every leg, a retry leg on API 33 and a smoke-gate verdict job;
-      scheduled twice daily on main so a flaky hosted pool stops needing a human to re-dispatch.
-      Unity run 34492844342 proved the plumbing (build green, both legs failed with diagnostics
-      captured) and the screenshot identified the real cause: "System UI isn't responding" steals
-      the foreground, so the synthetic swipe never reaches Unity. Re-dispatched after the fix; merge
-      when green.
+    Batch 21B (PR #5, branch feat/m1-batch21b-ci-retry at 46b33f7): Unity run
+    34498217023 - setup/preflight/build green, the device smoke leg with the new
+    focus gate and ANR suppression is still executing. Merge on green, then
+    re-dispatch one device smoke on main to attach WORDS_SWIPE evidence to a
+    merged commit (closes 17E).
   - >-
+    Batch 22A (PR #7): merge after the Go tests job goes green, then re-promote
+    the OCI binary and re-run infra/smoke.sh (expect 22 passed / 0 failed) plus
+    the via-queue gate. That re-run is the acceptance evidence for the id fix.  - >-
     OCI deployment promotion: /opt/words still runs the 5dbcc42 binary while main is fea986b.
     Rebuild + restart + re-verify (systemd unit live, NRestarts=0, readyz storage=postgres) once 21B
     lands, because 21A changed the snapshot contract that infra/smoke.sh now asserts. -
