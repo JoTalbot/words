@@ -65,6 +65,12 @@ namespace Words.Client
         private ulong profileId;
         private string profileSummary = "Profile: anonymous (queue entries anonymous)";
 
+        // Batch 17C Sudden Death presentation state. Client-observed only:
+        // the authoritative winner/tie always comes from the REST result; the
+        // tiebreak word is the last accepted event this client saw.
+        private string tiebreakWord = string.Empty;
+        private int tiebreakSeat = -1;
+
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
         private GUIStyle bannerStyle;
@@ -477,24 +483,27 @@ namespace Words.Client
 
         private string ResultHeadline()
         {
+            // Batch 17C: Sudden Death matches get a tiebreak-framed headline.
+            var prefix = suddenDeath ? "SUDDEN DEATH — " : string.Empty;
             if (lastResult != null && lastResult.Success)
             {
                 if (lastResult.IsTie)
                 {
-                    return "DRAW — final " + ScoreLine(lastResult.Scores);
+                    var tieText = suddenDeath && string.IsNullOrEmpty(tiebreakWord) ? "no accepted tiebreak word — " : string.Empty;
+                    return prefix + tieText + "DRAW — final " + ScoreLine(lastResult.Scores);
                 }
 
                 var winnerSeat = Mathf.Clamp(lastResult.WinnerSeat, 0, players.Length - 1);
-                return players[winnerSeat].DisplayName + " WINS — final " + ScoreLine(lastResult.Scores);
+                return prefix + players[winnerSeat].DisplayName + " WINS — final " + ScoreLine(lastResult.Scores);
             }
 
             if (players[0].Score == players[1].Score)
             {
-                return "DRAW (awaiting authoritative result)";
+                return prefix + "DRAW (awaiting authoritative result)";
             }
 
             var leader = players[0].Score > players[1].Score ? players[0] : players[1];
-            return leader.DisplayName + " LEADS " + players[0].Score + ":" + players[1].Score + " (awaiting authoritative result)";
+            return prefix + leader.DisplayName + " LEADS " + players[0].Score + ":" + players[1].Score + " (awaiting authoritative result)";
         }
 
         private string ScoreLine(int[] scores)
@@ -513,7 +522,13 @@ namespace Words.Client
                 ? "Authoritative REST result: " + lastResult.DisplayText
                 : "Snapshot-derived preview. The REST result endpoint is the authoritative terminal record.";
             var mode = suddenDeath ? "Sudden Death tiebreak armed" : "standard scoring";
-            return source + "\nMatch " + liveMatchId + " | seed " + liveSeed + " | " + mode;
+            var text = source + "\nMatch " + liveMatchId + " | seed " + liveSeed + " | " + mode;
+            if (suddenDeath && !string.IsNullOrEmpty(tiebreakWord) && tiebreakSeat >= 0 && tiebreakSeat < players.Length)
+            {
+                text += "\nTiebreak word (client-observed): '" + tiebreakWord + "' by " + players[tiebreakSeat].DisplayName;
+            }
+
+            return text;
         }
 
         private void DrawActionButton(string label, Action action, Color32 color)
@@ -821,6 +836,8 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            tiebreakWord = string.Empty;
+            tiebreakSeat = -1;
             profileStatsRequested = false;
             selected.Clear();
             pendingIntents.Clear();
@@ -972,6 +989,8 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            tiebreakWord = string.Empty;
+            tiebreakSeat = -1;
             profileStatsRequested = false;
             queuePolling = false;
             queuePollActive = false;
@@ -1100,6 +1119,14 @@ namespace Words.Client
             {
                 players[seat].Score = (int)wordEvent.TotalScore;
                 players[seat].Combo = Mathf.Max(1f, wordEvent.ComboMultiplier);
+            }
+
+            // Batch 17C: remember the last accepted word for the Sudden Death
+            // tiebreak line on the result overlay (presentational only).
+            if (wordEvent.Accepted && seat >= 0 && seat < players.Length)
+            {
+                tiebreakWord = wordEvent.NormalizedWord;
+                tiebreakSeat = seat;
             }
 
             ReconcilePendingWithEvent(wordEvent, seat);
@@ -1463,6 +1490,8 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            tiebreakWord = string.Empty;
+            tiebreakSeat = -1;
             queueInProgress = false;
             queuePolling = false;
             queuePollActive = false;

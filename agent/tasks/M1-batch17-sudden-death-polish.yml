@@ -1,0 +1,33 @@
+id: M1-batch17-sudden-death-polish
+title: Unity Sudden Death result-screen polish (tiebreak headline + decisive word)
+owner: unity-client
+priority: normal
+complexity: small
+status: validating_local_green_ci_pending
+inputs:
+  - docs/M1-SUDDEN-DEATH.md
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+dependencies:
+  - M1-batch16-unity-gestures-result-ux
+outputs:
+  - MATCH OVER headline framed as SUDDEN DEATH when the match was tiebreak-armed
+  - tie draw labelled "no accepted tiebreak word" for armed Sudden Death matches
+  - client-observed decisive word line (last accepted event, labelled non-authoritative)
+acceptance:
+  - standard matches keep the existing headline wording (no prefix)
+  - Sudden Death winner/tie still comes from the authoritative REST result
+  - the tiebreak word line is explicitly client-observed and never claims authority
+  - state resets on new match (create/queue) and demo reset
+validation:
+  - python static Unity script sanity: braces, Batch 17C markers, no forbidden deps
+  - cd server && go vet ./...
+  - GitHub CI push run after integration
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch17-sudden-death-polish.yml
+risk: low
+escalation: strong-model
+notes:
+  - Presentation-only change inside the existing result overlay; server
+    Sudden Death semantics (docs/M1-SUDDEN-DEATH.md) unchanged.
