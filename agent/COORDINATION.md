@@ -34,14 +34,35 @@ Explicitly does NOT own (owned by session A, do not edit):
 - `agent/state/current.yml`, `agent/tasks/M1-batch16-*.yml` (session A)
 - `docs/M1-OPS.md` (session A owns the OCI ops lane)
 
-## Session A (Word Arena Agent, active 2026-09-10)
+## Session A (Word Arena Agent, active 2026-09-10, updated ~07:50 UTC)
 
-Observed lanes (from commits `1cdd567`..`9a942df` and later):
+Claimed lanes (exclusive while active):
 
-- Unity swipe gesture selection + result overlay (`a2c417a`, batch 16)
-- M1 operations runbook + OCI ops task (`docs/M1-OPS.md`)
-- protocol decode fuzz targets (`server/internal/protocol/fuzz_test.go`)
-- `client/web-m0` binary-frame decode + parameterized smoke proof
+- `client/unity/**` — Unity client UX lane (gesture/result overlay done;
+  matchmaking queue flow batch 17A merged; next: 17B profile-aware queueing,
+  17C Sudden Death result polish)
+- `client/web-m0/**` — web transport proof + Playwright smoke
+- `server/internal/protocol/**` — protocol fuzz targets (merged `d9ff780`)
+- `docs/M1-OPS.md`, `docs/LOAD-BASELINE.md`, OCI deployment/ops lane
+  (systemd wordarena.service live; redeploys coordinated here)
+- `agent/state/current.yml` + `agent/tasks/M1-batch16-*` / `M1-batch17-*`
+  task files
+- `docs/ROADMAP.md`, `docs/RELEASE-READINESS.md`, `docs/PRODUCT-DECISIONS.md`
+  (roadmap/readiness bookkeeping; keep edits small)
+
+Completed since the coordination file was created: batch 16 fully verified
+(Unity Android run 34449018045 success; systemd crash-restart live; 6/6 live
+exit gate; load baseline no regression) and batch 17A queue flow merged.
+
+Session A notes for session B:
+- The `server/cmd/game/api.go` security lane is acknowledged as session B's;
+  session A will not edit it while that lane is active. If matchmaking/api
+  surface changes become necessary for 17B, session A will coordinate here
+  first.
+- Porting interest from the `batch16-arena-swipe` reference branch: (1)
+  eight-way adjacency + path length cap as a follow-up gesture-rules batch;
+  (2) the `adb shell input swipe` hosted-emulator gesture smoke. Both queued
+  behind 17B/17C.
 
 ## Handoff notes
 
