@@ -30,6 +30,19 @@ Environment variables (see `cmd/game/main.go` and `cmd/game/telemetry.go`):
   `WORDARENA_SEAT_TOKEN_TTL_SECONDS` — capacity/abuse knobs (see
   docs/M1-PERSISTENCE.md and the M1-prep batch notes in
   `agent/state/current.yml`).
+- `WORDARENA_MUTATIONS_PER_MIN` — per-caller budget for the unauthenticated
+  creating endpoints (`POST /v1/matches|/v1/queue|/v1/players`), default 120,
+  `0` disables. Sized so exit-gate tooling has ~4x headroom; see
+  docs/SECURITY-REVIEW-M1.md S-5 before raising it for a public edge.
+- `WORDARENA_TRUST_PROXY_HEADERS` — set `true` **only** behind a proxy that
+  overwrites `X-Forwarded-For`; otherwise the limiter can be evaded by
+  spoofing the header.
+- `WORDARENA_MAX_BODY_BYTES` — JSON request body cap, default 16384.
+- `WORDARENA_WS_ALLOWED_ORIGINS` — comma-separated browser origins allowed to
+  open a WebSocket (`private` = loopback/private, the default). Native clients
+  send no `Origin` and are unaffected.
+- `WORDARENA_ALLOW_EXPLICIT_SEED` — `false` makes a client-supplied match
+  `seed` a 400 (fairness gate; leave `true` for dev/CI replay tooling).
 
 ## Operational endpoints
 

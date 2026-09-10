@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       emulator_api_level:
-        description: API level for the first emulator attempt (the retry leg always uses 34)
+        description: API level for the first emulator attempt (the retry leg always uses 33)
         required: false
         type: choice
         options:
@@ -319,7 +319,7 @@ jobs:
           retention-days: 7
 
   smoke-retry:
-    name: Android emulator smoke test (retry, API 34)
+    name: Android emulator smoke test (retry, API 33)
     # Only a *failed* first attempt is retried, and it is retried on a
     # different emulator image rather than the same one: every hosted-emulator
     # flake seen on 2026-09-10 (adb Broken pipe during install, keyevent 82,

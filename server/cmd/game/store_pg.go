@@ -150,6 +150,19 @@ func (p *pgResultStore) Put(res matchResult) error {
 	return nil
 }
 
+// MaxMatchID reads the durable high-water mark so a restart continues the
+// sequence instead of reusing ids.
+func (p *pgResultStore) MaxMatchID() (uint64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var id uint64
+	if err := p.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(match_id), 0) FROM match_results`).Scan(&id); err != nil {
+		return 0, fmt.Errorf("postgres: max match id: %w", err)
+	}
+	return id, nil
+}
+
 func (p *pgResultStore) Get(id uint64) (matchResult, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

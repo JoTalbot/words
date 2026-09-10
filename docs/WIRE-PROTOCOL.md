@@ -286,10 +286,35 @@ includes `"phase"` (`active` | `sudden_death` | `over`) and `"sudden_death"`
 (`true` while the tiebreak wave is live), alongside `server_tick`, `wave`,
 `state_version`, `cells` and `players`.
 
+**Authorization (added 2026-09-10, batch 21A).** Because match ids are
+sequential and this is the only read that exposes live in-progress state, the
+endpoint requires a seat credential:
+
+```
+Authorization: Bearer <seat token>     # preferred
+?token=<seat token>                    # fallback for tools that cannot set headers
+```
+
+`401` when no credential is presented, `403` when it is unknown or expired.
+The `GET /v1/matches/{id}/result` and `/replay` summaries of *finished*
+matches remain unauthenticated by design for now — see
+`docs/SECURITY-REVIEW-M1.md` finding S-2 for the disposition and the M2
+follow-up that replaces sequential ids with unguessable match codes.
+
 ## 12. Conventions
 
 - Errors: JSON `{"error": "..."}` with proper HTTP status; WS auth failure
-  refuses the upgrade (no frame).
+  refuses the upgrade (no frame). Internal failures are logged server-side and
+  reported as a fixed message; wrapped error text is never echoed to clients.
+- Request bodies: JSON only, capped at `WORDARENA_MAX_BODY_BYTES` (default
+  16 KiB), unknown fields rejected. `POST /v1/matches`, `POST /v1/queue` and
+  `POST /v1/players` are additionally limited per caller
+  (`WORDARENA_MUTATIONS_PER_MIN`, default 120/min; `0` disables).
+- WebSocket handshake: browser `Origin` values must pass the deployment
+  allowlist (`WORDARENA_WS_ALLOWED_ORIGINS`, default: loopback/private only);
+  requests with no `Origin` header are native clients and always pass.
+  `WORDARENA_ALLOW_EXPLICIT_SEED=false` makes a client-supplied `seed` a `400`
+  instead of a deterministic match.
 - Language tags: `en`, `ru`, `uk` (dictionary snapshot v2, see
   `dictionary/NOTICE.md`).
 - Frame payloads are protobuf v3; proto3 scalars default to zero values.

@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; batch16_complete_verified; batch17_advancing; queue_flow_verified; profile_queueing_verified; sudden_death_polish_ci_green; legend_ci_green; gesture_adjacency_ci_green_device_smoke_blocked_by_emulator_flakes; web_m0_reverified_on_current_main; queue_exit_gate_live_regression_pending_oci; oci_ssh_degraded_since_08:20Z; dual_session_coordination_active
+status: m1_vertical_slice_advancing; batch21a_21c_merged_verified; batch21b_device_leg_still_running; batch22a_id_alias_fix_in_pr7; oci_deployed_to_e0240db_then_pending_22a; live_reverification_found_two_real_defects; local_llm_tier_calibrated
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -11,162 +11,288 @@ completed_tasks:
   - Reconnect/resume inside GraceTicks=300 (canonical snapshot)
   - Network fault matrix RTT 50/100/150 ms, loss 0/1/3 % green
   - Load baseline (docs/LOAD-BASELINE.md)
-  - Exit-gate automation: TestExitGateRepeatedFullMatches (6 full live WS
-    matches; identical terminal state; scores == offline replay)
-  - headless-bot executable harness (server/cmd/headless-bot) — live
-    EXIT-GATE: PASS on the dev server 2026-09-09 (6/6 matches)
+  - >-
+    Exit-gate automation: TestExitGateRepeatedFullMatches (6 full live WS matches; identical
+    terminal state; scores == offline replay)
+  - >-
+    headless-bot executable harness (server/cmd/headless-bot) — live EXIT-GATE: PASS on the dev
+    server 2026-09-09 (6/6 matches)
   - Dictionary compiler server/cmd/dictcompile (+ canonicality test)
   - Replay fixture seed 1512; web-m0 client proof; M1-ARCH-PREP doc
   - GitHub CI green on integrated main before M1 batch 10
-  - Batch 1 (M1-prep): GET /v1/matches/{id}/result (persistence, TTL 5 min),
-    WORDARENA_MAX_ROOMS cap (429), WS read limit, request logging + tests
-  - Batch 2 (M1-prep): GET /metrics counters, graceful shutdown, Dockerfile +
-    docker-compose.yml, TestMetricsCounters, local binary smoke test
-  - Batch 3 (M1): basic matchmaking (POST /v1/queue, GET /v1/queue/{id},
-    FIFO pairing per language, 2-min TTL, one-shot delivery) + replay
-    endpoint (GET /v1/matches/{id}/replay, deterministic event log)
-  - Batch 4 (M1-prep): background reaper (matchmaker queue + result store
-    TTL sweep) + per-seat intent rate limiting (WORDARENA_INTENTS_PER_SEC,
-    default 60/s, policy-violation close) + tests
-  - Batch 5 (M1): player profiles (POST /v1/players, GET /v1/players/{id})
-    + stats folding from finished matches via optional player_ids on match
-    creation (wins/losses/draws/total_score) + tests
-  - Unity CI pipeline fixed: in-container unity-editor build + email/password
-    activation (game-ci gap + container.image env-context validation error +
-    project CWD); documented in docs/unity-ci.md
-  - Unity Android CI fully green (build + hosted-emulator smoke): run
-    34420554448 success; words-debug.apk installed/launched/verified on
-    reactivecircus API 35 x86_64 emulator; smoke script rewritten as single
-    && chain (emulator-runner runs per-line sh -c) — commit e89008e
-  - Batch 6 (M1): opt-in Sudden Death tiebreak (docs/M1-SUDDEN-DEATH.md):
-    POST /v1/matches sudden_death flag, one deterministic tiebreak wave,
-    first accepted word wins, timeout = draw; replay property covered
-  - Batch 7 (M1): profile-aware matchmaking (POST /v1/queue player_id,
-    idempotent re-enqueue, seat binding, anonymous seats stay synthetic)
-  - Batch 8 (M1): durable PostgreSQL storage (docs/M1-PERSISTENCE.md):
-    ProfileRepo + ResultRepo interfaces; in-memory default; pgx v5 backends
-    behind WORDARENA_POSTGRES_DSN (fail-fast on connect); read-through
-    results; integration tests incl. cross-instance durability
-  - Batch 9 (M1): seat-token rotation (POST /v1/matches/{id}/token/rotate)
-    + optional token TTL (WORDARENA_SEAT_TOKEN_TTL_SECONDS, default 0 = M0
-    behaviour); rotation invalidates the old token and refreshes expiry
-  - OCI deploy of durable storage verified live (db/role wordarena on host
-    Postgres 16; service restarted with DSN; profile survived restart)
-  - Batch 10 (M1): telemetry export baseline (docs/M1-TELEMETRY.md):
-    backward-compatible JSON /metrics with exporter health, Prometheus text
-    endpoint GET /metrics/prometheus, optional non-blocking JSONL exporter via
-    WORDARENA_TELEMETRY_JSONL/WORDARENA_TELEMETRY_BUFFER, lifecycle/action
-    events without token leakage, compose telemetry volume, regression tests
-  - Batch 11 (M1 client): Unity runtime shared-board UX bootstrap
-    (client/unity/Assets/Scripts/WordArenaBootstrap.cs) creates a visible demo
-    board at scene load without Editor-authored GameObjects; demonstrates cell
-    selection, claim, 3-second lock, cross-steal-ready ownership colors,
-    combo display and Sudden Death banner; explicitly non-authoritative and
-    pending server protocol binding; first CI failed because UnityEngine.UI/
-    EventSystems were unavailable, repaired to IMGUI; Unity Android repaired
-    run 34435705752 success and latest-main retry 34437841806 success
-  - Batch 12 (M1 production shape): /readyz readiness/draining gate; /healthz
-    remains liveness; Postgres-backed readiness pings storage; Stop marks API
-    draining; new mutating work and WebSocket upgrades return 503 while
-    draining; regression tests added; GitHub CI run 34436316582 success
-  - Batch 13 (M1 client): Unity runtime UX binds to authoritative server
-    protocol: REST match create, binary protobuf WebSocket connect,
-    SubmitWordIntent encoder, ServerEnvelope snapshot/event decoder, canonical
-    cells/owners/locks/scores/version rendering; local demo kept non-authoritative;
-    GitHub CI run 34439234247 success; Unity Android run 34439238378 success
-  - Batch 14 (M1 client): Unity authoritative session lifecycle controls:
-    /readyz check, active-seat token rotation with redacted UI, authoritative
-    result fetch and automatic terminal-over result fetch; GitHub CI run
-    34441243977 success; Unity Android run 34441252156 success
-  - Batch 15 (M1 client): Unity pending-intent prediction/reconciliation
-    shell: visible pending overlay tied to client_sequence, event
-    accept/rollback correlation, canonical snapshot cleanup, no local
-    authoritative score/ownership mutation; GitHub CI run 34443200741
-    success; Unity Android run 34443210534 success (commit 5dbcc42)
-  - OCI recovery + production deploy of main 5dbcc42 (2026-09-10): /opt/words
-    reset to origin/main, go vet + full go test green on host (go 1.27.1),
-    focused Postgres validation green (ProfileCRUD/ResultPutGet/
-    DurabilityAcrossInstances), new binary live on 127.0.0.1:18080 with
-    durable DSN + JSONL telemetry (/opt/words/telemetry/events.jsonl),
-    /readyz reports storage=postgres, Prometheus endpoint live, live
-    headless-bot match EXIT-GATE PASS (seed 1512, 43:45, streams equal),
-    profile id=5 durable across service restart
-  - Batch 16A (M1 client): Unity drag/swipe multi-cell gesture path (tap
-    toggle preserved, swipe-back undo, ordered SEL #n labels) + MATCH OVER
-    result overlay preferring the authoritative REST record (a2c417a);
-    GitHub CI 34449013190 success; Unity Android 34449018045 pending
-  - Batch 16B (M1 ops): systemd wordarena.service on OCI (Restart=on-failure,
-    root-owned 600 EnvironmentFile secrets, /opt/words/bin/wordarena-server),
-    crash-restart verified live (SIGKILL -> active + readyz ready), docs/M1-OPS.md
-    runbook committed (2b17b36); LLM micro-worker (qwen2.5:1.5b on host)
-    drafted the pre-deploy checklist, cleaned by orchestrator
-  - Batch 16C (QA): full live exit gate on deployed 5dbcc42: 6/6 PASS,
-    terminal snapshots + client streams equal, scores identical to the
-    2026-09-09 baseline (43:45 / 37:60 / 44:40)
-  - Batch 16D (security): protocol fuzz targets FuzzClientEnvelopeDecode/
-    FuzzClientEnvelopeMutation/FuzzSnapshotEncodeDecode; ~800k execs locally
-    with 0 crashes; seed corpus runs in CI (d9ff780; CI 34449508596 success)
-  - Batch 16E/F (web proof): web-m0 binaryType fix (Event bytes no longer
-    undefined), parameterized smoke script with strict authoritative-OPEN
-    mode; Playwright headless Chromium re-verified against local build of
-    current main (77dfe17); RELEASE-READINESS.md refreshed, Q8 edge-access
+  - >-
+    Batch 1 (M1-prep): GET /v1/matches/{id}/result (persistence, TTL 5 min), WORDARENA_MAX_ROOMS cap
+    (429), WS read limit, request logging + tests
+  - >-
+    Batch 2 (M1-prep): GET /metrics counters, graceful shutdown, Dockerfile + docker-compose.yml,
+    TestMetricsCounters, local binary smoke test
+  - >-
+    Batch 3 (M1): basic matchmaking (POST /v1/queue, GET /v1/queue/{id}, FIFO pairing per language,
+    2-min TTL, one-shot delivery) + replay endpoint (GET /v1/matches/{id}/replay, deterministic
+    event log)
+  - >-
+    Batch 4 (M1-prep): background reaper (matchmaker queue + result store TTL sweep) + per-seat
+    intent rate limiting (WORDARENA_INTENTS_PER_SEC, default 60/s, policy-violation close) + tests
+  - >-
+    Batch 5 (M1): player profiles (POST /v1/players, GET /v1/players/{id}) + stats folding from
+    finished matches via optional player_ids on match creation (wins/losses/draws/total_score) +
+    tests
+  - >-
+    Unity CI pipeline fixed: in-container unity-editor build + email/password activation (game-ci
+    gap + container.image env-context validation error + project CWD); documented in
+    docs/unity-ci.md
+  - >-
+    Unity Android CI fully green (build + hosted-emulator smoke): run 34420554448 success;
+    words-debug.apk installed/launched/verified on reactivecircus API 35 x86_64 emulator; smoke
+    script rewritten as single && chain (emulator-runner runs per-line sh -c) — commit e89008e
+  - >-
+    Batch 6 (M1): opt-in Sudden Death tiebreak (docs/M1-SUDDEN-DEATH.md): POST /v1/matches
+    sudden_death flag, one deterministic tiebreak wave, first accepted word wins, timeout = draw;
+    replay property covered
+  - >-
+    Batch 7 (M1): profile-aware matchmaking (POST /v1/queue player_id, idempotent re-enqueue, seat
+    binding, anonymous seats stay synthetic)
+  - >-
+    Batch 8 (M1): durable PostgreSQL storage (docs/M1-PERSISTENCE.md): ProfileRepo + ResultRepo
+    interfaces; in-memory default; pgx v5 backends behind WORDARENA_POSTGRES_DSN (fail-fast on
+    connect); read-through results; integration tests incl. cross-instance durability
+  - >-
+    Batch 9 (M1): seat-token rotation (POST /v1/matches/{id}/token/rotate) + optional token TTL
+    (WORDARENA_SEAT_TOKEN_TTL_SECONDS, default 0 = M0 behaviour); rotation invalidates the old token
+    and refreshes expiry
+  - >-
+    OCI deploy of durable storage verified live (db/role wordarena on host Postgres 16; service
+    restarted with DSN; profile survived restart)
+  - >-
+    Batch 10 (M1): telemetry export baseline (docs/M1-TELEMETRY.md): backward-compatible JSON
+    /metrics with exporter health, Prometheus text endpoint GET /metrics/prometheus, optional
+    non-blocking JSONL exporter via WORDARENA_TELEMETRY_JSONL/WORDARENA_TELEMETRY_BUFFER,
+    lifecycle/action events without token leakage, compose telemetry volume, regression tests
+  - >-
+    Batch 11 (M1 client): Unity runtime shared-board UX bootstrap
+    (client/unity/Assets/Scripts/WordArenaBootstrap.cs) creates a visible demo board at scene load
+    without Editor-authored GameObjects; demonstrates cell selection, claim, 3-second lock,
+    cross-steal-ready ownership colors, combo display and Sudden Death banner; explicitly
+    non-authoritative and pending server protocol binding; first CI failed because UnityEngine.UI/
+    EventSystems were unavailable, repaired to IMGUI; Unity Android repaired run 34435705752 success
+    and latest-main retry 34437841806 success
+  - >-
+    Batch 12 (M1 production shape): /readyz readiness/draining gate; /healthz remains liveness;
+    Postgres-backed readiness pings storage; Stop marks API draining; new mutating work and
+    WebSocket upgrades return 503 while draining; regression tests added; GitHub CI run 34436316582
+    success
+  - >-
+    Batch 13 (M1 client): Unity runtime UX binds to authoritative server protocol: REST match
+    create, binary protobuf WebSocket connect, SubmitWordIntent encoder, ServerEnvelope
+    snapshot/event decoder, canonical cells/owners/locks/scores/version rendering; local demo kept
+    non-authoritative; GitHub CI run 34439234247 success; Unity Android run 34439238378 success
+  - >-
+    Batch 14 (M1 client): Unity authoritative session lifecycle controls: /readyz check, active-seat
+    token rotation with redacted UI, authoritative result fetch and automatic terminal-over result
+    fetch; GitHub CI run 34441243977 success; Unity Android run 34441252156 success
+  - >-
+    Batch 15 (M1 client): Unity pending-intent prediction/reconciliation shell: visible pending
+    overlay tied to client_sequence, event accept/rollback correlation, canonical snapshot cleanup,
+    no local authoritative score/ownership mutation; GitHub CI run 34443200741 success; Unity
+    Android run 34443210534 success (commit 5dbcc42)
+  - >-
+    OCI recovery + production deploy of main 5dbcc42 (2026-09-10): /opt/words reset to origin/main,
+    go vet + full go test green on host (go 1.27.1), focused Postgres validation green
+    (ProfileCRUD/ResultPutGet/ DurabilityAcrossInstances), new binary live on 127.0.0.1:18080 with
+    durable DSN + JSONL telemetry (/opt/words/telemetry/events.jsonl), /readyz reports
+    storage=postgres, Prometheus endpoint live, live headless-bot match EXIT-GATE PASS (seed 1512,
+    43:45, streams equal), profile id=5 durable across service restart
+  - >-
+    Batch 16A (M1 client): Unity drag/swipe multi-cell gesture path (tap toggle preserved,
+    swipe-back undo, ordered SEL #n labels) + MATCH OVER result overlay preferring the authoritative
+    REST record (a2c417a); GitHub CI 34449013190 success; Unity Android 34449018045 pending
+  - >-
+    Batch 16B (M1 ops): systemd wordarena.service on OCI (Restart=on-failure, root-owned 600
+    EnvironmentFile secrets, /opt/words/bin/wordarena-server), crash-restart verified live (SIGKILL
+    -> active + readyz ready), docs/M1-OPS.md runbook committed (2b17b36); LLM micro-worker
+    (qwen2.5:1.5b on host) drafted the pre-deploy checklist, cleaned by orchestrator
+  - >-
+    Batch 16C (QA): full live exit gate on deployed 5dbcc42: 6/6 PASS, terminal snapshots + client
+    streams equal, scores identical to the 2026-09-09 baseline (43:45 / 37:60 / 44:40)
+  - >-
+    Batch 16D (security): protocol fuzz targets FuzzClientEnvelopeDecode/
+    FuzzClientEnvelopeMutation/FuzzSnapshotEncodeDecode; ~800k execs locally with 0 crashes; seed
+    corpus runs in CI (d9ff780; CI 34449508596 success)
+  - >-
+    Batch 16E/F (web proof): web-m0 binaryType fix (Event bytes no longer undefined), parameterized
+    smoke script with strict authoritative-OPEN mode; Playwright headless Chromium re-verified
+    against local build of current main (77dfe17); RELEASE-READINESS.md refreshed, Q8 edge-access
     open question recorded (9a942df)
-  - Batch 16A verified: Unity Android run 34449018045 success (2b17b36) —
-    validate + debug build + hosted emulator smoke all green; M0 swipe
-    prototype checkbox closed in ROADMAP via the B1 mitigation path
-  - Batch 16G (perf): load baseline re-measured on OCI at 9a942df — no
-    regression (1.84M subs/s total, 57.6k/match, 382.6 KiB/match; dictionary
-    375.9 ns/op); docs/LOAD-BASELINE.md updated (1e09f42)
-  - Batch 17A (M1 client): Unity matchmaking queue flow — Find match (queue)
-    enqueue POST /v1/queue, 1.5s poll loop with 410-expiry handling, connect
-    with server-issued seat token, lazy seat binding from snapshot user ids,
-    queue-token reconnect fallback; live OCI contract check green (two
-    anonymous players matched, distinct tokens); GitHub CI 34451029325 +
-    Unity Android 34451039903 success — VERIFIED
-  - Batch 17B (M1 client): profile-aware queueing — Create profile
-    (POST /v1/players) with nickname validation, enqueue carries bound
-    player_id, terminal snapshot triggers one-shot GET /v1/players stats
-    refresh rendered in the connection panel; GitHub CI 34452664532 +
-    Unity Android 34452672586 success — VERIFIED (25e2d20)
-  - Batch 17D (QA): headless-bot -via-queue mode — queue-created matches
-    (server seed, FIFO seats) replay the full exit gate; local validation
-    direct seed 1512 PASS (43:45) and queue mode PASS (59:44); merged
-    5892f41; live OCI regression pending SSH recovery
+  - >-
+    Batch 16A verified: Unity Android run 34449018045 success (2b17b36) — validate + debug build +
+    hosted emulator smoke all green; M0 swipe prototype checkbox closed in ROADMAP via the B1
+    mitigation path
+  - >-
+    Batch 16G (perf): load baseline re-measured on OCI at 9a942df — no regression (1.84M subs/s
+    total, 57.6k/match, 382.6 KiB/match; dictionary 375.9 ns/op); docs/LOAD-BASELINE.md updated
+    (1e09f42)
+  - >-
+    Batch 17A (M1 client): Unity matchmaking queue flow — Find match (queue) enqueue POST /v1/queue,
+    1.5s poll loop with 410-expiry handling, connect with server-issued seat token, lazy seat
+    binding from snapshot user ids, queue-token reconnect fallback; live OCI contract check green
+    (two anonymous players matched, distinct tokens); GitHub CI 34451029325 + Unity Android
+    34451039903 success — VERIFIED
+  - >-
+    Batch 17B (M1 client): profile-aware queueing — Create profile (POST /v1/players) with nickname
+    validation, enqueue carries bound player_id, terminal snapshot triggers one-shot GET /v1/players
+    stats refresh rendered in the connection panel; GitHub CI 34452664532 + Unity Android
+    34452672586 success — VERIFIED (25e2d20)
+  - >-
+    Batch 17D (QA): headless-bot -via-queue mode — queue-created matches (server seed, FIFO seats)
+    replay the full exit gate; local validation direct seed 1512 PASS (43:45) and queue mode PASS
+    (59:44); merged 5892f41. LIVE REGRESSION CLOSED 2026-09-10 by the batch-21 session: an isolated
+    build of main c2079e8 on the OCI host at 127.0.0.1:18081 ran `-via-queue -rounds 2 -seeds 1,2,3`
+    -> 6/6 EXIT-GATE PASS, every match terminal_snapshots_equal=true and client_streams_equal=true;
+    direct control `-rounds 1 -seeds 1512,1513,1517` -> 3/3 PASS with the baseline scores 43:45 /
+    37:60 / 44:40; `infra/smoke.sh` 18 passed / 0 failed; no leftover process. Note the *deployed*
+    systemd binary is still 5dbcc42, so `-via-queue` is absent there — the regression was run
+    against a fresh build, which is also why the deployed host binary must be promoted.
+  - >-
+    Batch 17F (board colour legend): CI-green on main (run 34457742840 for head 6cc02e1) — marked
+    VERIFIED; the Unity device leg is folded into the 21B smoke pipeline rather than blocking this
+    item.
+  - >-
+    Batch 20 (monitoring assets): VERIFIED — CI #109 and Container smoke #4 both success on c2079e8
+    (static + live monitoring validators in CI).
+  - >-
+    Batch 21A (M1 security hardening, merged 5263bfc via PR #4): seat credential now required for
+    GET /v1/match/{id}/snapshot (401/403, Bearer or ?token=, rotated-away token rejected);
+    OriginPatterns ["*"] replaced by internal/security.OriginPolicy (native no-Origin clients pass,
+    browsers must be loopback/private or allowlisted); MaxBytesReader 16 KiB + unknown-field
+    rejection on every JSON handler; per-caller mutation budget 120/min with Retry-After and a
+    bounded, reaped key map; WORDARENA_ALLOW_EXPLICIT_SEED fairness gate; nickname policy in one
+    place; fixed 500 text; HTTP listener timeouts. docs/SECURITY-REVIEW-M1.md records 9 findings
+    with dispositions; S-2 (sequential match ids -> enumerable finished-match data) is filed as
+    M1-batch21g-match-codes instead of being silently patched. Verified locally (go vet, go test
+    ./..., -race on cmd/game+security+match+matchroom, smoke.sh 22 passed/0 failed against a real
+    build) and in CI (CI #110 + Container smoke #5 success).
+  - >-
+    Batch 21C (repo hygiene, merged fea986b via PR #6): tools/check-repo-hygiene.py (1 MiB
+    tracked-file cap with an explicit allow-list, artifact patterns, shebang-without-exec-bit, CRLF)
+    wired as a "Repository hygiene" CI job; the 14 MiB ARM64 Go debug ELF server/game untracked
+    (history deliberately NOT rewritten — that is a human decision); tools/llm-micro-worker.sh adds
+    a bounded local-LLM runner with a host capacity guard. CI #11x + Container smoke success on the
+    branch including the new job.
+  - >-
+    OCI promotion executed 2026-09-10: /opt/words reset to main e0240db, ARM go
+    vet + full go test green on the host, binary installed to
+    /opt/words/bin/wordarena-server (root, 755), service restarted - active,
+    NRestarts=0, readyz storage=postgres, live direct exit gate 3/3 PASS with
+    baseline scores 43:45 / 37:60 / 44:40, profile id=7 durable across the
+    restart.
+  - >-
+    DEFECT FOUND BY LIVE RE-VERIFICATION (fixed in PR #7, branch
+    fix/m1-batch22a-id-monotonicity at ea6a405): match ids restart at 1 while
+    match_results is keyed by match_id, so after a restart (a) reads of a live
+    match returned a previous match's result/replay - infra/smoke.sh caught it
+    as replay 404 expected / 200 got - and (b) the new match's own result was
+    silently dropped by ON CONFLICT DO NOTHING. NewAPIWithPostgres now resumes
+    the counter from MAX(match_id) and refuses to start if that read fails;
+    TestAliasingReproducesWithoutPriming pins the bug,
+    TestMatchIDsDoNotAliasAcrossRestarts the fix. CI structurally cannot catch
+    this class (every run starts from an empty database) - which is the
+    argument for keeping live re-verification in the loop.
+  - >-
+    SECOND live finding, filed not fixed (agent/tasks/M1-batch22b-queue-initial-snapshot-comparison.yml):
+    the via-queue gate reported 1/3 matches with "initial snapshots diverge".
+    A room starts its 30 Hz ticker at creation while the two seats connect
+    sequentially, so the two first frames can legitimately be different ticks.
+    The task requires measuring the rate over >=20 queue matches and deciding
+    whether the clock must wait for both seats or the harness must compare
+    tick-aligned snapshots - no relaxing of an acceptance criterion without a
+    decision.
+  - >-
+    Local-LLM capability map written into docs/AGENT-OPERATING-MODE.md section
+    7a from measured runs: qwen2.5:1.5b finished (1400 tokens, under 200 s) but
+    produced unusable code - it violated stdlib-only (import git), inverted the
+    allow-list rule, then looped and stopped mid-sentence; qwen2.5:7b timed out
+    at 420 s. Conclusion recorded: route by verifiability, review every local
+    model line, keep code that lands in main with the strong tier.
+
 active_tasks:
-  - M1-batch17-gesture-adjacency-swipe-smoke: merged d0befaf; CI 34455905771
-    running; Unity Android run with the new adb-swipe assertion dispatched
-  - M1-batch17-sudden-death-result-polish: merged 3ab6c01; CI 34455667924
-    success; Unity coverage folded into the d0befaf run
-  - M1-batch17-queue-exit-gate: live OCI via-queue regression pending SSH
-    recovery (local direct + queue modes both PASS; OCI down since ~08:20Z)
+  - >-
+    Batch 21B (PR #5, branch feat/m1-batch21b-ci-retry at 46b33f7): Unity run
+    34498217023 - setup/preflight/build green, the device smoke leg with the new
+    focus gate and ANR suppression is still executing. Merge on green, then
+    re-dispatch one device smoke on main to attach WORDS_SWIPE evidence to a
+    merged commit (closes 17E).
+  - >-
+    Batch 22A (PR #7): merge after the Go tests job goes green, then re-promote
+    the OCI binary and re-run infra/smoke.sh (expect 22 passed / 0 failed) plus
+    the via-queue gate. That re-run is the acceptance evidence for the id fix.  - >-
+    OCI deployment promotion: /opt/words still runs the 5dbcc42 binary while main is fea986b.
+    Rebuild + restart + re-verify (systemd unit live, NRestarts=0, readyz storage=postgres) once 21B
+    lands, because 21A changed the snapshot contract that infra/smoke.sh now asserts. -
+    M1-batch17-sudden-death-result-polish: merged 3ab6c01; CI 34455667924 success; Unity coverage
+    folded into the d0befaf run
+  - >-
+    M1-batch17-queue-exit-gate: live OCI via-queue regression pending SSH recovery (local direct +
+    queue modes both PASS; OCI down since ~08:20Z)
 blocked_tasks:
-  - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
-    (dictionary/NOTICE.md)
-  - B3: Unity Editor unavailable on Linux/ARM64 OCI host; Unity/Android client
-    development must use GitHub-hosted x86_64 Unity/Android CI or another
-    authorized remote build/device backend
+  - B2 uk dictionary GPL-3.0+ derivative; legal review before distribution (dictionary/NOTICE.md). Real human blocker, unchanged.
+  - B3 Unity Editor unavailable on Linux/ARM64 OCI host; mitigated by GitHub-hosted x86_64 Unity CI, so no local Unity work is possible.
+  - >-
+    Q8 edge/TLS exposure decision (docs/PRODUCT-DECISIONS.md) still open, and it now has a second
+    reason: with the service loopback-only, SSH is the ONLY observation channel, so a saturated
+    host makes the deployment temporarily unobservable. Batch 21A closed the sharpest abuse hole
+    (anonymous live-board read), so a future exposure starts from a better place.
+  - >-
+    Android local emulator on the OCI host is IMPOSSIBLE, measured 2026-09-10: /dev/kvm absent, 0
+    vmx/svm CPU flags (Ampere A1 has no nested virtualization) and no Android SDK (~/Android/Sdk
+    missing). The fallback chain in docs/AUTONOMOUS-DEVELOPMENT-MASTER.md section 9 therefore
+    lands on a hosted emulator with a real automation API, which is what CI already uses
+    (reactivecircus runner). Interactive online emulators (myandroid.org and similar) expose no
+    authorized automation, so they are not used and their limits are respected.
+  - >-
+    B3: Unity Editor unavailable on Linux/ARM64 OCI host; Unity/Android client development must use
+    GitHub-hosted x86_64 Unity/Android CI or another authorized remote build/device backend
 failed_tasks:
-  - (resolved 2026-09-10) OCI isolated Batch 10 Postgres validation/deploy:
-    SSH recovered, leftover worker absent, focused Postgres validation green,
-    current main deployed and smoke-verified live; no code failure existed
-  - Unity Android latest-main run 34437012338 failed in hosted emulator unlock
-    before APK install (`adb shell input keyevent 82` Broken pipe/exit 224);
-    same head retried as run 34437841806 and completed success, so treat
-    34437012338 as runner/emulator flake unless it recurs
+  - >-
+    Unity Android runs 34455925881 / 34457772896 / 34459251481 and 34492844342 (both legs) failed
+    on hosted-emulator instability. Root cause finally identified from the screenshot artifact
+    rather than the logs: "System UI isn't responding" owns the foreground, so `adb shell input
+    swipe` is delivered to the system dialog and the WORDS_SWIPE marker never appears. Repaired in
+    21B (ANR dialog suppression, focus gate, failure classes) instead of weakening the assertion.
+  - >-
+    Local-LLM worker qwen2.5:7b (batch 21C drafting task) TIMED OUT at 420s with "nothing
+    written"; an earlier attempt failed inside the harness (bash expanded $p before jq saw it, so
+    Ollama answered "missing request body"). Verdict: 7b codegen is not viable on this host; the
+    artifact was written by the orchestrator and the tooling now guards capacity.
+  - agent/state/current.yml itself was not parseable YAML for the whole history of the file (verified on the pre-edit commit), which defeats its purpose as a machine-readable resume state. Fixed in this batch by folding every multi-line list item into a block scalar with no content change.
+  - >-
+    Unity Android latest-main run 34437012338 failed in hosted emulator unlock before APK install
+    (`adb shell input keyevent 82` Broken pipe/exit 224); same head retried as run 34437841806 and
+    completed success, so treat 34437012338 as runner/emulator flake unless it recurs
 next_tasks:
-  - Batch 17A verify: monitor GitHub CI + Unity Android smoke for 7399c05;
-    mark verified or repair
-  - Batch 17B (Unity): profile-aware queueing — create/bind player profile
-    (POST /v1/players) and enqueue with player_id so finished matches fold
-    into lifetime stats; show stats on the result overlay
-  - Batch 17C (Unity): Sudden Death result-screen polish (tiebreak headline,
-    armed-state banner on the MATCH OVER overlay)
-  - Batch 17D (server QA): two-queue-client live match on OCI (enqueue both
-    seats, play a headless-driven match through queued tokens) as an
-    end-to-end matchmaking regression
-  - M1 client follow-up: live-device/server configuration (runtime server
-    endpoint field) once the Q8 edge-exposure decision is made; loopback-only
-    until then
+  - Integrate 21B when its Unity run is green, then re-run one device smoke on main so the WORDS_SWIPE evidence is attached to a merged commit (closes 17E).
+  - >-
+    Promote the OCI systemd deployment from 5dbcc42 to current main: build, restart,
+    infra/smoke.sh, live headless-bot exit gate, profile durability check. Required because 21A
+    changed the snapshot contract that smoke.sh now asserts.
+  - M1-batch21g-match-codes (unguessable match ids plus a stored read capability) closes security finding S-2 and is a precondition for any public edge.
+  - >-
+    M1 client: runtime server endpoint field in the Unity connection panel, needed for any
+    real-device play test and independent of Q8 because it only changes where the client points.
+  - Flip the remaining [~] M1 roadmap rows by stating and meeting one exit criterion each (richer rollback animation, production shared-board UX, gesture polish).
+  - Re-measure docs/LOAD-BASELINE.md after 21A; the new gates are O(1) but should be measured, not asserted harmless.
+  - >-
+    Batch 17B (Unity): profile-aware queueing — create/bind player profile (POST /v1/players) and
+    enqueue with player_id so finished matches fold into lifetime stats; show stats on the result
+    overlay
+  - >-
+    Batch 17C (Unity): Sudden Death result-screen polish (tiebreak headline, armed-state banner on
+    the MATCH OVER overlay)
+  - >-
+    Batch 17D (server QA): two-queue-client live match on OCI (enqueue both seats, play a
+    headless-driven match through queued tokens) as an end-to-end matchmaking regression
+  - >-
+    M1 client follow-up: live-device/server configuration (runtime server endpoint field) once the
+    Q8 edge-exposure decision is made; loopback-only until then
 task_graph:
   M1-batch10-telemetry:
     status: verified_local_and_ci
@@ -177,14 +303,16 @@ task_graph:
       - go test -count=1 ./...
       - go test -race ./cmd/game ./internal/match ./internal/matchroom -count=1
       - local binary smoke with WORDARENA_TELEMETRY_JSONL and /metrics/prometheus
-      - GitHub CI run 34435254937 success
-    remote_validation: pending_oci_ssh_degraded
+      - >-
+        GitHub CI run 34435254937 success remote_validation: pending_oci_ssh_degraded
   M1-batch11-unity-ux-bootstrap:
     status: verified_unity_android_ci
     owner: unity-client
     validation:
       - python static sanity for C# markers/delimiters/package JSON/meta GUIDs
-      - first GitHub Actions Unity Android run 34435380589 failed at compile: UnityEngine.UI/EventSystems missing
+      - >-
+        first GitHub Actions Unity Android run 34435380589 failed at compile:
+        UnityEngine.UI/EventSystems missing
       - repair a42a868 rewrote bootstrap to IMGUI (com.unity.modules.imgui only)
       - repaired Unity Android run 34435705752 success
       - latest-main Unity Android run 34437841806 success after runner-flake retry
@@ -202,106 +330,156 @@ task_graph:
     status: verified
     owner: unity-client
     validation:
-      - python static Unity script sanity: passed
-      - go test ./internal/protocol -run 'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1 -v: passed
-      - go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath|TestReadyz' -count=1: passed
-      - go test -count=1 ./...: passed
-      - go vet ./...: passed
-      - go test -race ./internal/protocol ./cmd/game -run 'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1: passed
-      - GitHub CI push run 34439234247: success
-      - Unity Android run 34439238378: success (preflight, build, hosted emulator smoke)
+      - >-
+        python static Unity script sanity: passed
+      - >-
+        go test ./internal/protocol -run
+        'TestUnityClientSubmitEnvelopeCompatibility|TestGoldenBytes|TestSnapshotRoundTrip' -count=1
+        -v: passed
+      - >-
+        go test ./cmd/game -run
+        'TestEndToEndTwoClients|TestReconnectWithinGrace|TestCreateMatchSuddenDeath|TestReadyz'
+        -count=1: passed
+      - >-
+        go test -count=1 ./...: passed
+      - >-
+        go vet ./...: passed
+      - >-
+        go test -race ./internal/protocol ./cmd/game -run
+        'TestUnityClientSubmitEnvelopeCompatibility|TestEndToEndTwoClients|TestReadyz' -count=1:
+        passed
+      - >-
+        GitHub CI push run 34439234247: success
+      - >-
+        Unity Android run 34439238378: success (preflight, build, hosted emulator smoke)
   M1-batch14-unity-session-lifecycle:
     status: verified
     owner: unity-client
     validation:
-      - python static Unity script sanity with lifecycle markers/token-redaction: passed
-      - go test ./cmd/game -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed
-      - go test -count=1 ./...: passed
-      - go vet ./...: passed
-      - go test -race ./cmd/game ./internal/protocol -run 'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
-      - GitHub CI push run 34441243977: success
-      - Unity Android run 34441252156: success (preflight, build, hosted emulator smoke)
+      - >-
+        python static Unity script sanity with lifecycle markers/token-redaction: passed
+      - >-
+        go test ./cmd/game -run
+        'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory' -count=1 -v: passed
+      - >-
+        go test -count=1 ./...: passed
+      - >-
+        go vet ./...: passed
+      - >-
+        go test -race ./cmd/game ./internal/protocol -run
+        'TestSeatTokenRotation|TestResultEndpointAfterMatch|TestReadyzInMemory|TestUnityClientSubmitEnvelopeCompatibility'
+        -count=1: passed
+      - >-
+        GitHub CI push run 34441243977: success
+      - >-
+        Unity Android run 34441252156: success (preflight, build, hosted emulator smoke)
   M1-batch15-unity-prediction-reconciliation:
     status: verified
     owner: unity-client
     validation:
-      - python static Unity script sanity with pending/reconciliation markers/token-redaction: passed
-      - go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace' -count=1: passed
-      - go test -count=1 ./...: passed
-      - go vet ./...: passed
-      - go test -race ./cmd/game ./internal/protocol -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
+      - >-
+        python static Unity script sanity with pending/reconciliation markers/token-redaction: passed
+      - >-
+        go test ./cmd/game -run 'TestEndToEndTwoClients|TestReconnectWithinGrace' -count=1: passed
+      - >-
+        go test -count=1 ./...: passed
+      - >-
+        go vet ./...: passed
+      - >-
+        go test -race ./cmd/game ./internal/protocol -run
+        'TestEndToEndTwoClients|TestReconnectWithinGrace|TestUnityClientSubmitEnvelopeCompatibility'
+        -count=1: passed
       - GitHub CI run 34443200741 success (commit 5dbcc42)
       - Unity Android run 34443210534 success (commit 5dbcc42)
   M1-batch16-unity-gestures-result-ux:
     status: verified
     owner: unity-client
     validation:
-      - python static Unity script sanity: braces balanced, gesture+overlay markers present: passed
-      - go vet ./... (server worktree): passed
-      - go test -count=1 ./... (server worktree): passed
+      - >-
+        python static Unity script sanity: braces balanced, gesture+overlay markers present: passed
+      - >-
+        go vet ./... (server worktree): passed
+      - >-
+        go test -count=1 ./... (server worktree): passed
       - GitHub CI run 34449013190 success (commit 2b17b36)
       - Unity Android run 34449018045 success (commit 2b17b36; validate + build + hosted emulator smoke)
   M1-batch16-load-baseline:
     status: verified_no_regression
     owner: qa-perf
     validation:
-      - OCI at 9a942df: TestLoadBaseline 1.84M subs/s total, 57.6k/match, 382.6 KiB/match heap
+      - >-
+        OCI at 9a942df: TestLoadBaseline 1.84M subs/s total, 57.6k/match, 382.6 KiB/match heap
       - BenchmarkContains 375.9 ns/op (stable vs 382 ns baseline)
       - docs/LOAD-BASELINE.md re-measurement table committed (1e09f42)
   M1-batch17-unity-matchmaking-queue:
     status: verified
     owner: unity-client
     validation:
-      - python static sanity: braces balanced, Batch 17A markers, no forbidden deps: passed
-      - go vet ./...: passed; go test -run 'TestMatchmaker|TestQueue': passed
-      - live OCI contract: two anonymous enqueues -> matched, per-seat tokens/user_ids
+      - >-
+        python static sanity: braces balanced, Batch 17A markers, no forbidden deps: passed
+      - >-
+        go vet ./...: passed; go test -run 'TestMatchmaker|TestQueue': passed
+      - >-
+        live OCI contract: two anonymous enqueues -> matched, per-seat tokens/user_ids
       - GitHub CI run 34451029325 success (head 88e8331, includes queue flow)
       - Unity Android run 34451039903 success (validate + build + hosted emulator smoke)
   M1-batch17-profile-queueing:
     status: verified
     owner: unity-client
     validation:
-      - python static sanity: braces balanced, Batch 17B markers, no forbidden deps: passed
-      - go vet ./...: passed; go test -run 'TestProfile|TestPlayer': passed
+      - >-
+        python static sanity: braces balanced, Batch 17B markers, no forbidden deps: passed
+      - >-
+        go vet ./...: passed; go test -run 'TestProfile|TestPlayer': passed
       - GitHub CI run 34452664532 success (head 25e2d20)
       - Unity Android run 34452672586 success (validate + build + hosted emulator smoke)
   M1-batch17-queue-exit-gate:
-    status: merged_local_green_live_regression_pending_oci_ssh
+    status: verified_live
     owner: qa
     validation:
-      - go vet ./cmd/headless-bot: passed
-      - local direct mode -rounds 1 -seeds 1512: EXIT-GATE PASS (43:45)
-      - local -via-queue -rounds 1: EXIT-GATE PASS (server seed 5814947491293716674, 59:44)
-      - live OCI regression: pending (SSH banner timeout since ~08:20Z)
+      - >-
+        go vet ./cmd/headless-bot: passed
+      - >-
+        local direct mode -rounds 1 -seeds 1512: EXIT-GATE PASS (43:45)
+      - >-
+        local -via-queue -rounds 1: EXIT-GATE PASS (server seed 5814947491293716674, 59:44)
+      - >-
+        live OCI regression: pending (SSH banner timeout since ~08:20Z)
   M1-batch17-sudden-death-polish:
     status: merged_ci_green_unity_covered_by_next_run
     owner: unity-client
     validation:
-      - python static sanity: braces, Batch 17C markers, no forbidden deps: passed
-      - go vet ./...: passed
+      - >-
+        python static sanity: braces, Batch 17C markers, no forbidden deps: passed
+      - >-
+        go vet ./...: passed
       - GitHub CI run 34455667924 success (head 3ab6c01)
       - Unity build/smoke coverage via the d0befaf run (stacked head)
   M1-batch17-gesture-adjacency-swipe-smoke:
     status: merged_ci_green_unity_swipe_smoke_retry_after_flake
     owner: unity-client
     validation:
-      - python static sanity: braces, Batch 17E markers, workflow yaml parse: passed
-      - go vet ./...: passed
+      - >-
+        python static sanity: braces, Batch 17E markers, workflow yaml parse: passed
+      - >-
+        go vet ./...: passed
       - GitHub CI run 34455905771 success (head d0befaf)
-      - Unity Android device smoke BLOCKED by hosted-emulator instability —
-        three consecutive infra failures, all upstream of our code:
-        34455925881 (monkey aborted on media provider crash), 34457772896
-        (input keyevent 82 Broken pipe exit 224), 34459251481 (adb install
-        Broken pipe). Flakes documented in docs/unity-ci.md; code CI-green;
-        device assertion stays pending until the emulator pool stabilizes,
-        retried opportunistically without blocking other work
+      - >-
+        Unity Android device smoke BLOCKED by hosted-emulator instability — three consecutive infra
+        failures, all upstream of our code: 34455925881 (monkey aborted on media provider crash),
+        34457772896 (input keyevent 82 Broken pipe exit 224), 34459251481 (adb install Broken pipe).
+        Flakes documented in docs/unity-ci.md; code CI-green; device assertion stays pending until the
+        emulator pool stabilizes, retried opportunistically without blocking other work
   M1-batch17-board-legend:
     status: merged_ci_pending_unity_covered_by_retry_run
     owner: unity-client
     validation:
-      - python static sanity: braces, Batch 17F markers, no forbidden deps: passed
-      - go vet ./...: passed
-      - GitHub CI run 34457742840 (head 6cc02e1): in_progress
+      - >-
+        python static sanity: braces, Batch 17F markers, no forbidden deps: passed
+      - >-
+        go vet ./...: passed
+      - >-
+        GitHub CI run 34457742840 (head 6cc02e1): in_progress
       - Unity coverage via retry run 34457772896
   M1-batch16-oci-ops:
     status: verified_live
@@ -314,25 +492,30 @@ task_graph:
     status: verified_pass
     owner: qa
     validation:
-      - 6/6 live matches on deployed 5dbcc42: EXIT-GATE PASS
+      - >-
+        6/6 live matches on deployed 5dbcc42: EXIT-GATE PASS
       - terminal_snapshots_equal + client_streams_equal true for all seeds
       - final scores identical to 2026-09-09 baseline (43:45/37:60/44:40)
   M1-batch16-protocol-fuzz:
     status: verified_ci_green
     owner: backend-security
     validation:
-      - go vet ./internal/protocol: passed
-      - go test -run Fuzz seed corpus: passed
+      - >-
+        go vet ./internal/protocol: passed
+      - >-
+        go test -run Fuzz seed corpus: passed
       - -fuzz 12s x3 targets ~800k execs 0 crashes
       - GitHub CI run 34449508596 success (commit d9ff780)
   M1-batch16-web-m0-e2e:
     status: verified
     owner: qa-browser
     validation:
-      - Playwright headless Chromium strict mode: WebSocket OPEN with real match token
-      - tolerant mode: still passes on default placeholder token
+      - >-
+        Playwright headless Chromium strict mode: WebSocket OPEN with real match token
+      - >-
+        tolerant mode: still passes on default placeholder token
   M1-oci-deploy:
-    status: deployed_live_verified_2026-09-10
+    status: deployed_stale_pending_promotion
     owner: infra
     validation:
       - ssh recovered; no leftover test worker; load average ~6 and falling
@@ -342,13 +525,56 @@ task_graph:
       - /readyz {"status":"ready","storage":"postgres"}; /metrics/prometheus live
       - live headless-bot match EXIT-GATE PASS (seed 1512, final 43:45, streams equal)
       - profile id=5 durable across service restart; JSONL telemetry events.jsonl writing
+  M1-batch20-monitoring-assets:
+    status: >-
+      verified_ci
+    owner: backend-infra
+    note: >-
+      CI run 109 and Container smoke run 4 both success on c2079e8, which is the
+      pending item the task file recorded.
+  M1-batch21a-security-hardening:
+    status: verified_merged
+    owner: backend-security
+    merged: 5263bfc
+    pull_request: 4
+    note: >-
+      see agent/tasks/M1-batch21a-security-hardening.yml and
+      docs/SECURITY-REVIEW-M1.md (9 findings, S-2 filed as batch 21g).
+  M1-batch21b-ci-retry:
+    status: in_flight_on_branch
+    owner: qa-infra
+    branch: feat/m1-batch21b-ci-retry
+    head: 46b33f7
+    pull_request: 5
+    note: >-
+      run 34492844342 proved build, install, launch and diagnostics capture and
+      located the emulator ANR focus theft; re-dispatched with the focus gate
+      and the API 33 retry leg.
+  M1-batch21c-repo-hygiene:
+    status: verified_merged
+    owner: qa-infra
+    merged: fea986b
+    pull_request: 6
+    note: >-
+      14 MiB tracked binary untracked, hygiene guard wired into CI, bounded
+      local-LLM worker with a host capacity gate.
+
 tests:
-  server: green locally in Arena sandbox with temporary Go 1.24.7
-    (GOPATH/GOCACHE/GOMODCACHE under /home/user/.cache): go vet ./...;
-    go test -count=1 ./...; go test -race ./cmd/game ./internal/match
-    ./internal/matchroom -count=1; targeted telemetry tests green; readiness
-    targeted tests green; binary smoke on 127.0.0.1:18180 with
-    WORDARENA_TELEMETRY_JSONL green
+  server: green locally (go vet ./...; go test -count=1 ./... over 12 packages;
+    go test -race ./cmd/game ./internal/security ./internal/match ./internal/matchroom)
+    on batch 21A including the new internal/security package and 8 new
+    gate tests; green again in CI (#110) on the merge commit 5263bfc.
+  smoke: infra/smoke.sh 22 passed / 0 failed against a real local build of
+    21A (18 before the four new snapshot-authorization checks); 18/0 against a
+    fresh main build on the OCI host.
+  live: headless-bot via-queue 6/6 and direct 3/3 EXIT-GATE PASS on an isolated
+    main build on OCI (see completed_tasks, batch 17D).
+  ci: main is green at fea986b (CI + Container smoke, now including the
+    Repository hygiene job added by 21C). Unity Android is dispatch/schedule
+    driven and its device leg is red by emulator instability, not by product
+    failure; see failed_tasks.
+  docker: no Docker in the Arena sandbox; container and compose validation
+    runs in GitHub CI (compose-smoke, migrations jobs), which is green.
   ci: GitHub CI green for Batch 10 state commit 52145b0 (run 34435254937);
     Batch 12 push CI green for 816fe37 (run 34436316582); state commit
     7dfa72b push CI green (run 34438730364); Batch 13 push CI green for
@@ -364,24 +590,46 @@ tests:
   docker: Docker unavailable in Arena sandbox; OCI Docker present but not used
     during Batch 10 because SSH degraded; Dockerfile/compose statically checked
     and compose now includes optional telemetry volume wiring
-android_backend: GitHub-hosted x86_64 emulator (reactivecircus, API 35)
-  WORKS — build + install + monkey-launch + pm path verify all green
-  (runs 34420554448, 34435705752, 34437841806, 34439238378, 34441252156). Local Arena sandbox has no
-  adb/emulator. OCI has adb server but no emulator binary found in PATH;
-  hosted emulator remains the validated automated backend. Remote providers
-  (myandroid.org etc.) are interactive-only unless authorized automation is
-  available; do not bypass protection.
+android_backend: >-
+  ANDROID_BACKEND=github-hosted-emulator (reactivecircus android-emulator-runner on
+  GitHub-hosted x86_64; API 35 first attempt, API 33 retry leg). Validated end to end in run
+  34492844342: APK build green, install green, launch green, logcat + screenshot diagnostics
+  captured on both legs (41 KB / 43 KB artifacts). The gesture assertion itself has still never
+  passed on a device, and the reason is now measured rather than assumed (system ANR dialog
+  steals focus). No local emulator is possible on OCI (no /dev/kvm, no nested virt, no SDK); no
+  third-party online emulator is used because none offers authorized automation here.
+
 workers:
-  - Arena sandbox: temporary Go 1.24.7 amd64 in /tmp/go (GOPATH/GOCACHE/GOMODCACHE
-    under /home/user/.cache); Node 20/npm 10/Python 3.13; full server suite
-    green locally (go vet + go test ./...); Docker/ADB/Ollama absent locally
-  - OCI host arm-server-01: SSH recovered; /opt/words at 5dbcc42; /opt/go/bin/go
-    1.27.1; Docker 29.7.2; Postgres 16.15; Ollama models qwen2.5 0.5/1.5/7b,
-    llama3.2:3b, deepseek-r1:7b; live service /tmp/words-game.latest built from
-    5dbcc42 on 127.0.0.1:18080 with durable Postgres DSN + JSONL telemetry,
-    /readyz green, live match EXIT-GATE PASS, profile id=5 durable
-  - OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for
-    small deterministic drafting tasks with hard timeouts
-last_commit: "5892f41"
-resume_from: "Batch 17 progress: 17A queue flow VERIFIED (CI 34451029325 + Unity 34451039903); 17B profile queueing VERIFIED (CI 34452664532 + Unity 34452672586); 17D headless-bot -via-queue merged (5892f41) with local direct+queue modes both PASS — live OCI regression deferred because OCI SSH degraded again at ~08:20Z (banner exchange timeout; transient host-load pattern, NOT a code failure, service was healthy right before). Next: retry OCI SSH (run /tmp/queue_regression.sh for the live via-queue + direct regression), implement 17C Sudden Death result polish (Unity MATCH OVER tiebreak headline/armed banner), then ports from session B reference branch (eight-way adjacency + path cap, adb swipe smoke) behind CI. Dual-session coordination via agent/COORDINATION.md remains active: session B owns server cmd/game security lane; session A owns client/unity, web-m0, protocol fuzz, headless-bot QA tooling, OCI ops, state/roadmap."
-updated_at: "2026-09-10"
+  - >-
+    Arena sandbox (this session): Go toolchain installed at /home/user/tools/go (go1.27.1
+    linux/amd64) with GOMODCACHE=/home/user/gomodcache and GOCACHE=/home/user/gocache; full server
+    suite and -race run locally. No docker, adb or browser in the sandbox, so containers, devices
+    and browser flows are validated through GitHub CI and the OCI host.
+  - >-
+    OCI host arm-server-01 (4 vCPU, 23 GiB): runs wordarena.service (active, NRestarts=0, readyz
+    storage=postgres) plus FOREIGN projects (octopus with 6 child containers, madworld, liza with
+    two chromium+playwright stacks, grafana, prometheus, postgres 16).
+  - >-
+    host_capacity_measurement: >-
+      during this session one 7b inference job pushed load1 to 8.6 and the 15-minute average to
+      256-276 with kswapd0 active and ~2650 tasks; SSH banner exchange timed out for about 15
+      minutes while the game service stayed healthy. Policy for all sessions: at most one heavy job
+      on the host, every local LLM job through tools/llm-micro-worker.sh (refuses above 1.2 * nproc,
+      num_thread <= 2, keep_alive 30s), anything CPU-bound on GitHub runners.
+  - >-
+    Local LLM tier (Ollama): deepseek-r1:7b, qwen2.5:7b, llama3.2:3b, qwen2.5:1.5b, qwen2.5:0.5b,
+    nomic-embed-text. Calibrated this session: 7b is NOT usable for codegen here (timed out at
+    420s / 3200 tokens); <=1.5b is usable for short bounded drafts. Architecture, security,
+    gameplay and networking stay with the strong-model tier.
+  - >-
+    OCI host arm-server-01: SSH recovered; /opt/words at 5dbcc42; /opt/go/bin/go 1.27.1; Docker
+    29.7.2; Postgres 16.15; Ollama models qwen2.5 0.5/1.5/7b, llama3.2:3b, deepseek-r1:7b; live
+    service /tmp/words-game.latest built from 5dbcc42 on 127.0.0.1:18080 with durable Postgres DSN +
+    JSONL telemetry, /readyz green, live match EXIT-GATE PASS, profile id=5 durable
+  - >-
+    OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
+    drafting tasks with hard timeouts
+last_commit: "fea986b"
+last_verified_commit: "fea986b on main (CI green); 5263bfc (21A: local suite + race + smoke 22/0 + CI #110/#5)"
+resume_from: "Batch 21 in flight. Merged into main: 21A security hardening (5263bfc) and 21C repo hygiene + bounded LLM worker (fea986b). Open PR #5 = 21B Unity CI self-heal at 46b33f7 (branch feat/m1-batch21b-ci-retry), waiting on its Unity Android dispatch; when green, merge, then re-dispatch a device smoke on main to close 17E, and promote the OCI deployment from 5dbcc42 to main (21A changed the snapshot contract that infra/smoke.sh asserts, so the deployed binary must catch up). Next substantive work is M1-batch21g-match-codes and the Unity runtime server-endpoint field. Do not re-run already-verified items listed in completed_tasks; reuse their evidence."
+updated_at: "2026-09-10 (batch 21)"
