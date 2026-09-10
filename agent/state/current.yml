@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; batch16_complete_verified; matchmaking_queue_flow_verified; profile_queueing_integration_pending_ci; oci_systemd_live_verified; protocol_fuzz_ci_green; web_m0_e2e_reverified; load_baseline_remeasured_no_regression; m0_swipe_prototype_closed; dual_session_coordination_active
+status: m1_server_vertical_slice_advancing; batch16_complete_verified; matchmaking_queue_flow_verified; profile_queueing_verified; queue_exit_gate_merged_live_regression_pending_oci; sudden_death_polish_starting; oci_ssh_degraded_again_2026-09-10T08:20Z; dual_session_coordination_active
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -123,9 +123,20 @@ completed_tasks:
     queue-token reconnect fallback; live OCI contract check green (two
     anonymous players matched, distinct tokens); GitHub CI 34451029325 +
     Unity Android 34451039903 success — VERIFIED
+  - Batch 17B (M1 client): profile-aware queueing — Create profile
+    (POST /v1/players) with nickname validation, enqueue carries bound
+    player_id, terminal snapshot triggers one-shot GET /v1/players stats
+    refresh rendered in the connection panel; GitHub CI 34452664532 +
+    Unity Android 34452672586 success — VERIFIED (25e2d20)
+  - Batch 17D (QA): headless-bot -via-queue mode — queue-created matches
+    (server seed, FIFO seats) replay the full exit gate; local validation
+    direct seed 1512 PASS (43:45) and queue mode PASS (59:44); merged
+    5892f41; live OCI regression pending SSH recovery
 active_tasks:
-  - M1-batch17-profile-queueing: branch 3e49e0f locally green; merging to
-    main next, then GitHub CI + Unity Android smoke
+  - M1-batch17-sudden-death-result-polish: Unity MATCH OVER tiebreak headline
+    + armed banner polish (owner unity-client)
+  - M1-batch17-queue-exit-gate: live OCI via-queue regression pending SSH
+    recovery (local direct + queue modes both PASS)
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -245,12 +256,21 @@ task_graph:
       - GitHub CI run 34451029325 success (head 88e8331, includes queue flow)
       - Unity Android run 34451039903 success (validate + build + hosted emulator smoke)
   M1-batch17-profile-queueing:
-    status: branch_green_awaiting_integration
+    status: verified
     owner: unity-client
     validation:
       - python static sanity: braces balanced, Batch 17B markers, no forbidden deps: passed
       - go vet ./...: passed; go test -run 'TestProfile|TestPlayer': passed
-      - branch feat/unity-profile-queueing-20260910 commit 3e49e0f; merge after 17A Unity run
+      - GitHub CI run 34452664532 success (head 25e2d20)
+      - Unity Android run 34452672586 success (validate + build + hosted emulator smoke)
+  M1-batch17-queue-exit-gate:
+    status: merged_local_green_live_regression_pending_oci_ssh
+    owner: qa
+    validation:
+      - go vet ./cmd/headless-bot: passed
+      - local direct mode -rounds 1 -seeds 1512: EXIT-GATE PASS (43:45)
+      - local -via-queue -rounds 1: EXIT-GATE PASS (server seed 5814947491293716674, 59:44)
+      - live OCI regression: pending (SSH banner timeout since ~08:20Z)
   M1-batch16-oci-ops:
     status: verified_live
     owner: backend-infra
@@ -330,6 +350,6 @@ workers:
     /readyz green, live match EXIT-GATE PASS, profile id=5 durable
   - OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for
     small deterministic drafting tasks with hard timeouts
-last_commit: "88e8331"
-resume_from: "Batch 16 closed verified. Batch 17A matchmaking queue flow VERIFIED (GitHub CI 34451029325 + Unity Android 34451039903 success on head 88e8331). Batch 17B profile-aware queueing implemented on branch feat/unity-profile-queueing-20260910 (commit 3e49e0f): CreatePlayer/GetPlayer + profile-bound enqueue + terminal stats refresh; static sanity, go vet, profile tests all green locally — merging to main next, then CI + Unity smoke. Dual-session coordination active via agent/COORDINATION.md (session B owns server cmd/game security lane; session A owns client/unity, web-m0, protocol fuzz, OCI ops, state/roadmap docs). OCI healthy under systemd wordarena.service (readyz green, loopback-only per Q8). Next after 17B: 17C Sudden Death result polish, 17D two-client queued live match regression, gesture adjacency/swipe-smoke ports from session B reference branch."
+last_commit: "5892f41"
+resume_from: "Batch 17 progress: 17A queue flow VERIFIED (CI 34451029325 + Unity 34451039903); 17B profile queueing VERIFIED (CI 34452664532 + Unity 34452672586); 17D headless-bot -via-queue merged (5892f41) with local direct+queue modes both PASS — live OCI regression deferred because OCI SSH degraded again at ~08:20Z (banner exchange timeout; transient host-load pattern, NOT a code failure, service was healthy right before). Next: retry OCI SSH (run /tmp/queue_regression.sh for the live via-queue + direct regression), implement 17C Sudden Death result polish (Unity MATCH OVER tiebreak headline/armed banner), then ports from session B reference branch (eight-way adjacency + path cap, adb swipe smoke) behind CI. Dual-session coordination via agent/COORDINATION.md remains active: session B owns server cmd/game security lane; session A owns client/unity, web-m0, protocol fuzz, headless-bot QA tooling, OCI ops, state/roadmap."
 updated_at: "2026-09-10"
