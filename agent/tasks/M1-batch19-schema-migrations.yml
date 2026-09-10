@@ -1,0 +1,47 @@
+id: M1-batch19-schema-migrations
+title: Versioned schema migrations for the durable Postgres store
+owner: backend-infra
+priority: high
+complexity: medium
+status: validated_local_pending_live
+inputs:
+  - server/cmd/game/store_pg.go (const pgSchema — read only)
+  - docs/M1-PERSISTENCE.md
+  - infra/migrations (new)
+dependencies:
+  - M1-batch18-infra-compose
+outputs:
+  - infra/migrations/001_init.sql (baseline schema)
+  - server/cmd/migrate runner + tests
+  - docs/M1-MIGRATIONS.md
+acceptance:
+  - migrations are NNN_name.sql, start at 1 and have no gaps
+  - each migration is applied inside one transaction and recorded in
+    schema_migrations by that same transaction
+  - re-running is a no-op (applied versions are skipped)
+  - -plan reports pending migrations without applying them
+  - the baseline migration and the service schema cannot drift: the drift test
+    parses both and fails the build
+  - the drift test is proven to fail when only one side changes
+  - running against the live Postgres applies cleanly and leaves
+    schema_migrations populated
+validation:
+  - cd server && go vet ./... && go test -count=1 ./...
+  - cd server && go test ./cmd/migrate -count=1 -v
+  - mutation check: add a column to pgSchema only, confirm the drift test fails,
+    then restore
+  - on OCI: bring up the compose db and run go run ./cmd/migrate -dsn ... -plan,
+    then apply, then inspect schema_migrations
+file_ownership:
+  - infra/migrations/**
+  - server/cmd/migrate/**
+  - docs/M1-MIGRATIONS.md
+  - agent/tasks/M1-batch19-schema-migrations.yml
+risk: medium
+escalation: strong-model
+notes:
+  - server/cmd/game/store_pg.go is deliberately NOT modified: the service keeps
+    its idempotent CREATE TABLE IF NOT EXISTS so a fresh dev database still
+    works without the runner. The drift test is what keeps the two honest.
+  - Building inside server/ drops a binary in the working tree (go build
+    ./cmd/migrate -> server/migrate); remember to delete it before committing.
