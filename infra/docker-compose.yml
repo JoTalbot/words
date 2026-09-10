@@ -36,6 +36,10 @@ services:
       WORDARENA_MAX_ROOMS: "128"
       WORDARENA_MAX_WS_BYTES: "65536"
       WORDARENA_POSTGRES_DSN: "postgres://wordarena:wordarena@db:5432/wordarena?sslmode=disable"
+      # Abuse posture (docs/SECURITY-REVIEW-M1.md). Explicit here so a
+      # local stack mirrors the documented deployment knobs.
+      WORDARENA_MUTATIONS_PER_MIN: "120"
+      WORDARENA_MAX_BODY_BYTES: "16384"
       WORDARENA_TELEMETRY_JSONL: "/var/log/wordarena/events.jsonl"
       WORDARENA_TELEMETRY_BUFFER: "4096"
     volumes:

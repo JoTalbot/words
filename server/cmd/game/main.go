@@ -33,10 +33,16 @@ func main() {
 		api = NewAPI()
 	}
 
+	// Timeouts bound the slow-loris style exposure of the listener. A
+	// WebSocket upgrade hijacks its connection, so the write deadline does
+	// not apply to a live match stream; it only bounds ordinary responses.
 	server := &http.Server{
 		Addr:              addr(),
 		Handler:           api.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
