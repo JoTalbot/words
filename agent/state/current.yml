@@ -1,6 +1,6 @@
 project: words
-milestone: M0
-status: server_gate_verified; exit_gate_automated; m1_server_slice_batches_1-5_done
+milestone: M1
+status: m1_server_vertical_slice_advancing; unity_android_ci_green
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -34,51 +34,60 @@ completed_tasks:
   - Unity CI pipeline fixed: in-container unity-editor build + email/password
     activation (game-ci gap + container.image env-context validation error +
     project CWD); documented in docs/unity-ci.md
+  - Unity Android CI fully green (build + hosted-emulator smoke): run
+    34420554448 success; words-debug.apk installed/launched/verified on
+    reactivecircus API 35 x86_64 emulator; smoke script rewritten as single
+    && chain (emulator-runner runs per-line sh -c) — commit e89008e
+  - Batch 6 (M1): opt-in Sudden Death tiebreak (docs/M1-SUDDEN-DEATH.md):
+    POST /v1/matches sudden_death flag, one deterministic tiebreak wave,
+    first accepted word wins, timeout = draw; replay property covered
+  - Batch 7 (M1): profile-aware matchmaking (POST /v1/queue player_id,
+    idempotent re-enqueue, seat binding, anonymous seats stay synthetic)
+  - Batch 8 (M1): durable PostgreSQL storage (docs/M1-PERSISTENCE.md):
+    ProfileRepo + ResultRepo interfaces; in-memory default; pgx v5 backends
+    behind WORDARENA_POSTGRES_DSN (fail-fast on connect); read-through
+    results; integration tests incl. cross-instance durability
 active_tasks: []
 blocked_tasks:
-  - B1: Unity/Android build — root cause found 2026-09-09: Unity 6 REMOVED
-    offline/manual (.ulf) activation for Personal seats (license.unity3d.com
-    manual = Enterprise/Industry only), so the .ulf route gives "Found 0
-    entitlement groups / com.unity.editor.headless not found" and .alf cannot
-    be generated. Only email/password activation works
-    (Unity.Licensing.Client --activate-all --include-personal). Workflow is
-    now fixed to that path; remaining blocker = valid Unity account
-    credentials in UNITY_EMAIL/UNITY_PASSWORD (previous attempt returned
-    Invalid Credential 143.002 -> likely SSO-only account, wrong password,
-    unverified email, or MFA). User must: set a Unity ID password (no
-    Google/Apple-SSO-only), verify email, disable MFA, ensure Personal plan
-    activated in Hub, update the two secrets.
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
 failed_tasks: []
 next_tasks:
-  - Re-dispatch Unity Android build once UNITY credentials are fixed
-  - M1: combo + Sudden Death rules (opt-in per match; M0 default unchanged),
-    shared board UX, claim/lock/steal UI (client)
-  - M1: durable player-profile/result persistence (PostgreSQL), profile in
-    matchmaking (queue with player_id), session-token rotation
-  - Android QA fallback hierarchy once an APK exists (hosted emulator wired)
-last_commit: "caefcec"
+  - Deploy durable storage to OCI dev server (create wordarena db/role on
+    host Postgres 16, rebuild binary, WORDARENA_POSTGRES_DSN, verify)
+  - M1 client work (Unity): shared board UX, claim/lock/steal UI, combo and
+    Sudden Death presentation — Unity editor absent on ARM64 dev host; use
+    CI-built APK for QA
+  - M1: session-token rotation (bounded-lifetime seat tokens)
+  - M1: telemetry export/pipeline (counters exist; export TODO)
+  - Android QA fallback hierarchy (hosted emulator wired; APK artifact
+    words-android-debug)
+last_commit: "d56df81"
 tests:
   server: green on x86_64 sandbox (go1.27.1: go vet + go test -count=1 ./...
-    all packages; cmd/game ~43 s incl. exit-gate) and on OCI arm64 host
-    (go1.27.1); race clean on cmd/game (profile/matchmaking/hardening/metrics)
-  ci: green through dfb41d3 (GitHub Actions, go1.24)
+    all packages; cmd/game ~43 s incl. exit-gate); race clean on
+    cmd/game + internal/match; Postgres integration tests green against
+    local PG17 (WORDARENA_TEST_POSTGRES_DSN): profile CRUD/stats, result
+    round-trip, cross-instance durability
+  ci: green through d56df81 (GitHub Actions, go1.24); Unity Android fully
+    green (run 34420554448)
   docker: image NOT built on the shared OCI host (build attempt destabilized
-    it once); local static-binary smoke test passed. Build the image only on
-    a quiet host or in CI.
-android_backend: unavailable for QA until APK exists — local emulator absent
-  on ARM64 host (no emulator pkg / system-images / /dev/kvm); GitHub-hosted
-  x86_64 emulator (reactivecircus, API 35) is wired and will run the smoke
-  test once the APK builds; remote providers (myandroid.org etc.) remain
-  interactive-only and were not bypassed
+    it once); local static-binary smoke test passed. docker-compose now
+    includes a postgres:16 service + WORDARENA_POSTGRES_DSN wiring.
+android_backend: github-hosted x86_64 emulator (reactivecircus, API 35)
+  WORKS — build + install + monkey-launch + pm path verify all green
+  (run 34420554448). APK artifact: words-android-debug. Remote providers
+  (myandroid.org etc.) remain interactive-only and were not bypassed.
 workers:
   - OCI dev service rebuilt and healthy (127.0.0.1:18080, binary @ dfb41d3,
     healthz ok, profiles/metrics/matchmaking/result endpoints live)
-  - ollama on OCI host (qwen2.5:0.5b etc.) — use only for micro-tasks
-resume_from: "Recover: repo state on GitHub (main @ caefcec). OCI host is
-  healthy (/opt/words, dev service on 127.0.0.1:18080). Unity: workflow now
-  uses email/password personal activation (Unity 6 removed .ulf for Personal);
-  blocked only on valid UNITY_EMAIL/UNITY_PASSWORD secrets. Continue M1
-  vertical-slice: Sudden Death (opt-in), durable persistence, queue profiles."
-updated_at: "2026-09-09"
+  - OCI host Postgres 16.15 available (cluster 16/main online, port 5432,
+    sudo -u postgres works) — target for durable storage deploy
+  - ollama on OCI host (qwen2.5:0.5b/1.5b/7b, llama3.2:3b, deepseek-r1:7b) —
+    use only for micro-tasks
+resume_from: "Recover: repo state on GitHub (main @ d56df81). OCI host is
+  healthy (/opt/words, dev service on 127.0.0.1:18080, binary @ dfb41d3;
+  host Postgres 16 online). Unity Android CI green incl. hosted-emulator
+  smoke. Next: deploy durable storage to OCI (create db/role, rebuild with
+  pgx, WORDARENA_POSTGRES_DSN, verify), then session-token rotation."
+updated_at: "2026-09-10"

@@ -1,10 +1,13 @@
 package main
 
-// Player profiles (M1 vertical slice). The prototype keeps profiles
-// in-memory; durable storage (PostgreSQL) is a follow-up task. A profile is
-// the account identity referenced by match user_ids when a client supplies
-// player_ids at match creation. Anonymous matches keep synthetic user ids and
-// never touch profile stats.
+// Player profiles (M1 vertical slice). A profile is the account identity
+// referenced by match user_ids when a client supplies player_ids at match
+// creation. Anonymous matches keep synthetic user ids and never touch
+// profile stats.
+//
+// Storage is behind the ProfileRepo interface: the default is in-memory
+// (memProfileStore); when WORDARENA_POSTGRES_DSN is set the Postgres
+// implementation (store_pg.go) is used so profiles survive restarts.
 
 import (
 	"sync"
@@ -24,41 +27,56 @@ type Profile struct {
 	TotalScore    int64     `json:"total_score"`
 }
 
-// profileStore is the in-memory player registry.
-type profileStore struct {
+// ProfileRepo persists player profiles and folds finished-match outcomes
+// into lifetime stats.
+type ProfileRepo interface {
+	// Create registers a new profile and assigns its id.
+	Create(nickname, lang string) (Profile, error)
+	// Get returns a profile by id.
+	Get(id uint64) (Profile, bool, error)
+	// Record folds one finished match into a profile's stats. outcome is
+	// one of "win", "loss", "draw". Unknown ids (synthetic seats) are no-ops.
+	Record(id uint64, score int64, outcome string) error
+	// Close releases backend resources (no-op for in-memory storage).
+	Close() error
+}
+
+// memProfileStore is the in-memory player registry (default backend).
+type memProfileStore struct {
 	mu      sync.Mutex
 	byID    map[uint64]*Profile
 	counter uint64
 }
 
-func newProfileStore() *profileStore {
-	return &profileStore{byID: map[uint64]*Profile{}}
+func newMemProfileStore() *memProfileStore {
+	return &memProfileStore{byID: map[uint64]*Profile{}}
 }
 
-func (ps *profileStore) create(nickname, lang string) *Profile {
+func (ps *memProfileStore) Create(nickname, lang string) (Profile, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.counter++
 	p := &Profile{ID: ps.counter, Nickname: nickname, Language: lang, CreatedAt: time.Now()}
 	ps.byID[p.ID] = p
-	return p
+	return *p, nil
 }
 
-func (ps *profileStore) get(id uint64) (*Profile, bool) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	p, ok := ps.byID[id]
-	return p, ok
-}
-
-// record folds one finished match into a profile's stats. outcome is one of
-// "win", "loss", "draw". Unknown ids (anonymous/synthetic seats) are no-ops.
-func (ps *profileStore) record(id uint64, score int64, outcome string) {
+func (ps *memProfileStore) Get(id uint64) (Profile, bool, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	p, ok := ps.byID[id]
 	if !ok {
-		return
+		return Profile{}, false, nil
+	}
+	return *p, true, nil
+}
+
+func (ps *memProfileStore) Record(id uint64, score int64, outcome string) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	p, ok := ps.byID[id]
+	if !ok {
+		return nil
 	}
 	p.MatchesPlayed++
 	p.TotalScore += score
@@ -70,4 +88,7 @@ func (ps *profileStore) record(id uint64, score int64, outcome string) {
 	case "draw":
 		p.Draws++
 	}
+	return nil
 }
+
+func (ps *memProfileStore) Close() error { return nil }

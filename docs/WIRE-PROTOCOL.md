@@ -146,7 +146,9 @@ queue is idempotent: the existing entry is returned.
 
 ## 6. Player profiles
 
-In-memory profile registry (M1 stub; durable storage is a follow-up):
+Profile registry behind `ProfileRepo` — in-memory by default, Postgres when
+`WORDARENA_POSTGRES_DSN` is set (see `docs/M1-PERSISTENCE.md`). Same HTTP
+surface either way:
 
 ```
 POST /v1/players          {"nickname":"alice","language":"en"}  -> 201 Profile

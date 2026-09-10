@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -60,11 +61,19 @@ type API struct {
 	seatWindows map[uint64][]time.Time
 	seatWinMu   sync.Mutex
 
-	// profiles is the in-memory player registry; profiled marks matches that
-	// were created with explicit player_ids (their stats are updated on end).
-	profiles   *profileStore
+	// profiles is the player registry (ProfileRepo: in-memory by default,
+	// Postgres when WORDARENA_POSTGRES_DSN is set); profiled marks matches
+	// that were created with explicit player_ids (stats fold on match end).
+	profiles   ProfileRepo
 	profiled   map[uint64]bool
 	profiledMu sync.Mutex
+
+	// resultRepo is the durable result store (nil = in-memory only). The
+	// in-memory a.results cache stays the fast path; resultRepo mirrors
+	// writes and serves cache misses (survives restarts).
+	resultRepo ResultRepo
+	// pgDB is the shared Postgres handle, closed on Stop.
+	pgDB *sql.DB
 }
 
 // errRoomCapacity is returned by createRoom when the room cap is reached.
@@ -114,9 +123,29 @@ type replayEvent struct {
 // resultTTL is how long finished match results are kept in memory.
 const resultTTL = 5 * time.Minute
 
-// NewAPI builds the service. Limits are read from environment variables
-// (WORDARENA_MAX_ROOMS, WORDARENA_MAX_WS_BYTES) with safe defaults.
+// NewAPI builds the service with in-memory storage. Limits are read from
+// environment variables (WORDARENA_MAX_ROOMS, WORDARENA_MAX_WS_BYTES) with
+// safe defaults.
 func NewAPI() *API {
+	return newAPI(newMemProfileStore(), nil, nil)
+}
+
+// NewAPIWithPostgres builds the service with durable Postgres storage
+// (profiles + match results). It connects, pings and applies the schema
+// before returning; the service refuses to start if Postgres is unreachable
+// so durability is never silently dropped.
+func NewAPIWithPostgres(dsn string) (*API, error) {
+	db, err := openPostgres(dsn)
+	if err != nil {
+		return nil, err
+	}
+	a := newAPI(&pgProfileStore{db: db}, &pgResultStore{db: db}, db)
+	return a, nil
+}
+
+// newAPI is the shared constructor. profiles must not be nil; resultRepo and
+// pgDB may be nil for memory-only operation.
+func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 	a := &API{
 		rooms:         map[uint64]*matchroom.Room{},
 		stopCh:        make(chan struct{}),
@@ -126,8 +155,10 @@ func NewAPI() *API {
 		mm:            newMatchmaker(),
 		intentsPerSec: envInt("WORDARENA_INTENTS_PER_SEC", 60),
 		seatWindows:   map[uint64][]time.Time{},
-		profiles:      newProfileStore(),
+		profiles:      profiles,
 		profiled:      map[uint64]bool{},
+		resultRepo:    resultRepo,
+		pgDB:          pgDB,
 	}
 	go a.runReaper()
 	return a
@@ -162,7 +193,12 @@ func envInt(key string, def int) int {
 // Stop signals all room tickers to exit (graceful shutdown). It is safe to
 // call multiple times.
 func (a *API) Stop() {
-	a.stopOnce.Do(func() { close(a.stopCh) })
+	a.stopOnce.Do(func() {
+		close(a.stopCh)
+		if a.pgDB != nil {
+			_ = a.pgDB.Close()
+		}
+	})
 }
 
 // activeRooms returns the number of live rooms under the rooms lock.
@@ -325,11 +361,17 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusBadRequest, "player_ids must be two distinct positive ids")
 			return
 		}
-		if _, ok := a.profiles.get(req.PlayerIDs[0]); !ok {
+		if _, ok, err := a.profiles.Get(req.PlayerIDs[0]); err != nil {
+			httpError(w, http.StatusInternalServerError, "profile store error")
+			return
+		} else if !ok {
 			httpError(w, http.StatusNotFound, "player 0 not found")
 			return
 		}
-		if _, ok := a.profiles.get(req.PlayerIDs[1]); !ok {
+		if _, ok, err := a.profiles.Get(req.PlayerIDs[1]); err != nil {
+			httpError(w, http.StatusInternalServerError, "profile store error")
+			return
+		} else if !ok {
 			httpError(w, http.StatusNotFound, "player 1 not found")
 			return
 		}
@@ -482,6 +524,35 @@ func cellsToJSON(cells []*wordarenav1.BoardCell) []map[string]any {
 	return out
 }
 
+// lookupResult serves a finished match result from the in-memory cache,
+// falling back to the durable result store on a miss (survives restarts).
+// A durable hit is cached so subsequent reads stay fast.
+func (a *API) lookupResult(id uint64) (matchResult, bool) {
+	a.resultsMu.Lock()
+	res, ok := a.results[id]
+	a.resultsMu.Unlock()
+	if ok {
+		return res, true
+	}
+	if a.resultRepo == nil {
+		return matchResult{}, false
+	}
+	res, ok, err := a.resultRepo.Get(id)
+	if err != nil {
+		log.Printf("result lookup=store_error id=%d err=%v", id, err)
+		return matchResult{}, false
+	}
+	if !ok {
+		return matchResult{}, false
+	}
+	a.resultsMu.Lock()
+	if _, exists := a.results[id]; !exists {
+		a.results[id] = res
+	}
+	a.resultsMu.Unlock()
+	return res, true
+}
+
 // handleResult serves the persisted outcome of a finished match.
 func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
@@ -489,9 +560,7 @@ func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid match id")
 		return
 	}
-	a.resultsMu.Lock()
-	res, ok := a.results[id]
-	a.resultsMu.Unlock()
+	res, ok := a.lookupResult(id)
 	if !ok {
 		httpError(w, http.StatusNotFound, "result not found or match still active")
 		return
@@ -507,9 +576,7 @@ func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid match id")
 		return
 	}
-	a.resultsMu.Lock()
-	res, ok := a.results[id]
-	a.resultsMu.Unlock()
+	res, ok := a.lookupResult(id)
 	if !ok {
 		httpError(w, http.StatusNotFound, "replay not found or match still active")
 		return
@@ -547,7 +614,10 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.PlayerID != 0 {
-		if _, ok := a.profiles.get(req.PlayerID); !ok {
+		if _, ok, err := a.profiles.Get(req.PlayerID); err != nil {
+			httpError(w, http.StatusInternalServerError, "profile store error")
+			return
+		} else if !ok {
 			httpError(w, http.StatusNotFound, "player not found")
 			return
 		}
@@ -599,7 +669,11 @@ func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
-	p := a.profiles.create(nick, lang)
+	p, err := a.profiles.Create(nick, lang)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "profile store error")
+		return
+	}
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -610,7 +684,11 @@ func (a *API) handlePlayerGet(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid player id")
 		return
 	}
-	p, ok := a.profiles.get(id)
+	p, ok, err := a.profiles.Get(id)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "profile store error")
+		return
+	}
 	if !ok {
 		httpError(w, http.StatusNotFound, "player not found")
 		return
@@ -655,8 +733,16 @@ func (a *API) recordResult(room *matchroom.Room) {
 	a.reapResults()
 	a.m.matchesFinished.Add(1)
 
+	// Mirror the finished result to durable storage (if configured). The
+	// in-memory cache above stays the fast path; a miss reads through here.
+	if a.resultRepo != nil {
+		if err := a.resultRepo.Put(res); err != nil {
+			log.Printf("match lifecycle=result_store_error id=%d err=%v", res.MatchID, err)
+		}
+	}
+
 	// Fold the outcome into profile stats when the match used explicit
-	// player_ids (anonymous/synthetic seats are no-ops in profileStore).
+	// player_ids (anonymous/synthetic seats are no-ops in the profile store).
 	if a.isProfiledMatch(res.MatchID) {
 		for seat := match.Seat(0); seat < 2; seat++ {
 			outcome := "loss"
@@ -666,7 +752,10 @@ func (a *API) recordResult(room *matchroom.Room) {
 			case int(res.WinnerSeat) == int(seat):
 				outcome = "win"
 			}
-			a.profiles.record(room.UserID(seat), m.Score(seat), outcome)
+			if err := a.profiles.Record(room.UserID(seat), m.Score(seat), outcome); err != nil {
+				log.Printf("match lifecycle=profile_store_error id=%d seat=%d err=%v",
+					res.MatchID, seat, err)
+			}
 		}
 	}
 

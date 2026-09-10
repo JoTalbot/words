@@ -1,8 +1,27 @@
-# Local M0 dev environment for the game service.
+# Local M0/M1 dev environment for the game service.
 #   docker compose -f infra/docker-compose.yml up --build
 # The service is then reachable at http://127.0.0.1:18080 (healthz, metrics,
 # match creation). WebSocket play uses ws://127.0.0.1:18080/v1/match/ws.
+#
+# A Postgres service provides durable storage (profiles + match results) via
+# WORDARENA_POSTGRES_DSN. Remove the DSN (or the db service) to run with
+# in-memory storage only.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wordarena
+      POSTGRES_PASSWORD: wordarena
+      POSTGRES_DB: wordarena
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wordarena -d wordarena"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   game:
     build:
       context: ..
@@ -14,6 +33,10 @@ services:
       WORDARENA_ADDR: ":8080"
       WORDARENA_MAX_ROOMS: "128"
       WORDARENA_MAX_WS_BYTES: "65536"
+      WORDARENA_POSTGRES_DSN: "postgres://wordarena:wordarena@db:5432/wordarena?sslmode=disable"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
@@ -21,3 +44,6 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+
+volumes:
+  pgdata:

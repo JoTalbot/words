@@ -19,7 +19,19 @@ func addr() string {
 }
 
 func main() {
-	api := NewAPI()
+	var (
+		api *API
+		err error
+	)
+	if dsn := os.Getenv("WORDARENA_POSTGRES_DSN"); dsn != "" {
+		api, err = NewAPIWithPostgres(dsn)
+		if err != nil {
+			log.Fatalf("postgres init failed: %v", err)
+		}
+		log.Printf("durable storage: postgres enabled")
+	} else {
+		api = NewAPI()
+	}
 
 	server := &http.Server{
 		Addr:              addr(),

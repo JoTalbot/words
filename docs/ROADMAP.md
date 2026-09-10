@@ -28,8 +28,9 @@ Exit gate: two remote clients can complete repeated matches with identical final
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; client
   presentation pending)
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09)
-- [~] player profile (in progress: in-memory profiles + stats folding via
-  player_ids; durable storage still TODO)
+- [~] player profile (in-memory profiles + stats folding via player_ids done;
+  durable PostgreSQL storage done 2026-09-10 — docs/M1-PERSISTENCE.md,
+  WORDARENA_POSTGRES_DSN)
 - [~] telemetry baseline (in progress: lifecycle + per-action counters via
   /metrics; export/pipeline still TODO)
 
