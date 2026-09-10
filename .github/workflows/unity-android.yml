@@ -1,6 +1,13 @@
 name: Unity Android
 
 on:
+  # Manual build/smoke is the primary entry point. The schedule exists because
+  # the hosted emulator pool flakes independently of our code (four failed
+  # runs on 2026-09-10, all in adb/emulator plumbing); a scheduled retry turns
+  # "someone must re-dispatch it" into automatic recovery, and it re-verifies
+  # the device gesture smoke on the current main.
+  schedule:
+    - cron: "17 3,15 * * *"
   workflow_dispatch:
     inputs:
       build_type:
@@ -16,6 +23,14 @@ on:
         required: true
         type: boolean
         default: false
+      emulator_api_level:
+        description: API level for the first emulator attempt (the retry leg always uses 33)
+        required: false
+        type: choice
+        options:
+          - "35"
+          - "34"
+        default: "35"
 
 permissions:
   contents: read
@@ -30,8 +45,42 @@ env:
   PROJECT_PATH: client/unity
 
 jobs:
+  setup:
+    name: Resolve run configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      build_type: ${{ steps.cfg.outputs.build_type }}
+      run_smoke: ${{ steps.cfg.outputs.run_smoke }}
+      api_level: ${{ steps.cfg.outputs.api_level }}
+    steps:
+      - name: Resolve
+        id: cfg
+        run: |
+          # A `schedule` event has no `inputs`, so every dispatch input needs a
+          # default here. Without this the nightly device smoke silently skipped
+          # itself (job `if` saw inputs.run_smoke_tests == null) and the flake
+          # self-heal looked working while doing nothing.
+          build_type="${{ inputs.build_type }}"
+          [ -n "$build_type" ] || build_type=debug
+          run_smoke="${{ inputs.run_smoke_tests }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then run_smoke=true; fi
+          case "$run_smoke" in true|*) ;; esac
+          [ "$run_smoke" = "true" ] || run_smoke=false
+          api_level="${{ inputs.emulator_api_level }}"
+          [ -n "$api_level" ] || api_level=35
+          echo "build_type=$build_type"
+          echo "run_smoke=$run_smoke"
+          echo "api_level=$api_level"
+          {
+            echo "build_type=$build_type"
+            echo "run_smoke=$run_smoke"
+            echo "api_level=$api_level"
+          } >> "$GITHUB_OUTPUT"
+
   preflight:
     name: Validate Unity project
+    needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -70,6 +119,9 @@ jobs:
           grep -q 'ReconcilePendingWithSnapshot' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           grep -q 'Prediction rolled back' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           grep -R 'UnityEngine\.UI\|UnityEngine\.EventSystems' "$PROJECT_PATH/Assets/Scripts" && exit 1 || true
+          grep -q 'tools/android-smoke.sh' .github/workflows/unity-android.yml
+          test -f tools/android-smoke.sh
+          grep -q 'ANDROID_BACKEND' tools/android-smoke.sh
           test -f docs/unity-ci.md
           test -f docs/android-build.md
           test -f docs/unity-server-architecture.md
@@ -82,8 +134,8 @@ jobs:
           python3 -m json.tool "$PROJECT_PATH/Packages/packages-lock.json" >/dev/null
 
   build:
-    name: Build Android ${{ inputs.build_type }}
-    needs: preflight
+    name: Build Android ${{ needs.setup.outputs.build_type }}
+    needs: [preflight, setup]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
@@ -108,7 +160,7 @@ jobs:
           echo 'Personal (free) activation via Unity account (Unity 6: .ulf manual activation was removed for Personal seats).'
 
       - name: Validate release signing secrets
-        if: ${{ inputs.build_type == 'release' }}
+        if: ${{ needs.setup.outputs.build_type == 'release' }}
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -195,12 +247,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK_PATH="Builds/Android/words-${{ inputs.build_type }}.apk"
-          echo "=== Building ${{ inputs.build_type }} APK ==="
+          APK_PATH="Builds/Android/words-${{ needs.setup.outputs.build_type }}.apk"
+          echo "=== Building ${{ needs.setup.outputs.build_type }} APK ==="
           if unity-editor -batchmode -nographics -quit \
               -projectPath . \
               -executeMethod Words.BuildCommand.BuildAndroid \
-              -buildType "${{ inputs.build_type }}" \
+              -buildType "${{ needs.setup.outputs.build_type }}" \
               -buildPath "$APK_PATH" \
               -logFile /tmp/unity_build.log; then
             echo "Build succeeded."
@@ -215,41 +267,130 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: words-android-${{ inputs.build_type }}
+          name: words-android-${{ needs.setup.outputs.build_type }}
           if-no-files-found: error
           path: |
             ${{ env.PROJECT_PATH }}/Builds/Android/*.apk
 
   smoke:
     name: Android emulator smoke test
-    if: ${{ inputs.run_smoke_tests == true }}
-    needs: build
+    if: ${{ needs.setup.outputs.run_smoke == 'true' }}
+    needs: [setup, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download APK
         uses: actions/download-artifact@v4
         with:
-          name: words-android-${{ inputs.build_type }}
+          name: words-android-${{ needs.setup.outputs.build_type }}
           path: artifact
 
       - name: Install and launch on hosted emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ needs.setup.outputs.api_level }}
           arch: x86_64
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           # disable-animations triggers `settings put` right after boot, which
-          # flakes on API 35 x86_64 ("Broken pipe (32)"). The smoke test below
-          # does not need animations disabled.
+          # flakes on API 35 x86_64 ("Broken pipe (32)"). The retry attempt
+          # below uses API 34, where that call is stable.
           disable-animations: false
           script: |
-            # android-emulator-runner splits the script into single lines and
-            # runs each with a separate `sh -c` (script-parser.ts), so state
-            # does not persist across lines: chain the whole smoke flow on one
-            # line with &&. Backend marker: ANDROID_BACKEND=github-hosted-emulator.
-            # Batch 17E: after launch, perform a real swipe across the board
-            # rows (pixel_2 = 1080x1920; the board grid renders ~y660-1150)
-            # and assert the client logged the WORDS_SWIPE gesture marker.
-            apk=$(find artifact -name '*.apk' -type f | head -1) && test -n "$apk" && adb install -r "$apk" && adb shell monkey -p com.jotalbot.words 1 && adb shell pm path com.jotalbot.words && sleep 14 && adb logcat -c && adb shell input swipe 100 880 950 880 800 && sleep 3 && adb logcat -d | grep -q WORDS_SWIPE && echo WORDS_SWIPE_SMOKE_OK
+            # The device flow lives in tools/android-smoke.sh: the runner runs
+            # each script line with its own `sh -c`, so a multi-line inline
+            # script cannot keep state. One call keeps the whole flow in one
+            # shell and makes the assertions reviewable in the repository.
+            # Backend is reported as ANDROID_BACKEND=... by the script.
+            ANDROID_BACKEND=github-hosted-emulator-api${{ matrix.api-level }} bash tools/android-smoke.sh artifact
+
+      - name: Upload device diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke-diagnostics
+          path: |
+            logcat.txt
+            android-smoke.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  smoke-retry:
+    name: Android emulator smoke test (retry, API 33)
+    # Only a *failed* first attempt is retried, and it is retried on a
+    # different emulator image rather than the same one: every hosted-emulator
+    # flake seen on 2026-09-10 (adb Broken pipe during install, keyevent 82,
+    # monkey aborting on a media-provider crash) was image/instance specific.
+    # The product assertion is unchanged, so this is a backend retry, not a
+    # weakened test. A cancelled run is not retried.
+    if: ${{ always() && needs.setup.outputs.run_smoke == 'true' && needs.smoke.result == 'failure' }}
+    needs: [setup, build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: words-android-${{ needs.setup.outputs.build_type }}
+          path: artifact
+
+      - name: Install and launch on hosted emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: false
+          script: |
+            ANDROID_BACKEND=github-hosted-emulator-api33-retry bash tools/android-smoke.sh artifact
+
+      - name: Upload device diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke-diagnostics-retry
+          path: |
+            logcat.txt
+            android-smoke.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  smoke-gate:
+    name: Device smoke verdict
+    # Single place that decides whether the device evidence exists. Both legs
+    # run the same script, so green here always means WORDS_SWIPE_SMOKE_OK was
+    # printed by a real emulator, on either backend.
+    if: ${{ always() && needs.setup.outputs.run_smoke == 'true' }}
+    needs: [setup, smoke, smoke-retry]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Evaluate
+        run: |
+          echo "smoke: ${{ needs.smoke.result }}"
+          echo "smoke-retry: ${{ needs.smoke-retry.result }}"
+          # The two legs write a class marker into their own log; the gate
+          # cannot read them, so the distinction is stated here for whoever
+          # triages a red run: INFRA_FAIL = the device was unusable,
+          # PRODUCT_FAIL = the app failed a real assertion. Only the second
+          # one should stop a release.
+          cat <<'NOTE'
+          Verdict classes emitted by tools/android-smoke.sh:
+            INFRA_FAIL    - emulator boot / install / foreground / adb input
+                            (exit 1 or 8): the device backend was unusable.
+                            Retry, do not "fix" the app.
+            PRODUCT_FAIL  - the app had focus, a swipe was delivered and the
+                            gesture marker was absent (exit 1): a real
+                            regression; this one blocks.
+          NOTE
+          if [ "${{ needs.smoke.result }}" != "success" ] && [ "${{ needs.smoke-retry.result }}" != "success" ]; then
+            echo "::error::Android device smoke failed on both hosted emulator images - inspect the smoke job log and the uploaded logcat/screenshot artifacts, then decide whether this is a product regression or an exhausted emulator pool"
+            exit 1
+          fi

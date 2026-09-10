@@ -187,6 +187,7 @@ GitHub-hosted runners for anything CPU-bound.
 Two SSH outages on 2026-09-10 (08:20Z and ~11:15Z) were traced to host load
 spikes, not to the service: `wordarena.service` stayed `active` throughout.
 
+
 ## Session D (Arena orchestrator, started 2026-09-10 ~14:00 UTC)
 
 Sessions A/B/C are idle (no worker processes on the OCI host, no tmux/screen,
@@ -210,6 +211,28 @@ live `main` build at `c2079e8` on the OCI host, `:18081` in-memory instance —
 direct `-rounds 1 -seeds 1512,1513,1517` => `EXIT-GATE: PASS` with baseline
 scores `43:45 / 37:60 / 44:40`; `infra/smoke.sh` => 18 passed / 0 failed.
 That closes **batch 17D**.
+
+EAD
+### Batch 21 lanes (2026-09-10, ~14:1x UTC)
+
+- **21A** `feat/m1-batch21a-security` — security/abuse hardening + the S-1
+  snapshot credential gate. Owns `server/cmd/game/{api,main}.go`,
+  `server/internal/security/**`, `docs/{SECURITY-REVIEW-M1,WIRE-PROTOCOL,M1-OPS}.md`,
+  `infra/{smoke.sh,docker-compose.yml}` (additive).
+- **21B** `feat/m1-batch21b-ci-retry` — `.github/workflows/unity-android.yml`
+  + `tools/android-smoke.sh` + `docs/unity-ci.md`. **No other workflow file is
+  touched**; `ci.yml` and `container-smoke.yml` are untouched so 21A's CI stays
+  meaningful.
+- **21C** local-LLM micro-worker — `.gitignore`, tracked-binary removal
+  (`server/game`), `docs/unity-ci.md`? **no** — `tools/` only.
+  Files: `server/game` (untrack), `.gitignore`,
+  `agent/tasks/M1-batch21c-repo-hygiene.yml`. Drafted by `qwen2.5:7b` on the
+  OCI host, reviewed and executed by the orchestrator.
+
+Lanes are disjoint by construction; each was verified in its own worktree
+before its commit, and they are integrated one at a time in the order A → B → C
+so a regression is attributable.
+rigin/main
 
 Handoff notes
 
