@@ -47,3 +47,32 @@ single-process development.
 CRUD/stats, result round-trip, and a full live-match durability test that
 "restarts" the service (second instance over the same DSN) and reads profiles
 and replay back.
+
+## Match-id resumption across restarts (added 2026-09-10, batch 22A)
+
+Match ids come from a per-process counter, while `match_results` is keyed by
+`match_id` and outlives the process. Left alone, a restart re-issued ids that
+already had durable rows, and three things followed:
+
+1. `Put` uses `ON CONFLICT (match_id) DO NOTHING`, so the *new* match's real
+   outcome was silently discarded;
+2. `GET /v1/matches/{id}/result` and `/replay` answered from the aliased
+   **previous** match — one match's data served as another match's;
+3. `infra/smoke.sh` caught it as "replay is 404 while the match is active"
+   returning 200 against the live systemd service (it had never appeared in CI,
+   where every run starts with an empty database).
+
+The service now calls `primeMatchIDs()` during Postgres startup: it reads
+`SELECT COALESCE(MAX(match_id), 0) FROM match_results` and continues the
+sequence from there, failing fast if that read fails — starting at 1 anyway
+would be a silent data-integrity failure. In-memory deployments skip it (there
+is nothing to alias).
+
+`TestAliasingReproducesWithoutPriming` pins the bug and
+`TestMatchIDsDoNotAliasAcrossRestarts` pins the fix; both are in `go test
+./cmd/game`.
+
+Follow-up this exposes but does not fix: ids are still *sequential*, which is
+what makes finished matches enumerable at all. That is finding S-2 in
+docs/SECURITY-REVIEW-M1.md and task `M1-batch21g-match-codes` (unguessable
+match codes), not a persistence concern.
