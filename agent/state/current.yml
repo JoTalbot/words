@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; batch16_complete_verified; matchmaking_queue_flow_verified; profile_queueing_verified; queue_exit_gate_merged_live_regression_pending_oci; sudden_death_polish_starting; oci_ssh_degraded_again_2026-09-10T08:20Z; dual_session_coordination_active
+status: m1_server_vertical_slice_advancing; batch16_complete_verified; batch17_advancing; queue_flow_verified; profile_queueing_verified; sudden_death_polish_ci_green; gesture_adjacency_swipe_smoke_ci_running; queue_exit_gate_live_regression_pending_oci; oci_ssh_degraded_since_08:20Z; dual_session_coordination_active
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -133,10 +133,12 @@ completed_tasks:
     direct seed 1512 PASS (43:45) and queue mode PASS (59:44); merged
     5892f41; live OCI regression pending SSH recovery
 active_tasks:
-  - M1-batch17-sudden-death-result-polish: Unity MATCH OVER tiebreak headline
-    + armed banner polish (owner unity-client)
+  - M1-batch17-gesture-adjacency-swipe-smoke: merged d0befaf; CI 34455905771
+    running; Unity Android run with the new adb-swipe assertion dispatched
+  - M1-batch17-sudden-death-result-polish: merged 3ab6c01; CI 34455667924
+    success; Unity coverage folded into the d0befaf run
   - M1-batch17-queue-exit-gate: live OCI via-queue regression pending SSH
-    recovery (local direct + queue modes both PASS)
+    recovery (local direct + queue modes both PASS; OCI down since ~08:20Z)
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -271,6 +273,23 @@ task_graph:
       - local direct mode -rounds 1 -seeds 1512: EXIT-GATE PASS (43:45)
       - local -via-queue -rounds 1: EXIT-GATE PASS (server seed 5814947491293716674, 59:44)
       - live OCI regression: pending (SSH banner timeout since ~08:20Z)
+  M1-batch17-sudden-death-polish:
+    status: merged_ci_green_unity_covered_by_next_run
+    owner: unity-client
+    validation:
+      - python static sanity: braces, Batch 17C markers, no forbidden deps: passed
+      - go vet ./...: passed
+      - GitHub CI run 34455667924 success (head 3ab6c01)
+      - Unity build/smoke coverage via the d0befaf run (stacked head)
+  M1-batch17-gesture-adjacency-swipe-smoke:
+    status: merged_ci_running_unity_swipe_smoke_pending
+    owner: unity-client
+    validation:
+      - python static sanity: braces, Batch 17E markers, workflow yaml parse: passed
+      - go vet ./...: passed
+      - GitHub CI run 34455905771: in_progress
+      - Unity Android run (d0befaf) includes the new adb input swipe + logcat
+        WORDS_SWIPE assertion
   M1-batch16-oci-ops:
     status: verified_live
     owner: backend-infra
