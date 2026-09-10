@@ -71,6 +71,9 @@ namespace Words.Client
         private string tiebreakWord = string.Empty;
         private int tiebreakSeat = -1;
 
+        // Batch 17F: collapsible color legend for the shared board.
+        private bool showLegend;
+
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
         private GUIStyle bannerStyle;
@@ -192,6 +195,11 @@ namespace Words.Client
             GUILayout.Label(ScoreText(), hudStyle, GUILayout.Height(48f));
             GUILayout.Label(ComboText(), hudStyle, GUILayout.Height(42f));
             DrawConnectionPanel();
+            if (showLegend)
+            {
+                DrawLegend();
+            }
+
             GUILayout.Space(16f);
 
             HandleBoardGesture();
@@ -233,6 +241,19 @@ namespace Words.Client
 
             GUILayout.EndHorizontal();
             GUILayout.Label(profileSummary, statusStyle, GUILayout.Height(46f));
+        }
+
+        // Batch 17F: board color legend so ownership/lock/pending states are
+        // readable without prior knowledge. Presentation help only.
+        private void DrawLegend()
+        {
+            GUILayout.Label("Legend: BLUE = seat 0 owned (bright = locked) | ORANGE = seat 1 owned (bright = locked) | YELLOW = your selection/drag or pending intent | GREEN = pending accepted | RED = pending rolled back | GREY = free. Locks expire after 3s; locked enemy cells can be Cross-Stolen. Ownership is always authoritative from server snapshots.", statusStyle, GUILayout.Height(150f));
+        }
+
+        private void OnToggleLegend()
+        {
+            showLegend = !showLegend;
+            SetStatus(showLegend ? "Board color legend shown." : "Board color legend hidden.");
         }
 
         private void DrawBoard()
@@ -531,6 +552,10 @@ namespace Words.Client
             GUILayout.BeginHorizontal();
             DrawActionButton(QueueButtonLabel(), OnFindMatchQueue, new Color32(64, 160, 120, 255));
             DrawActionButton("Stop searching", OnStopQueueSearch, new Color32(90, 105, 128, 255));
+            GUILayout.EndHorizontal();
+            GUILayout.Space(12f);
+            GUILayout.BeginHorizontal();
+            DrawActionButton(showLegend ? "Hide color legend" : "Show color legend", OnToggleLegend, new Color32(70, 100, 150, 255));
             GUILayout.EndHorizontal();
         }
 
