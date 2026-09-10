@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; batch16_complete_verified; batch17_advancing; queue_flow_verified; profile_queueing_verified; sudden_death_polish_ci_green; gesture_adjacency_swipe_smoke_ci_running; queue_exit_gate_live_regression_pending_oci; oci_ssh_degraded_since_08:20Z; dual_session_coordination_active
+status: m1_server_vertical_slice_advancing; batch16_complete_verified; batch17_advancing; queue_flow_verified; profile_queueing_verified; sudden_death_polish_ci_green; legend_ci_green; gesture_adjacency_ci_green_device_smoke_blocked_by_emulator_flakes; web_m0_reverified_on_current_main; queue_exit_gate_live_regression_pending_oci; oci_ssh_degraded_since_08:20Z; dual_session_coordination_active
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -288,11 +288,13 @@ task_graph:
       - python static sanity: braces, Batch 17E markers, workflow yaml parse: passed
       - go vet ./...: passed
       - GitHub CI run 34455905771 success (head d0befaf)
-      - Unity Android run 34455925881 FAILED at 'adb shell monkey' (media
-        provider startup crash aborted monkey upstream of the swipe step;
-        WORDS_SWIPE assertion never reached) — classified runner/emulator
-        flake per precedent (run 34437012338), retried once at head 6cc02e1
-        as run 34457772896; if the flake recurs, harden the launch step
+      - Unity Android device smoke BLOCKED by hosted-emulator instability —
+        three consecutive infra failures, all upstream of our code:
+        34455925881 (monkey aborted on media provider crash), 34457772896
+        (input keyevent 82 Broken pipe exit 224), 34459251481 (adb install
+        Broken pipe). Flakes documented in docs/unity-ci.md; code CI-green;
+        device assertion stays pending until the emulator pool stabilizes,
+        retried opportunistically without blocking other work
   M1-batch17-board-legend:
     status: merged_ci_pending_unity_covered_by_retry_run
     owner: unity-client
