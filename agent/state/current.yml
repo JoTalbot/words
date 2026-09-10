@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_protocol_bound_ci_green; unity_session_lifecycle_ci_green; unity_prediction_shell_verified_ci_green; oci_recovered_deployed_5dbcc42_live_exit_gate_pass; batch16_starting
+status: m1_server_vertical_slice_advancing; batch16_advancing; unity_gestures_result_overlay_ci_pending; oci_systemd_live_verified; protocol_fuzz_ci_green; web_m0_e2e_reverified; load_baseline_remeasurement_running
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -91,13 +91,31 @@ completed_tasks:
     /readyz reports storage=postgres, Prometheus endpoint live, live
     headless-bot match EXIT-GATE PASS (seed 1512, 43:45, streams equal),
     profile id=5 durable across service restart
+  - Batch 16A (M1 client): Unity drag/swipe multi-cell gesture path (tap
+    toggle preserved, swipe-back undo, ordered SEL #n labels) + MATCH OVER
+    result overlay preferring the authoritative REST record (a2c417a);
+    GitHub CI 34449013190 success; Unity Android 34449018045 pending
+  - Batch 16B (M1 ops): systemd wordarena.service on OCI (Restart=on-failure,
+    root-owned 600 EnvironmentFile secrets, /opt/words/bin/wordarena-server),
+    crash-restart verified live (SIGKILL -> active + readyz ready), docs/M1-OPS.md
+    runbook committed (2b17b36); LLM micro-worker (qwen2.5:1.5b on host)
+    drafted the pre-deploy checklist, cleaned by orchestrator
+  - Batch 16C (QA): full live exit gate on deployed 5dbcc42: 6/6 PASS,
+    terminal snapshots + client streams equal, scores identical to the
+    2026-09-09 baseline (43:45 / 37:60 / 44:40)
+  - Batch 16D (security): protocol fuzz targets FuzzClientEnvelopeDecode/
+    FuzzClientEnvelopeMutation/FuzzSnapshotEncodeDecode; ~800k execs locally
+    with 0 crashes; seed corpus runs in CI (d9ff780; CI 34449508596 success)
+  - Batch 16E/F (web proof): web-m0 binaryType fix (Event bytes no longer
+    undefined), parameterized smoke script with strict authoritative-OPEN
+    mode; Playwright headless Chromium re-verified against local build of
+    current main (77dfe17); RELEASE-READINESS.md refreshed, Q8 edge-access
+    open question recorded (9a942df)
 active_tasks:
-  - M1-batch16-unity-gestures-result-ux: drag/swipe multi-cell selection +
-    production result overlay (owner unity-client, branch worktree)
-  - M1-batch16-oci-ops: systemd unit for wordarena service + docs/M1-OPS.md
-    runbook (owner backend-infra)
-  - M1-batch16-exit-gate-live: full 6-match exit gate re-run against deployed
-    5dbcc42 build (owner qa)
+  - M1-batch16-unity-gestures-result-ux: code merged (a2c417a); GitHub CI
+    success (34449013190); Unity Android run 34449018045 in_progress
+  - M1-batch16-load-baseline: TestLoadBaseline + BenchmarkContains re-run on
+    OCI at current main (worker running)
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
@@ -190,6 +208,43 @@ task_graph:
       - go test -race ./cmd/game ./internal/protocol -run 'TestEndToEndTwoClients|TestReconnectWithinGrace|TestUnityClientSubmitEnvelopeCompatibility' -count=1: passed
       - GitHub CI run 34443200741 success (commit 5dbcc42)
       - Unity Android run 34443210534 success (commit 5dbcc42)
+  M1-batch16-unity-gestures-result-ux:
+    status: merged_ci_green_unity_android_pending
+    owner: unity-client
+    validation:
+      - python static Unity script sanity: braces balanced, gesture+overlay markers present: passed
+      - go vet ./... (server worktree): passed
+      - go test -count=1 ./... (server worktree): passed
+      - GitHub CI run 34449013190 success (commit 2b17b36)
+      - Unity Android run 34449018045: in_progress (build_type=debug run_smoke_tests=true)
+  M1-batch16-oci-ops:
+    status: verified_live
+    owner: backend-infra
+    validation:
+      - systemctl is-enabled wordarena.service -> enabled; is-active -> active
+      - SIGKILL crash test -> systemd restarted -> active + /readyz ready storage=postgres
+      - ad-hoc /tmp/words-game.latest nohup removed
+  M1-batch16-exit-gate-live:
+    status: verified_pass
+    owner: qa
+    validation:
+      - 6/6 live matches on deployed 5dbcc42: EXIT-GATE PASS
+      - terminal_snapshots_equal + client_streams_equal true for all seeds
+      - final scores identical to 2026-09-09 baseline (43:45/37:60/44:40)
+  M1-batch16-protocol-fuzz:
+    status: verified_ci_green
+    owner: backend-security
+    validation:
+      - go vet ./internal/protocol: passed
+      - go test -run Fuzz seed corpus: passed
+      - -fuzz 12s x3 targets ~800k execs 0 crashes
+      - GitHub CI run 34449508596 success (commit d9ff780)
+  M1-batch16-web-m0-e2e:
+    status: verified
+    owner: qa-browser
+    validation:
+      - Playwright headless Chromium strict mode: WebSocket OPEN with real match token
+      - tolerant mode: still passes on default placeholder token
   M1-oci-deploy:
     status: deployed_live_verified_2026-09-10
     owner: infra
