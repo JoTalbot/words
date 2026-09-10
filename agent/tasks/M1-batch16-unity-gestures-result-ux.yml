@@ -1,0 +1,44 @@
+id: M1-batch16-unity-gestures-result-ux
+title: Unity drag/swipe gesture path + production result overlay
+owner: unity-client
+priority: high
+complexity: medium
+status: validating_local_green_unity_ci_pending
+inputs:
+  - docs/M0.md
+  - docs/WIRE-PROTOCOL.md
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+dependencies:
+  - M1-batch15-unity-prediction-reconciliation
+outputs:
+  - drag/swipe multi-cell selection gesture path (IMGUI pointer/touch events)
+  - ordered selection display (SEL #n) and live drag feedback (DRAG #n)
+  - backtrack-on-swipe-back gesture behaviour
+  - production MATCH OVER result overlay (authoritative REST result preferred)
+  - overlay actions: play again, refresh result, dismiss
+acceptance:
+  - A swipe across board cells selects the path in order without reloading the scene
+  - A single tap preserves the legacy toggle behaviour
+  - Swiping back onto the previous cell undoes the last path step
+  - Selection stays presentational; only the server validates submitted paths
+  - Terminal snapshot or REST result opens the MATCH OVER overlay with winner/tie headline
+  - Overlay never claims authority over the REST result endpoint text
+  - No uGUI/EventSystem package dependency is introduced
+validation:
+  - python static Unity script sanity: braces, gesture/overlay markers, no UnityEngine.UI/EventSystems
+  - cd server && go test -count=1 ./...
+  - cd server && go vet ./...
+  - GitHub CI push run after integration
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch16-unity-gestures-result-ux.yml
+risk: medium
+escalation: strong-model
+notes:
+  - Gesture hit-testing uses previous-frame cell rectangles captured via
+    GUILayoutUtility.GetLastRect and converts pointer coordinates through the
+    OnGUI scale matrix and the root BeginArea offset.
+  - The overlay renders from MatchResultSummary (REST) when available and from
+    snapshot scores as a preview otherwise.

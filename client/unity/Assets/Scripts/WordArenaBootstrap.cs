@@ -30,6 +30,18 @@ namespace Words.Client
         private readonly object mainThreadActionsLock = new object();
         private readonly List<PendingIntentViewModel> pendingIntents = new List<PendingIntentViewModel>();
 
+        // Batch 16 gesture path: drag/swipe multi-cell selection state.
+        private readonly List<Rect> boardCellRects = new List<Rect>();
+        private readonly List<int> dragPath = new List<int>();
+        private bool dragActive;
+        private bool boardRectsValid;
+        private float boardScale = 1f;
+
+        // Batch 16 production result presentation overlay state.
+        private bool matchOver;
+        private bool resultOverlayDismissed;
+        private MatchResultSummary lastResult;
+
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
         private GUIStyle bannerStyle;
@@ -38,6 +50,7 @@ namespace Words.Client
         private GUIStyle cellStyle;
         private GUIStyle actionStyle;
         private GUIStyle inputStyle;
+        private GUIStyle overlayStyle;
         private int activeSeat;
         private bool suddenDeath;
         private bool serverMode;
@@ -111,6 +124,7 @@ namespace Words.Client
             }
 
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1f));
+            boardScale = scale;
             var width = Screen.width / scale;
             var height = Screen.height / scale;
 
@@ -122,14 +136,17 @@ namespace Words.Client
             DrawConnectionPanel();
             GUILayout.Space(16f);
 
+            HandleBoardGesture();
             DrawBoard();
 
             GUILayout.Space(16f);
-            GUILayout.Label(selected.Count == 0 ? "Tap cells to spell a word path" : "Selected: " + CurrentWord(), hudStyle, GUILayout.Height(50f));
+            GUILayout.Label(selected.Count == 0 ? "Tap or swipe across cells to spell a word path" : "Selected: " + CurrentWord(), hudStyle, GUILayout.Height(50f));
             GUILayout.Label(status, statusStyle, GUILayout.Height(96f));
             GUILayout.FlexibleSpace();
             DrawActions();
             GUILayout.EndArea();
+
+            DrawResultOverlay();
 
             GUI.backgroundColor = oldBackground;
             GUI.matrix = oldMatrix;
@@ -152,6 +169,8 @@ namespace Words.Client
         {
             var columns = 4;
             var rows = Mathf.CeilToInt(cells.Count / (float)columns);
+            var captureRects = Event.current == null || Event.current.type != EventType.Layout;
+            var captured = new List<Rect>();
             for (var row = 0; row < rows; row++)
             {
                 GUILayout.BeginHorizontal();
@@ -161,6 +180,11 @@ namespace Words.Client
                     if (index >= cells.Count)
                     {
                         GUILayout.Space(238f);
+                        if (captureRects)
+                        {
+                            captured.Add(Rect.zero);
+                        }
+
                         continue;
                     }
 
@@ -168,13 +192,133 @@ namespace Words.Client
                     GUI.backgroundColor = CellColor(cell);
                     if (GUILayout.Button(CellLabel(cell), cellStyle, GUILayout.Width(238f), GUILayout.Height(150f)))
                     {
+                        // Pointer selection is owned by the Batch 16 gesture
+                        // path; this click stays as keyboard/fallback input.
                         OnCellTapped(cell.CellId);
+                    }
+
+                    if (captureRects)
+                    {
+                        captured.Add(GUILayoutUtility.GetLastRect());
                     }
                 }
 
                 GUILayout.EndHorizontal();
                 GUILayout.Space(14f);
             }
+
+            if (captureRects && captured.Count >= cells.Count)
+            {
+                boardCellRects.Clear();
+                boardCellRects.AddRange(captured);
+                boardRectsValid = true;
+            }
+        }
+
+        // Batch 16 gesture path: drag/swipe multi-cell selection. IMGUI
+        // pointer/touch events are consumed here against the previous-frame
+        // cell rectangles so a swipe spells a path; a single tap keeps the
+        // legacy toggle behaviour. Selection stays presentational only — the
+        // authoritative server validates every submitted path.
+        private void HandleBoardGesture()
+        {
+            var evt = Event.current;
+            if (evt == null || cells.Count == 0 || !boardRectsValid)
+            {
+                return;
+            }
+
+            if (evt.type == EventType.MouseDown)
+            {
+                if (evt.button != 0)
+                {
+                    return;
+                }
+
+                var startCell = HitTestBoardCell(BoardLocalPoint(evt.mousePosition));
+                if (startCell < 0)
+                {
+                    return;
+                }
+
+                dragActive = true;
+                dragPath.Clear();
+                dragPath.Add(startCell);
+                evt.Use();
+            }
+            else if (evt.type == EventType.MouseDrag && dragActive)
+            {
+                ExtendDragPath(evt.mousePosition);
+                evt.Use();
+            }
+            else if (evt.type == EventType.MouseUp && dragActive)
+            {
+                dragActive = false;
+                ExtendDragPath(evt.mousePosition);
+                CommitDragPath();
+                evt.Use();
+            }
+        }
+
+        private Vector2 BoardLocalPoint(Vector2 screenPoint)
+        {
+            var scale = boardScale > 0f ? boardScale : 1f;
+            return new Vector2(screenPoint.x / scale - 40f, screenPoint.y / scale - 40f);
+        }
+
+        private int HitTestBoardCell(Vector2 localPoint)
+        {
+            for (var index = 0; index < boardCellRects.Count && index < cells.Count; index++)
+            {
+                var rect = boardCellRects[index];
+                if (rect.width > 1f && rect.height > 1f && rect.Contains(localPoint))
+                {
+                    return cells[index].CellId;
+                }
+            }
+
+            return -1;
+        }
+
+        private void ExtendDragPath(Vector2 screenPoint)
+        {
+            var cellId = HitTestBoardCell(BoardLocalPoint(screenPoint));
+            if (cellId < 0)
+            {
+                return;
+            }
+
+            var count = dragPath.Count;
+            if (count >= 2 && dragPath[count - 2] == cellId)
+            {
+                // Swiping back onto the previous cell undoes the last step.
+                dragPath.RemoveAt(count - 1);
+                return;
+            }
+
+            if (!dragPath.Contains(cellId))
+            {
+                dragPath.Add(cellId);
+            }
+        }
+
+        private void CommitDragPath()
+        {
+            if (dragPath.Count <= 1)
+            {
+                if (dragPath.Count == 1)
+                {
+                    OnCellTapped(dragPath[0]);
+                }
+            }
+            else
+            {
+                selected.Clear();
+                selected.AddRange(dragPath);
+                SetStatus("Swipe path '" + CurrentWord() + "' selected (" + selected.Count + " cells). Send when ready.");
+            }
+
+            dragPath.Clear();
         }
 
         private void DrawActions()
@@ -203,6 +347,94 @@ namespace Words.Client
             DrawActionButton(resultFetchInProgress ? "Fetching result..." : "Fetch result", OnFetchResult, new Color32(80, 120, 210, 255));
             DrawActionButton("Local demo reset", ResetDemoState, new Color32(90, 105, 128, 255));
             GUILayout.EndHorizontal();
+        }
+
+        // Batch 16 production result presentation overlay: a centered,
+        // dismissable panel rendered once a terminal snapshot or an
+        // authoritative REST result is known. The headline prefers the
+        // authoritative REST record and falls back to snapshot scores until
+        // the result fetch completes.
+        private void DrawResultOverlay()
+        {
+            if ((!matchOver && lastResult == null) || resultOverlayDismissed)
+            {
+                return;
+            }
+
+            var areaWidth = Screen.width / boardScale;
+            var areaHeight = Screen.height / boardScale;
+            var width = Mathf.Min(900f, areaWidth - 40f);
+            var height = Mathf.Min(620f, areaHeight - 60f);
+            var rect = new Rect(Mathf.Max(20f, (areaWidth - width) / 2f), Mathf.Max(20f, (areaHeight - height) / 2.6f), width, height);
+            GUI.Box(rect, string.Empty, overlayStyle);
+            GUILayout.BeginArea(new Rect(rect.x + 28f, rect.y + 20f, rect.width - 56f, rect.height - 40f));
+            GUILayout.Label("MATCH OVER", titleStyle, GUILayout.Height(70f));
+            GUILayout.Label(ResultHeadline(), bannerStyle, GUILayout.Height(58f));
+            GUILayout.Label(ScoreText(), hudStyle, GUILayout.Height(48f));
+            GUILayout.Label(ResultSourceText(), statusStyle, GUILayout.Height(120f));
+            GUILayout.Space(14f);
+            GUILayout.BeginHorizontal();
+            GUI.backgroundColor = new Color32(54, 172, 118, 255);
+            if (GUILayout.Button(createInProgress ? "Creating..." : "Play again (new server match)", actionStyle, GUILayout.Height(80f)))
+            {
+                OnCreateServerMatch();
+            }
+
+            GUI.backgroundColor = new Color32(90, 105, 128, 255);
+            if (GUILayout.Button(resultFetchInProgress ? "Refreshing result..." : "Refresh result", actionStyle, GUILayout.Height(80f)))
+            {
+                OnFetchResult();
+            }
+
+            GUI.backgroundColor = new Color32(96, 112, 146, 255);
+            if (GUILayout.Button("Dismiss", actionStyle, GUILayout.Height(80f)))
+            {
+                resultOverlayDismissed = true;
+            }
+
+            GUILayout.EndHorizontal();
+            GUILayout.EndArea();
+        }
+
+        private string ResultHeadline()
+        {
+            if (lastResult != null && lastResult.Success)
+            {
+                if (lastResult.IsTie)
+                {
+                    return "DRAW — final " + ScoreLine(lastResult.Scores);
+                }
+
+                var winnerSeat = Mathf.Clamp(lastResult.WinnerSeat, 0, players.Length - 1);
+                return players[winnerSeat].DisplayName + " WINS — final " + ScoreLine(lastResult.Scores);
+            }
+
+            if (players[0].Score == players[1].Score)
+            {
+                return "DRAW (awaiting authoritative result)";
+            }
+
+            var leader = players[0].Score > players[1].Score ? players[0] : players[1];
+            return leader.DisplayName + " LEADS " + players[0].Score + ":" + players[1].Score + " (awaiting authoritative result)";
+        }
+
+        private string ScoreLine(int[] scores)
+        {
+            if (scores != null && scores.Length >= 2)
+            {
+                return scores[0] + ":" + scores[1];
+            }
+
+            return players[0].Score + ":" + players[1].Score;
+        }
+
+        private string ResultSourceText()
+        {
+            var source = lastResult != null && lastResult.Success
+                ? "Authoritative REST result: " + lastResult.DisplayText
+                : "Snapshot-derived preview. The REST result endpoint is the authoritative terminal record.";
+            var mode = suddenDeath ? "Sudden Death tiebreak armed" : "standard scoring";
+            return source + "\nMatch " + liveMatchId + " | seed " + liveSeed + " | " + mode;
         }
 
         private void DrawActionButton(string label, Action action, Color32 color)
@@ -447,6 +679,13 @@ namespace Words.Client
         {
             resultFetchInProgress = false;
             resultSummary = result == null ? "Result: fetch failed" : "Result: " + result.DisplayText;
+            if (result != null && result.Success)
+            {
+                lastResult = result;
+                matchOver = matchOver || result.Over;
+                resultOverlayDismissed = false;
+            }
+
             SetStatus(resultSummary);
         }
 
@@ -485,6 +724,9 @@ namespace Words.Client
             activeSeat = 0;
             clientSequence = 0;
             terminalResultFetchRequested = false;
+            matchOver = false;
+            resultOverlayDismissed = false;
+            lastResult = null;
             resultSummary = "Result: pending for match " + liveMatchId;
             ReconnectActiveSeat();
         }
@@ -545,6 +787,8 @@ namespace Words.Client
 
             if (snapshot.Over)
             {
+                matchOver = true;
+                resultOverlayDismissed = false;
                 SetStatus("Match over. Final authoritative score: " + ScoreText());
                 FetchResultOnce(true);
             }
@@ -761,10 +1005,13 @@ namespace Words.Client
         {
             var owner = cell.OwnerSeat < 0 ? "Free" : players[cell.OwnerSeat].Name;
             var lockText = cell.Locked ? "\nLOCK " + cell.LockRemaining.ToString("0.0") + "s" : string.Empty;
-            var selectedText = selected.Contains(cell.CellId) ? "\nSELECTED" : string.Empty;
+            var selectedIndex = selected.IndexOf(cell.CellId);
+            var selectedText = selectedIndex >= 0 ? "\nSEL #" + (selectedIndex + 1) : string.Empty;
+            var dragIndex = dragActive ? dragPath.IndexOf(cell.CellId) : -1;
+            var dragText = dragIndex >= 0 ? "\nDRAG #" + (dragIndex + 1) : string.Empty;
             var pending = PendingForCell(cell.CellId);
             var pendingText = pending == null ? string.Empty : "\nPENDING #" + pending.Sequence;
-            return cell.Letter + "\n" + owner + lockText + selectedText + pendingText;
+            return cell.Letter + "\n" + owner + lockText + selectedText + dragText + pendingText;
         }
 
         private Color32 CellColor(CellViewModel cell)
@@ -921,6 +1168,13 @@ namespace Words.Client
             activeSeat = 0;
             selected.Clear();
             pendingIntents.Clear();
+            dragPath.Clear();
+            dragActive = false;
+            boardRectsValid = false;
+            boardCellRects.Clear();
+            matchOver = false;
+            resultOverlayDismissed = false;
+            lastResult = null;
             cells.Clear();
             for (var index = 0; index < DemoLetters.Length; index++)
             {
@@ -1022,6 +1276,20 @@ namespace Words.Client
                 fontSize = 24,
                 wordWrap = false
             };
+            overlayStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperCenter,
+                padding = new RectOffset(16, 16, 16, 16),
+                normal = { background = MakeSolidTexture(new Color32(18, 26, 42, 242)), textColor = Color.white }
+            };
+        }
+
+        private static Texture2D MakeSolidTexture(Color32 color)
+        {
+            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            texture.SetPixel(0, 0, color);
+            texture.Apply();
+            return texture;
         }
 
         private sealed class CellViewModel
