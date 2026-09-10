@@ -1,0 +1,44 @@
+id: M1-batch20-monitoring-assets
+title: Prometheus scrape config and Grafana dashboard for the match service
+owner: backend-infra
+priority: normal
+complexity: small
+status: verified_local_pending_ci
+inputs:
+  - server/cmd/game/telemetry.go (Prometheus exposition handler — read only)
+  - docs/M1-TELEMETRY.md
+  - infra/Dockerfile, infra/docker-compose.yml
+dependencies:
+  - M1-batch10-telemetry
+outputs:
+  - infra/monitoring/prometheus/wordarena.yml (file_sd target list)
+  - infra/monitoring/grafana/dashboards/wordarena.json (9-panel dashboard)
+  - infra/monitoring/README.md (scrape setup, panel table, metric reference)
+  - tools/check-monitoring-assets.py (validator with a --live mode)
+acceptance:
+  - every metric the service emits is plotted on the dashboard
+  - no panel references a metric the service does not emit
+  - panel ids are unique and grid positions do not overlap
+  - the target file stays a pure file_sd list (scrape path belongs in the
+    Prometheus config, not in the target file)
+  - --live cross-checks the dashboard against a running service exposition
+  - CI runs both the static and the live check
+validation:
+  - python3 tools/check-monitoring-assets.py             # 11 checks
+  - python3 tools/check-monitoring-assets.py --live http://127.0.0.1:18082   # 13 checks
+  - GitHub CI compose-smoke and test-assets jobs
+file_ownership:
+  - infra/monitoring/**
+  - tools/check-monitoring-assets.py
+  - .github/workflows/container-smoke.yml
+  - agent/tasks/M1-batch20-monitoring-assets.yml
+risk: low
+escalation: none
+notes:
+  - The dashboard plots rate() rather than raw counters: the counters are per
+    process and reset on restart.
+  - Telemetry backpressure is called out as the panel to alert on: the JSONL
+    exporter drops events rather than blocking a match, so observability can be
+    lost while gameplay looks healthy.
+  - infra/monitoring/README.md documents that the loopback-only listen address
+    (PRODUCT-DECISIONS.md Q8) is an access decision, not a monitoring detail.

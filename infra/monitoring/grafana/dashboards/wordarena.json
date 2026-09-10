@@ -1,0 +1,103 @@
+{
+  "title": "Word Arena — Match Service",
+  "uid": "wordarena-m1",
+  "schemaVersion": 39,
+  "timezone": "utc",
+  "refresh": "10s",
+  "tags": ["wordarena", "m1"],
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active matches",
+      "description": "Live rooms on this process. Drops to zero between matches, so read it together with the creation rate.",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "wordarena_active_matches", "legendFormat": "active", "refId": "A"}
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Match creation rate",
+      "description": "rate() rather than the raw counter: counters are per process and reset on restart.",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "targets": [
+        {"expr": "rate(wordarena_matches_created_total[1m])", "legendFormat": "created/s", "refId": "A"}
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Match completion rate",
+      "description": "Matches that reached the terminal over state. A persistent gap against the creation rate means rooms are leaking.",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {"expr": "rate(wordarena_matches_finished_total[1m])", "legendFormat": "finished/s", "refId": "A"}
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Intent rate",
+      "description": "Word submission intents received by the server, before validation.",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "rate(wordarena_intents_received_total[1m])", "legendFormat": "intents/s", "refId": "A"}
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Intent outcome",
+      "description": "Accepted versus rejected words. A rising rejection rate usually means client/server dictionary drift, not cheating.",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "targets": [
+        {"expr": "rate(wordarena_words_accepted_total[1m])", "legendFormat": "accepted", "refId": "A"},
+        {"expr": "rate(wordarena_words_rejected_total[1m])", "legendFormat": "rejected", "refId": "B"}
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Telemetry enqueue rate",
+      "description": "Events accepted into the asynchronous exporter buffer.",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "targets": [
+        {"expr": "rate(wordarena_telemetry_events_enqueued_total[1m])", "legendFormat": "enqueued/s", "refId": "A"}
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Telemetry write rate",
+      "description": "Events actually written by the exporter. Should track the enqueue rate.",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "rate(wordarena_telemetry_events_written_total[1m])", "legendFormat": "written/s", "refId": "A"}
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Telemetry backpressure",
+      "description": "The panel to alert on. Telemetry is deliberately non-blocking: a saturated buffer drops events instead of slowing a match, so observability is lost while gameplay looks healthy.",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "targets": [
+        {"expr": "rate(wordarena_telemetry_events_dropped_total[1m])", "legendFormat": "dropped", "refId": "A"},
+        {"expr": "rate(wordarena_telemetry_export_errors_total[1m])", "legendFormat": "export errors", "refId": "B"}
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Matches created (process total)",
+      "description": "Raw counter. Resets when the service restarts — use the rate panel for trending.",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "targets": [
+        {"expr": "wordarena_matches_created_total", "legendFormat": "created", "refId": "A"}
+      ]
+    }
+  ]
+}

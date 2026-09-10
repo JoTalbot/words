@@ -9,6 +9,8 @@ infra/
 ├── Dockerfile             # multi-stage static build of the match service
 ├── docker-compose.yml     # local stack: game + postgres + telemetry volume
 ├── smoke.sh               # end-to-end verification of a running service
+├── migrations/            # versioned SQL: 001_init.sql
+├── monitoring/            # Prometheus file_sd targets + Grafana dashboard
 └── README.md
 ```
 
@@ -21,9 +23,7 @@ infra/
 ├── compose/               # local dependencies (future)
 ├── k8s/                   # Kubernetes manifests / Helm (future)
 ├── agones/                # game server fleet configuration (future)
-├── envoy/                 # edge routing and websocket policy (future)
-├── monitoring/            # Prometheus, Grafana, alerts (future)
-└── migrations/            # data/schema migration assets (future)
+└── envoy/                 # edge routing and websocket policy (future)
 ```
 
 Container and compose operations are documented in `docs/M1-CONTAINERS.md`;

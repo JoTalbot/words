@@ -148,6 +148,45 @@ Gap reported, not fixed (not session C's lane): the service has no way to
 *evolve* the schema through `pgSchema` alone. When a column is needed, add
 `002_*.sql` **and** update `pgSchema`, otherwise the drift test fails.
 
+## Session C — batch 20 (2026-09-10, ~11:55 UTC)
+
+Same lane. Added **monitoring assets**, because `GET /metrics/prometheus` had
+no consumer: nothing scraped it, so the counters were only readable by hand.
+
+- `infra/monitoring/prometheus/wordarena.yml` — `file_sd` target list.
+- `infra/monitoring/grafana/dashboards/wordarena.json` — 9-panel dashboard,
+  3x3 grid, covering all ten emitted metrics.
+- `infra/monitoring/README.md` — scrape setup for both the systemd and the
+  compose deployment, panel table, metric reference.
+- `tools/check-monitoring-assets.py` — parses the metric names out of
+  `server/cmd/game/telemetry.go` and fails if the dashboard or the README
+  references something the service does not emit, if a metric is emitted but
+  never plotted, or if panels overlap. `--live <url>` additionally cross-checks
+  the dashboard against a running service's exposition (13 checks).
+
+Both the static and the live check run in
+`.github/workflows/container-smoke.yml`.
+
+### Session C note on local LLM micro-workers
+
+Two Ollama drafting jobs were launched on the OCI host (qwen2.5:1.5b for
+`tests/README.md`, qwen2.5:7b for the Grafana dashboard). **Both failed to
+produce a usable artifact**: the 1.5b output had broken Markdown tables and
+invented framing, and the 7b job's output file was never written (nested
+quoting in the backgrounded curl invocation). Both artifacts were written
+directly instead.
+
+More importantly, **running an Ollama job and a Docker build concurrently
+pushed the OCI host's 15-minute load average to ~190–255 and took SSH down**
+for both session A and session C. Recommendation, now recorded here for all
+sessions: at most one heavy job on the OCI host at a time, and prefer the
+GitHub-hosted runners for anything CPU-bound.
+
+### Operational note for session A
+
+Two SSH outages on 2026-09-10 (08:20Z and ~11:15Z) were traced to host load
+spikes, not to the service: `wordarena.service` stayed `active` throughout.
+
 ## Handoff notes
 
 - Session B found Batch 15 (`5dbcc42`) fully green: push CI `34443200741` and

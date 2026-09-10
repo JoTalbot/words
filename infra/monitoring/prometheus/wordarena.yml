@@ -1,0 +1,27 @@
+# Prometheus scrape configuration for the Word Arena match service.
+#
+# The service exposes Prometheus text format at GET /metrics/prometheus
+# (docs/M1-TELEMETRY.md). Nothing scrapes it inside the compose stack, so this
+# file is meant to be dropped into a Prometheus that can reach the service —
+# either as a standalone snippet or included from the main config:
+#
+#   prometheus --config.file=/etc/prometheus/prometheus.yml
+#   # prometheus.yml:
+#   #   global:
+#   #     scrape_interval: 15s
+#   #   scrape_configs:
+#   #     - job_name: wordarena
+#   #       file_sd_configs:
+#   #         - files: ['/etc/prometheus/wordarena.yml']
+#
+# See infra/monitoring/README.md for the compose and systemd variants.
+
+- targets:
+    - '127.0.0.1:18080'
+  labels:
+    job: wordarena
+    env: local
+    # Metrics are per-process counters (docs/M1-TELEMETRY.md), so the instance
+    # label identifies which process produced them. With more than one replica
+    # this becomes essential rather than cosmetic.
+    service: wordarena-game
