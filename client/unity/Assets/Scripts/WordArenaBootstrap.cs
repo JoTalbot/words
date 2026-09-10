@@ -55,6 +55,16 @@ namespace Words.Client
         private ulong queueUserId;
         private string queueToken = string.Empty;
 
+        // Batch 17B profile-aware queueing state. The profile is optional:
+        // without one, queue entries stay anonymous (server default). With
+        // one, finished matches fold into lifetime stats server-side.
+        private string nickname = "pilot";
+        private bool profileCreateInProgress;
+        private bool profileStatsInProgress;
+        private bool profileStatsRequested;
+        private ulong profileId;
+        private string profileSummary = "Profile: anonymous (queue entries anonymous)";
+
         private WordArenaNetworkClient network;
         private GUIStyle titleStyle;
         private GUIStyle bannerStyle;
@@ -206,6 +216,17 @@ namespace Words.Client
             GUILayout.Label("Lang", hudStyle, GUILayout.Width(90f), GUILayout.Height(48f));
             language = GUILayout.TextField(language, inputStyle, GUILayout.Width(90f), GUILayout.Height(48f));
             GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Nick", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
+            nickname = GUILayout.TextField(nickname, inputStyle, GUILayout.Height(48f));
+            GUI.backgroundColor = new Color32(150, 120, 200, 255);
+            if (GUILayout.Button(profileCreateInProgress ? "Creating..." : "Create profile", actionStyle, GUILayout.Width(330f), GUILayout.Height(48f)))
+            {
+                OnCreateProfile();
+            }
+
+            GUILayout.EndHorizontal();
+            GUILayout.Label(profileSummary, statusStyle, GUILayout.Height(46f));
         }
 
         private void DrawBoard()
@@ -655,8 +676,67 @@ namespace Words.Client
             }
 
             queueInProgress = true;
-            queueSummary = "Queue: joining...";
-            StartCoroutine(network.EnqueueQueue(serverUrl, SanitizedLanguage(), 0, HandleEnqueueResult));
+            queueSummary = "Queue: joining" + (profileId != 0 ? " as profile #" + profileId : " anonymously") + "...";
+            StartCoroutine(network.EnqueueQueue(serverUrl, SanitizedLanguage(), profileId, HandleEnqueueResult));
+        }
+
+        // Batch 17B: profile handlers. CreatePlayer registers a durable
+        // identity; queueing with its id folds finished matches into the
+        // lifetime stats that the server computes (docs/M1-PERSISTENCE.md).
+        private void OnCreateProfile()
+        {
+            if (profileCreateInProgress || network == null)
+            {
+                return;
+            }
+
+            var nick = nickname == null ? string.Empty : nickname.Trim();
+            if (nick.Length == 0 || nick.Length > 32)
+            {
+                SetStatus("Nickname must be 1..32 characters.");
+                return;
+            }
+
+            profileCreateInProgress = true;
+            StartCoroutine(network.CreatePlayer(serverUrl, nick, SanitizedLanguage(), HandleCreatePlayerResult));
+        }
+
+        private void HandleCreatePlayerResult(PlayerProfileResult profile)
+        {
+            profileCreateInProgress = false;
+            if (profile == null || !profile.Success)
+            {
+                profileSummary = "Profile: " + (profile == null ? "create failed" : profile.Error);
+                SetStatus(profileSummary);
+                return;
+            }
+
+            profileId = profile.Id;
+            profileSummary = "Profile: " + profile.Nickname + " #" + profile.Id + " — " + profile.StatsText;
+            SetStatus(profileSummary + ". Queue entries now carry this profile.");
+        }
+
+        private void FetchProfileStatsOnce()
+        {
+            if (profileId == 0 || profileStatsInProgress || profileStatsRequested || network == null)
+            {
+                return;
+            }
+
+            profileStatsRequested = true;
+            profileStatsInProgress = true;
+            StartCoroutine(network.GetPlayer(serverUrl, profileId, HandleProfileStats));
+        }
+
+        private void HandleProfileStats(PlayerProfileResult profile)
+        {
+            profileStatsInProgress = false;
+            if (profile == null || !profile.Success)
+            {
+                return;
+            }
+
+            profileSummary = "Profile: " + profile.Nickname + " #" + profile.Id + " — " + profile.StatsText;
         }
 
         private void OnStopQueueSearch()
@@ -741,6 +821,7 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            profileStatsRequested = false;
             selected.Clear();
             pendingIntents.Clear();
             resultSummary = "Result: pending for match " + liveMatchId;
@@ -891,6 +972,7 @@ namespace Words.Client
             matchOver = false;
             resultOverlayDismissed = false;
             lastResult = null;
+            profileStatsRequested = false;
             queuePolling = false;
             queuePollActive = false;
             queueToken = string.Empty;
@@ -994,6 +1076,9 @@ namespace Words.Client
                 resultOverlayDismissed = false;
                 SetStatus("Match over. Final authoritative score: " + ScoreText());
                 FetchResultOnce(true);
+                // Batch 17B: refresh lifetime stats once the server has folded
+                // the finished match into the bound profile.
+                FetchProfileStatsOnce();
             }
         }
 

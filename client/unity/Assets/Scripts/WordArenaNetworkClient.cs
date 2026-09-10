@@ -342,6 +342,88 @@ namespace Words.Client
             return result;
         }
 
+        // Batch 17B: player profiles. Creating a profile registers a durable
+        // identity (PostgreSQL-backed on the live service); queueing with its
+        // player_id folds finished-match outcomes into lifetime stats
+        // (docs/M1-PERSISTENCE.md). Profiles never gate gameplay: anonymous
+        // queueing stays available when no profile exists.
+        public IEnumerator CreatePlayer(string serverBaseUrl, string nickname, string language, Action<PlayerProfileResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/players";
+            var body = "{\"nickname\":\"" + EscapeJson(nickname) + "\",\"language\":\"" + EscapeJson(language) + "\"}";
+            var request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST);
+            var payload = Encoding.UTF8.GetBytes(body);
+            request.uploadHandler = new UploadHandlerRaw(payload);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.timeout = 10;
+
+            EmitStatus("Creating player profile at " + url);
+            yield return request.SendWebRequest();
+
+            var result = ParsePlayerProfile(request, "create");
+            request.Dispose();
+            EmitStatus(result.Success ? "Profile '" + result.Nickname + "' created (id " + result.Id + ")." : result.Error);
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        public IEnumerator GetPlayer(string serverBaseUrl, ulong playerId, Action<PlayerProfileResult> completed)
+        {
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/players/" + playerId;
+            var request = UnityWebRequest.Get(url);
+            request.timeout = 10;
+            yield return request.SendWebRequest();
+
+            var result = ParsePlayerProfile(request, "fetch");
+            request.Dispose();
+            if (completed != null)
+            {
+                completed(result);
+            }
+        }
+
+        private static PlayerProfileResult ParsePlayerProfile(UnityWebRequest request, string verb)
+        {
+            var result = new PlayerProfileResult();
+            result.HttpStatus = request.responseCode;
+            result.Success = RequestSucceeded(request);
+            if (!result.Success)
+            {
+                result.Error = "profile " + verb + " failed: HTTP " + request.responseCode + " " + request.error;
+                return result;
+            }
+
+            try
+            {
+                var parsed = JsonUtility.FromJson<PlayerResponseJson>(request.downloadHandler.text);
+                if (parsed == null || parsed.id <= 0)
+                {
+                    result.Success = false;
+                    result.Error = "profile " + verb + " returned incomplete JSON";
+                    return result;
+                }
+
+                result.Id = (ulong)parsed.id;
+                result.Nickname = parsed.nickname ?? string.Empty;
+                result.Language = parsed.language ?? string.Empty;
+                result.MatchesPlayed = (ulong)Math.Max(0L, parsed.matches_played);
+                result.Wins = (ulong)Math.Max(0L, parsed.wins);
+                result.Losses = (ulong)Math.Max(0L, parsed.losses);
+                result.Draws = (ulong)Math.Max(0L, parsed.draws);
+                result.TotalScore = parsed.total_score;
+            }
+            catch (Exception exception)
+            {
+                result.Success = false;
+                result.Error = "profile " + verb + " JSON parse failed: " + exception.Message;
+            }
+
+            return result;
+        }
+
         public void Connect(string serverBaseUrl, ulong matchId, string token)
         {
             Disconnect();
@@ -787,6 +869,44 @@ namespace Words.Client
         public long seed;
         public string token;
         public long user_id;
+    }
+
+    // Batch 17B: player profile + lifetime stats view for /v1/players.
+    public sealed class PlayerProfileResult
+    {
+        public bool Success;
+        public long HttpStatus;
+        public string Error = string.Empty;
+        public ulong Id;
+        public string Nickname = string.Empty;
+        public string Language = string.Empty;
+        public ulong MatchesPlayed;
+        public ulong Wins;
+        public ulong Losses;
+        public ulong Draws;
+        public long TotalScore;
+
+        public string StatsText
+        {
+            get
+            {
+                return "W " + Wins + " / L " + Losses + " / D " + Draws
+                    + " — " + MatchesPlayed + " matches, score " + TotalScore;
+            }
+        }
+    }
+
+    [Serializable]
+    public class PlayerResponseJson
+    {
+        public long id;
+        public string nickname;
+        public string language;
+        public long matches_played;
+        public long wins;
+        public long losses;
+        public long draws;
+        public long total_score;
     }
 
 }

@@ -1,0 +1,43 @@
+id: M1-batch17-profile-queueing
+title: Unity profile-aware queueing (create profile, enqueue with player_id, lifetime stats)
+owner: unity-client
+priority: high
+complexity: medium
+status: validating_local_green_ci_pending
+inputs:
+  - server/cmd/game/profile.go (POST/GET /v1/players contract)
+  - server/cmd/game/matchmaking.go (player_id queue binding)
+  - docs/M1-PERSISTENCE.md
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+dependencies:
+  - M1-batch17-unity-matchmaking-queue
+outputs:
+  - CreatePlayer/GetPlayer coroutines + PlayerProfileResult/PlayerResponseJson
+  - nickname input + Create profile control with validation (1..32 chars)
+  - queue enqueue carries profileId when bound (anonymous fallback preserved)
+  - terminal snapshot triggers one-shot lifetime-stats refresh for the bound profile
+  - profile stats line in the connection panel (W/L/D, matches, total score)
+acceptance:
+  - Anonymous queueing still works when no profile is created
+  - With a bound profile, enqueue sends player_id (server folds stats on match end)
+  - Invalid nicknames are rejected client-side before the request
+  - Stats refresh fires once per finished match and never blocks gameplay
+  - No uGUI/EventSystem dependency introduced
+validation:
+  - python static Unity script sanity: braces, Batch 17B markers, no forbidden deps
+  - cd server && go vet ./...
+  - cd server && go test ./cmd/game -run 'TestProfile|TestPlayer' -count=1
+  - GitHub CI push run after integration
+  - GitHub Unity Android workflow_dispatch build_type=debug run_smoke_tests=true
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaNetworkClient.cs
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch17-profile-queueing.yml
+risk: medium
+escalation: strong-model
+notes:
+  - Profile creation and stats folding are server-authoritative (PostgreSQL on
+    the live service); the client only renders the returned record.
+  - Per COORDINATION.md this lane stays inside client/unity; no server files
+    touched while session B owns the api.go security lane.
