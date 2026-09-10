@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; unity_android_ci_green
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; unity_android_ci_green; oci_ssh_degraded
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -17,7 +17,7 @@ completed_tasks:
     EXIT-GATE: PASS on the dev server 2026-09-09 (6/6 matches)
   - Dictionary compiler server/cmd/dictcompile (+ canonicality test)
   - Replay fixture seed 1512; web-m0 client proof; M1-ARCH-PREP doc
-  - GitHub CI green on integrated main
+  - GitHub CI green on integrated main before M1 batch 10
   - Batch 1 (M1-prep): GET /v1/matches/{id}/result (persistence, TTL 5 min),
     WORDARENA_MAX_ROOMS cap (429), WS read limit, request logging + tests
   - Batch 2 (M1-prep): GET /metrics counters, graceful shutdown, Dockerfile +
@@ -52,44 +52,82 @@ completed_tasks:
     behaviour); rotation invalidates the old token and refreshes expiry
   - OCI deploy of durable storage verified live (db/role wordarena on host
     Postgres 16; service restarted with DSN; profile survived restart)
+  - Batch 10 (M1): telemetry export baseline (docs/M1-TELEMETRY.md):
+    backward-compatible JSON /metrics with exporter health, Prometheus text
+    endpoint GET /metrics/prometheus, optional non-blocking JSONL exporter via
+    WORDARENA_TELEMETRY_JSONL/WORDARENA_TELEMETRY_BUFFER, lifecycle/action
+    events without token leakage, compose telemetry volume, regression tests
 active_tasks: []
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
     (dictionary/NOTICE.md)
-failed_tasks: []
+  - B3: Unity Editor unavailable on Linux/ARM64 OCI host; Unity/Android client
+    development must use GitHub-hosted x86_64 Unity/Android CI or another
+    authorized remote build/device backend
+failed_tasks:
+  - OCI isolated Batch 10 Postgres validation/deploy retry pending: SSH banner
+    timed out while host load was high (~20+) after a focused `/tmp/words-batch10`
+    go test worker hung; not a code failure and not a human blocker
 next_tasks:
-  - M1: telemetry export/pipeline (counters exist; export TODO)
+  - Retry OCI SSH recovery when host responds: kill leftover `/tmp/words-batch10`
+    test worker if still present, run focused Postgres validation with /opt/go,
+    then deploy current main binary to 127.0.0.1:18080 with durable DSN + JSONL
+    telemetry enabled
   - M1 client work (Unity): shared board UX, claim/lock/steal UI, combo and
     Sudden Death presentation — Unity editor absent on ARM64 dev host; use
-    CI-built APK for QA
+    CI-built APK / GitHub-hosted emulator for QA
   - Android QA fallback hierarchy (hosted emulator wired; APK artifact
-    words-android-debug)
-last_commit: "2358412"
+    words-android-debug); if local Android unavailable, use authorized remote
+    device backend without bypassing auth/CAPTCHA/limits
+  - M1 production shape follow-up: readiness/draining endpoint and deployment
+    smoke once OCI is stable
+task_graph:
+  M1-batch10-telemetry:
+    status: verified_local
+    owner: backend-observability
+    validation:
+      - go test ./cmd/game -run 'Test(PrometheusMetricsEndpoint|TelemetryJSONLExport)' -count=1 -v
+      - go vet ./...
+      - go test -count=1 ./...
+      - go test -race ./cmd/game ./internal/match ./internal/matchroom -count=1
+      - local binary smoke with WORDARENA_TELEMETRY_JSONL and /metrics/prometheus
+    remote_validation: pending_oci_ssh_degraded
+  M1-client-ux:
+    status: available_with_remote_ci_validation
+    owner: unity-client
+  M1-oci-deploy:
+    status: blocked_by_transient_server_load
+    owner: infra
 tests:
-  server: green on x86_64 sandbox (go1.27.1: go vet + go test -count=1 ./...
-    all packages; cmd/game ~43 s incl. exit-gate); race clean on
-    cmd/game + internal/match; Postgres integration tests green against
-    local PG17 (WORDARENA_TEST_POSTGRES_DSN): profile CRUD/stats, result
-    round-trip, cross-instance durability
-  ci: green through d56df81 (GitHub Actions, go1.24); Unity Android fully
-    green (run 34420554448)
-  docker: image NOT built on the shared OCI host (build attempt destabilized
-    it once); local static-binary smoke test passed. docker-compose now
-    includes a postgres:16 service + WORDARENA_POSTGRES_DSN wiring.
-android_backend: github-hosted x86_64 emulator (reactivecircus, API 35)
+  server: green locally in Arena sandbox with temporary Go 1.24.7
+    (GOPATH/GOCACHE/GOMODCACHE under /home/user/.cache): go vet ./...;
+    go test -count=1 ./...; go test -race ./cmd/game ./internal/match
+    ./internal/matchroom -count=1; targeted telemetry tests green; binary
+    smoke on 127.0.0.1:18180 with WORDARENA_TELEMETRY_JSONL green
+  ci: last known GitHub Actions green before Batch 10 through main ddf6191;
+    Unity Android fully green (run 34420554448)
+  docker: Docker unavailable in Arena sandbox; OCI Docker present but not used
+    during Batch 10 because SSH degraded; Dockerfile/compose statically checked
+    and compose now includes optional telemetry volume wiring
+android_backend: GitHub-hosted x86_64 emulator (reactivecircus, API 35)
   WORKS — build + install + monkey-launch + pm path verify all green
-  (run 34420554448). APK artifact: words-android-debug. Remote providers
-  (myandroid.org etc.) remain interactive-only and were not bypassed.
+  (run 34420554448). Local Arena sandbox has no adb/emulator. OCI has adb server
+  but no emulator binary found in PATH; hosted emulator remains the validated
+  automated backend. Remote providers (myandroid.org etc.) are interactive-only
+  unless authorized automation is available; do not bypass protection.
 workers:
-  - OCI dev service running 5a96864 with durable storage
-    (127.0.0.1:18080, WORDARENA_POSTGRES_DSN set, "durable storage: postgres
-    enabled" in log; profile id 1 survived a service restart — verified)
-  - OCI host Postgres 16.15: db wordarena / role wordarena created; schema
-    auto-migrates on connect
-  - ollama on OCI host (qwen2.5:0.5b/1.5b/7b, llama3.2:3b, deepseek-r1:7b) —
-    use only for micro-tasks
-resume_from: "Recover: repo state on GitHub (main @ d5d625a). OCI dev
-  service on 127.0.0.1:18080 with Postgres durability (verified live: profile
-  survives restart). Unity Android CI green incl. hosted-emulator smoke.
-  Next: telemetry export, then M1 client (Unity) work."
+  - Arena sandbox: temporary Go 1.24.7 in /tmp/go; Node 20/npm 10/Python 3.13;
+    Docker/ADB/Ollama absent locally
+  - OCI host arm-server-01: SSH initially recovered; /opt/words main clean at
+    ddf6191; /opt/go/bin/go 1.27.1; Docker 29.7.2; Postgres 16.15; Ollama
+    models qwen2.5 0.5/1.5/7b, llama3.2:3b, deepseek-r1:7b; live service
+    /tmp/words-game.latest on 127.0.0.1:18080 with durable Postgres profile
+    id=1 verified before SSH degradation
+  - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
+    but timed out/spinner under host load; do not rely on it until load drops
+last_commit: "f56751c"
+resume_from: "Batch 10 telemetry feature committed locally at f56751c; state
+  commit follows. Next: retry OCI SSH/deploy validation if available, otherwise
+  continue M1 Unity/client UX work with GitHub-hosted Android CI as validation
+  backend. Do not restart project; do not repeat completed server telemetry work."
 updated_at: "2026-09-10"
