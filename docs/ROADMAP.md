@@ -10,7 +10,11 @@ Focus: prove the core competitive loop.
 - [x] authoritative 1v1 match simulation (waves/claims/locks/steals/replay)
 - [x] WebSocket transport adapter (binary protobuf envelopes, HTTP create endpoint)
 - [x] Protobuf encode/decode compatibility tests (round-trip + byte stability)
-- [~] prediction/reconciliation (server convergence proven headless; Unity pending-intent overlay + canonical snapshot/event reconciliation shell added 2026-09-10; richer mobile rollback animation pending)
+- [x] prediction/reconciliation (server convergence proven headless; Unity
+  pending-intent overlay + canonical snapshot/event reconciliation shell
+  added 2026-09-10; M0 criterion 3 satisfied — rejected predictions converge
+  via canonical snapshots without scene reload; richer rollback animation
+  remains M1 polish)
 - [x] reconnect/resume (token reconnect inside grace; canonical snapshot reconciliation)
 - [x] network fault simulation (RTT/loss matrix over real WebSocket)
 - [x] Unity swipe prototype (delivered via B1 mitigation: runtime IMGUI gesture
@@ -29,10 +33,10 @@ Exit gate: two remote clients can complete repeated matches with identical final
   systemd-managed live deployment with crash-restart, secret env file and
   docs/M1-OPS.md runbook — 2026-09-10; loopback-only exposure pending edge/TLS decision)
 - [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; pending-intent reconciliation shell added 2026-09-10; drag/swipe multi-cell selection gesture path and MATCH OVER result overlay added 2026-09-10; richer production UX pending)
-- [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server, displays pending claims, and reconciles canonical ownership/lock snapshots; swipe gesture path with ordered selection added 2026-09-10; gesture polish pending)
+- [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server, displays pending claims, and reconciles canonical ownership/lock snapshots; swipe gesture path with ordered selection added 2026-09-10; eight-way adjacency + bridge gesture rules and device-level swipe smoke added 2026-09-10 — batch 17E; further gesture polish pending)
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo
-  presentation added 2026-09-10; server event/snapshot binding added 2026-09-10; MATCH OVER result overlay with authoritative REST record added 2026-09-10; Sudden Death result-screen polish pending)
+  presentation added 2026-09-10; server event/snapshot binding added 2026-09-10; MATCH OVER result overlay with authoritative REST record added 2026-09-10; Sudden Death tiebreak headline + client-observed decisive word added 2026-09-10 — batch 17C)
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09;
   Unity client Find match (queue) flow with enqueue/poll/seat-token connect
   added 2026-09-10 — batch 17A)
