@@ -16,6 +16,14 @@ permissions:
   contents: read
 
 jobs:
+  repo-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked build output and oversized blobs
+        run: python3 tools/check-repo-hygiene.py
   compose-smoke:
     name: Build image and smoke the compose stack
     runs-on: ubuntu-latest
