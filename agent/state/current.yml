@@ -1,6 +1,6 @@
 project: words
 milestone: M1
-status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_repaired_imgui_static_green; unity_android_ci_green_pre_batch11; oci_ssh_degraded
+status: m1_server_vertical_slice_advancing; telemetry_baseline_complete; readiness_draining_complete; unity_ux_bootstrap_repaired_imgui_ci_green; unity_android_latest_main_green; oci_ssh_degraded
 completed_tasks:
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
@@ -57,18 +57,18 @@ completed_tasks:
     endpoint GET /metrics/prometheus, optional non-blocking JSONL exporter via
     WORDARENA_TELEMETRY_JSONL/WORDARENA_TELEMETRY_BUFFER, lifecycle/action
     events without token leakage, compose telemetry volume, regression tests
-
   - Batch 11 (M1 client): Unity runtime shared-board UX bootstrap
     (client/unity/Assets/Scripts/WordArenaBootstrap.cs) creates a visible demo
     board at scene load without Editor-authored GameObjects; demonstrates cell
     selection, claim, 3-second lock, cross-steal-ready ownership colors,
     combo display and Sudden Death banner; explicitly non-authoritative and
-    pending server protocol binding + repaired Unity Android CI build/smoke; first CI failed because UnityEngine.UI/EventSystems were unavailable, repaired to IMGUI
-
+    pending server protocol binding; first CI failed because UnityEngine.UI/
+    EventSystems were unavailable, repaired to IMGUI; Unity Android repaired
+    run 34435705752 success and latest-main retry 34437841806 success
   - Batch 12 (M1 production shape): /readyz readiness/draining gate; /healthz
     remains liveness; Postgres-backed readiness pings storage; Stop marks API
     draining; new mutating work and WebSocket upgrades return 503 while
-    draining; regression tests added
+    draining; regression tests added; GitHub CI run 34436316582 success
 active_tasks: []
 blocked_tasks:
   - B2: uk dictionary GPL-3.0+ derivative — legal review before distribution
@@ -80,13 +80,15 @@ failed_tasks:
   - OCI isolated Batch 10 Postgres validation/deploy retry pending: SSH banner
     timed out while host load was high (~20+) after a focused `/tmp/words-batch10`
     go test worker hung; not a code failure and not a human blocker
+  - Unity Android latest-main run 34437012338 failed in hosted emulator unlock
+    before APK install (`adb shell input keyevent 82` Broken pipe/exit 224);
+    same head retried as run 34437841806 and completed success, so treat
+    34437012338 as runner/emulator flake unless it recurs
 next_tasks:
   - Retry OCI SSH recovery when host responds: kill leftover `/tmp/words-batch10`
     test worker if still present, run focused Postgres validation with /opt/go,
     then deploy current main binary to 127.0.0.1:18080 with durable DSN + JSONL
     telemetry enabled
-  - Trigger/monitor Unity Android workflow for Batch 11 (build_type=debug,
-    run_smoke_tests=true); repair C# compile/build issues if CI fails
   - M1 client work (Unity): bind runtime UX to server protocol snapshots/events
     for real shared board, claim/lock/steal, combo and Sudden Death presentation
   - Android QA fallback hierarchy (hosted emulator wired; APK artifact
@@ -96,7 +98,7 @@ next_tasks:
     live smoke once OCI SSH is stable
 task_graph:
   M1-batch10-telemetry:
-    status: verified_local
+    status: verified_local_and_ci
     owner: backend-observability
     validation:
       - go test ./cmd/game -run 'Test(PrometheusMetricsEndpoint|TelemetryJSONLExport)' -count=1 -v
@@ -104,27 +106,35 @@ task_graph:
       - go test -count=1 ./...
       - go test -race ./cmd/game ./internal/match ./internal/matchroom -count=1
       - local binary smoke with WORDARENA_TELEMETRY_JSONL and /metrics/prometheus
+      - GitHub CI run 34435254937 success
     remote_validation: pending_oci_ssh_degraded
   M1-batch11-unity-ux-bootstrap:
-    status: repaired_static_pending_unity_ci
+    status: verified_unity_android_ci
     owner: unity-client
     validation:
       - python static sanity for C# markers/delimiters/package JSON/meta GUIDs
       - first GitHub Actions Unity Android run 34435380589 failed at compile: UnityEngine.UI/EventSystems missing
-      - repair a42a868 rewrote bootstrap to IMGUI (com.unity.modules.imgui only); rerun workflow_dispatch pending
-  M1-client-ux:
-    status: protocol_binding_available_after_batch11_ci
-    owner: unity-client
+      - repair a42a868 rewrote bootstrap to IMGUI (com.unity.modules.imgui only)
+      - repaired Unity Android run 34435705752 success
+      - latest-main Unity Android run 34437841806 success after runner-flake retry
   M1-batch12-readiness-draining:
-    status: verified_local
+    status: verified_local_ci_and_unity_smoke
     owner: backend-infra
     validation:
       - go test ./cmd/game -run 'TestReadyz|TestDrainingRejectsNewWork' -count=1 -v
       - go vet ./...
       - go test -count=1 ./...
       - go test -race ./cmd/game -run 'TestReadyz|TestDrainingRejectsNewWork|TestTelemetryJSONLExport' -count=1
+      - GitHub CI run 34436316582 success
+      - Unity Android latest-main retry 34437841806 success
+  M1-client-protocol-binding:
+    status: next_ready
+    owner: unity-client
+    dependencies:
+      - M1-batch11-unity-ux-bootstrap
+      - M1-batch12-readiness-draining
   M1-oci-deploy:
-    status: blocked_by_transient_server_load
+    status: blocked_by_transient_server_load_or_ssh_banner_timeout
     owner: infra
 tests:
   server: green locally in Arena sandbox with temporary Go 1.24.7
@@ -134,17 +144,21 @@ tests:
     targeted tests green; binary smoke on 127.0.0.1:18180 with
     WORDARENA_TELEMETRY_JSONL green
   ci: GitHub CI green for Batch 10 state commit 52145b0 (run 34435254937);
-    Unity Android fully green pre-Batch11 (run 34420554448); Batch11 first Unity run 34435380589 failed on UI/EventSystems compile;
-    IMGUI repair a42a868 committed locally; rerun pending after push
+    Batch 12 push CI green for 816fe37 (run 34436316582); Unity Android fully
+    green pre-Batch11 (run 34420554448); Batch11 first Unity run 34435380589
+    failed on UI/EventSystems compile; IMGUI repair run 34435705752 success;
+    latest-main Unity run 34437012338 failed at hosted emulator unlock before
+    APK install, retry 34437841806 success for same head 816fe37
   docker: Docker unavailable in Arena sandbox; OCI Docker present but not used
     during Batch 10 because SSH degraded; Dockerfile/compose statically checked
     and compose now includes optional telemetry volume wiring
 android_backend: GitHub-hosted x86_64 emulator (reactivecircus, API 35)
   WORKS — build + install + monkey-launch + pm path verify all green
-  (run 34420554448). Local Arena sandbox has no adb/emulator. OCI has adb server
-  but no emulator binary found in PATH; hosted emulator remains the validated
-  automated backend. Remote providers (myandroid.org etc.) are interactive-only
-  unless authorized automation is available; do not bypass protection.
+  (runs 34420554448, 34435705752, 34437841806). Local Arena sandbox has no
+  adb/emulator. OCI has adb server but no emulator binary found in PATH;
+  hosted emulator remains the validated automated backend. Remote providers
+  (myandroid.org etc.) are interactive-only unless authorized automation is
+  available; do not bypass protection.
 workers:
   - Arena sandbox: temporary Go 1.24.7 in /tmp/go; Node 20/npm 10/Python 3.13;
     Docker/ADB/Ollama absent locally
@@ -155,10 +169,6 @@ workers:
     id=1 verified before SSH degradation
   - OCI local LLM qwen2.5:0.5b micro-worker attempted for telemetry planning
     but timed out/spinner under host load; do not rely on it until load drops
-last_commit: "403491c"
-resume_from: "Batch 12 readiness/draining committed locally at 403491c; state commit follows.
-  Next: push main, monitor Unity Android repair run 34435705752 and push CI for
-  Batch 12, repair if needed; retry OCI SSH/deploy validation when host responds.
-  Do not restart project; do not repeat completed telemetry/readiness work or
-  pre-repair uGUI approach."
+last_commit: "816fe37"
+resume_from: "Batch 12 readiness/draining committed and pushed at 816fe37. GitHub CI 34436316582 success; Unity Android latest-main retry 34437841806 success after prior hosted-emulator unlock flake 34437012338. Next: start M1-client-protocol-binding or retry OCI deploy only with short focused SSH recovery when banner exchange responds. Do not restart project; do not repeat completed telemetry/readiness/IMGUI repair work."
 updated_at: "2026-09-10"
