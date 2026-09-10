@@ -67,13 +67,17 @@ adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
 # exactly like a broken gesture implementation in the log. hide_error_dialogs
 # suppresses ANR/crash dialogs; the focus loop below is the real gate.
 adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+# The API 35 screenshot also showed the first-run "Viewing full screen / Got it"
+# system sheet, which sits above the app and eats the first gesture.
+adb shell settings put global immersive_mode_confirmations confirmed >/dev/null 2>&1 || true
 adb shell settings put system accelerometer_rotation 1 >/dev/null 2>&1 || true
 
 echo "--- install ---"
 retry 3 6 adb install -r -g "$apk" || { echo "FAIL: adb install never succeeded"; exit 1; }
 
 echo "--- launch ---"
-retry 3 5 adb shell monkey -p "$PKG" 1 || { echo "FAIL: monkey launch failed"; exit 1; }
+retry 3 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W || {
+  echo "FAIL: activity never started"; exit 1; }
 adb shell pm path "$PKG" || { echo "FAIL: package not installed"; exit 1; }
 
 # Focus must be on our package before any input is meaningful. Three separate
@@ -101,9 +105,34 @@ fi
 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus" | head -2 || true
 
 echo "--- gesture smoke (batch 17E) ---"
-# Let Unity draw the runtime board, then clear the log so the assertion below
-# can only see lines produced by the swipe itself.
-sleep 14
+# Readiness, not a sleep. Measured on run 34498217023 (API 34): the emulator
+# reported "Fully drawn ... +23s785ms" and the client's own log still said
+# "SetGameState: isLoading: true" when the previous version of this script
+# fired its swipe after a fixed 14 s - the gesture landed on a black loading
+# screen, produced no marker, and looked like a broken input path. The client
+# already logs its state transitions, so the device smoke waits for the
+# authoritative one and fails with the evidence if it never arrives.
+ready=0
+for _ in $(seq 1 60); do
+  if adb logcat -d 2>/dev/null | grep -q "SetGameState: isLoading: false"; then ready=1; break; fi
+  if ! adb shell pidof "$PKG" >/dev/null 2>&1; then
+    echo "INFRA_FAIL: the app process died before it finished loading"
+    adb logcat -d 2>/dev/null | grep -iE "Unity|lowmemorykiller|has died|signal 9" | tail -15 || true
+    adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+    adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+    exit 1
+  fi
+  sleep 3
+done
+if [ "$ready" != 1 ]; then
+  echo "INFRA_FAIL: the client never reported isLoading=false within 180 s on $BACKEND"
+  adb logcat -d 2>/dev/null | grep -E "SetGameState|Unity" | tail -10 || true
+  adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+  adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+  exit 1
+fi
+echo "client ready: SetGameState isLoading=false"
+# Clear after readiness so the assertion below can only see the swipe's output.
 adb logcat -c >/dev/null 2>&1 || true
 
 # pixel_2 is 1080x1920 and the board grid renders around y=660..1150. Drag
