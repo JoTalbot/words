@@ -28,7 +28,9 @@ services:
       dockerfile: infra/Dockerfile
     image: wordarena-game:local
     ports:
-      - "18080:8080"
+      # Host port is overridable so a smoke run can coexist with the systemd
+      # deployment already listening on 18080 (see docs/M1-CONTAINERS.md).
+      - "${WORDARENA_COMPOSE_HOST_PORT:-18080}:8080"
     environment:
       WORDARENA_ADDR: ":8080"
       WORDARENA_MAX_ROOMS: "128"

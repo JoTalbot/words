@@ -1,0 +1,35 @@
+id: M1-batch18-container-ci
+title: Additive CI job that builds the container image and runs the compose smoke
+owner: ci-reliability
+priority: normal
+complexity: small
+status: queued
+inputs:
+  - infra/Dockerfile
+  - infra/docker-compose.yml
+  - infra/smoke.sh
+dependencies:
+  - M1-batch18-infra-compose
+outputs:
+  - .github/workflows/container-smoke.yml
+acceptance:
+  - a new workflow file is ADDED; .github/workflows/ci.yml and
+    .github/workflows/unity-android.yml are not modified
+  - workflow triggers: push to main, pull_request to main, workflow_dispatch
+  - job builds the image with the repository root as build context
+  - job starts the compose stack, waits for both healthchecks, runs
+    infra/smoke.sh, and always tears the stack down (if: always())
+  - job fails when any smoke assertion fails
+  - workflow file parses as valid YAML and actions are pinned by version tag
+validation:
+  - python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/container-smoke.yml'))"
+  - actionlint if available, otherwise YAML parse + manual review
+  - manual workflow_dispatch run on the branch
+file_ownership:
+  - .github/workflows/container-smoke.yml
+  - agent/tasks/M1-batch18-container-ci.yml
+risk: low
+escalation: none
+notes:
+  - Deliberately a separate workflow so the existing Unity Android and Go CI
+    pipelines owned by other sessions keep their current behaviour.

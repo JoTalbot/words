@@ -1,0 +1,45 @@
+id: M1-batch18-test-assets
+title: Populate the empty tests/ data-asset directories declared by docs/M0.md
+owner: qa
+priority: normal
+complexity: small
+status: queued
+inputs:
+  - docs/M0.md (Required test assets)
+  - server/cmd/game/netsim_test.go (live fault matrix constants)
+  - server/internal/match/types.go (timing/gameplay constants)
+  - server/internal/scoring/formula.go
+dependencies: []
+outputs:
+  - tests/network/fault-matrix.json (RTT x loss profiles)
+  - tests/load/baseline-profile.json (synthetic client / action distribution)
+  - tests/golden/README.md (how golden vectors are produced and re-recorded)
+  - tests/README.md (layout + conventions)
+  - tools/check-test-assets.py (validator, exit non-zero on drift)
+acceptance:
+  - tests/network/fault-matrix.json matches the matrix actually exercised by
+    the Go tests (RTT 50/100/150 ms, loss 0/1/3 %)
+  - tests/load/baseline-profile.json records the parameters of the load
+    baseline rather than its measured results (results stay in
+    docs/LOAD-BASELINE.md, owned by another lane)
+  - tools/check-test-assets.py parses the Go constants and fails if an asset
+    drifts from them
+  - no secrets, no generated build output and no measurements are committed
+  - python3 tools/check-test-assets.py exits 0
+validation:
+  - python3 tools/check-test-assets.py
+  - python3 -c "import json; json.load(open('tests/network/fault-matrix.json'))"
+  - python3 -c "import json; json.load(open('tests/load/baseline-profile.json'))"
+file_ownership:
+  - tests/README.md
+  - tests/network/fault-matrix.json
+  - tests/load/baseline-profile.json
+  - tests/golden/README.md
+  - tools/check-test-assets.py
+  - agent/tasks/M1-batch18-test-assets.yml
+risk: low
+escalation: none
+notes:
+  - docs/M0.md declares tests/{fixtures,network,golden,load}; golden/,
+    network/ and load/ were empty. These are data assets; the executable Go
+    tests remain next to the code under server/.

@@ -1,0 +1,101 @@
+name: Container smoke
+
+# Additive pipeline owned by the infrastructure lane (agent/COORDINATION.md).
+# It proves the deliverable artifact — the container image and the compose
+# stack — actually runs. The Go unit/integration suite stays in ci.yml and the
+# Unity Android pipeline stays in unity-android.yml; neither is modified here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compose-smoke:
+    name: Build image and smoke the compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Docker environment
+        run: |
+          docker version
+          docker compose version
+
+      - name: Build the game image
+        run: |
+          set -euo pipefail
+          docker build -f infra/Dockerfile -t wordarena-game:local .
+
+      - name: Start the compose stack
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker-compose.yml up -d --build
+
+      - name: Wait for both services to report healthy
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            db="$(docker compose -f infra/docker-compose.yml ps --format '{{.Service}} {{.Health}}' | awk '$1=="db"{print $2}')"
+            game="$(docker compose -f infra/docker-compose.yml ps --format '{{.Service}} {{.Health}}' | awk '$1=="game"{print $2}')"
+            echo "attempt $i: db=$db game=$game"
+            if [ "$db" = "healthy" ] && [ "$game" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::compose stack did not become healthy"
+          docker compose -f infra/docker-compose.yml ps
+          exit 1
+
+      - name: Run the smoke checks
+        env:
+          SMOKE_EXPECT_STORAGE: postgres
+        run: |
+          set -euo pipefail
+          bash infra/smoke.sh http://127.0.0.1:18080
+
+      - name: Assert durable storage is Postgres
+        run: |
+          set -euo pipefail
+          body="$(curl -s -m 10 http://127.0.0.1:18080/readyz)"
+          echo "readyz: $body"
+          echo "$body" | grep -q '"storage":"postgres"'
+
+      - name: Assert telemetry JSONL is written inside the container
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker-compose.yml exec -T game \
+            sh -c 'test -s /var/log/wordarena/events.jsonl'
+          echo "--- last telemetry events ---"
+          docker compose -f infra/docker-compose.yml exec -T game \
+            sh -c 'tail -n 5 /var/log/wordarena/events.jsonl'
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -f infra/docker-compose.yml ps || true
+          docker compose -f infra/docker-compose.yml logs --no-color --tail 200 || true
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f infra/docker-compose.yml down -v || true
+
+  test-assets:
+    name: Validate test data assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check assets against source constants
+        run: python3 tools/check-test-assets.py

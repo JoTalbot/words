@@ -65,3 +65,7 @@ coverage/
 
 # Generated protocol bindings ARE committed (reproducible CI without protoc)
 !server/gen/
+
+# Runtime telemetry output (JSONL sink) — never commit generated events
+/telemetry/
+*.jsonl

@@ -6,13 +6,28 @@ Infrastructure is separated by environment and must remain reproducible.
 
 ```text
 infra/
-├── compose/               # local dependencies
-├── k8s/                   # Kubernetes manifests / Helm
-├── agones/                # game server fleet configuration
-├── envoy/                 # edge routing and websocket policy
-├── monitoring/            # Prometheus, Grafana, alerts
-└── migrations/            # data/schema migration assets
+├── Dockerfile             # multi-stage static build of the match service
+├── docker-compose.yml     # local stack: game + postgres + telemetry volume
+├── smoke.sh               # end-to-end verification of a running service
+└── README.md
 ```
+
+The directories below are the planned target layout and are **not present
+yet**; they are recorded here so the shape is deliberate rather than
+accidental:
+
+```text
+infra/
+├── compose/               # local dependencies (future)
+├── k8s/                   # Kubernetes manifests / Helm (future)
+├── agones/                # game server fleet configuration (future)
+├── envoy/                 # edge routing and websocket policy (future)
+├── monitoring/            # Prometheus, Grafana, alerts (future)
+└── migrations/            # data/schema migration assets (future)
+```
+
+Container and compose operations are documented in `docs/M1-CONTAINERS.md`;
+the systemd deployment on the dev host is documented in `docs/M1-OPS.md`.
 
 ## Environments
 

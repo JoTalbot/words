@@ -1,0 +1,29 @@
+{
+  "$comment": "Network fault matrix for the M0/M1 acceptance tests. The authoritative copy of these values lives in server/cmd/game/netsim_test.go (TestNetworkConditionsMatrix). tools/check-test-assets.py fails if this file drifts from the Go source.",
+  "version": 1,
+  "source_of_truth": "server/cmd/game/netsim_test.go",
+  "test": "TestNetworkConditionsMatrix",
+  "simulation": {
+    "model": "application-level netem over a real WebSocket",
+    "one_way_delay": "rtt_ms / 2 applied to both write and read",
+    "loss": "frames dropped independently with probability p_loss, never reordered by the simulator itself"
+  },
+  "rtt_ms": [50, 100, 150],
+  "loss_ratios": [0.0, 0.01, 0.03],
+  "profiles": [
+    {"name": "lan", "rtt_ms": 50, "loss": 0.0},
+    {"name": "lan-lossy", "rtt_ms": 50, "loss": 0.01},
+    {"name": "lan-degraded", "rtt_ms": 50, "loss": 0.03},
+    {"name": "regional", "rtt_ms": 100, "loss": 0.0},
+    {"name": "regional-lossy", "rtt_ms": 100, "loss": 0.01},
+    {"name": "regional-degraded", "rtt_ms": 100, "loss": 0.03},
+    {"name": "intercontinental", "rtt_ms": 150, "loss": 0.0},
+    {"name": "intercontinental-lossy", "rtt_ms": 150, "loss": 0.01},
+    {"name": "intercontinental-degraded", "rtt_ms": 150, "loss": 0.03}
+  ],
+  "invariants": [
+    "both clients converge to identical cell ownership for every profile",
+    "scores are identical on both clients for every profile",
+    "no client-side value is ever authoritative: only server snapshots decide"
+  ]
+}

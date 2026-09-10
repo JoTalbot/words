@@ -1,0 +1,53 @@
+id: M1-batch18-infra-compose
+title: Validate the Docker image and compose stack by actually running it
+owner: backend-infra
+priority: high
+complexity: medium
+status: running
+inputs:
+  - infra/Dockerfile
+  - infra/docker-compose.yml
+  - server/cmd/game (static binary entrypoint)
+  - docs/M1-PERSISTENCE.md
+  - docs/M1-TELEMETRY.md
+dependencies:
+  - M1-batch10-telemetry
+  - M1-batch12-readiness-draining
+outputs:
+  - verified wordarena-game image built from infra/Dockerfile
+  - compose stack (db + game) proven healthy end to end
+  - infra/smoke.sh reproducible verification script
+  - docs/M1-CONTAINERS.md runbook
+acceptance:
+  - docker build -f infra/Dockerfile -t wordarena-game:local . succeeds from repo root
+  - compose db healthcheck passes before game starts (depends_on service_healthy)
+  - compose game container healthcheck (/healthz) reaches healthy
+  - GET /readyz inside the stack returns {"status":"ready","storage":"postgres"}
+  - POST /v1/matches succeeds and returns two distinct seat tokens
+  - a WebSocket client can connect to /v1/match/ws with a seat token
+  - /var/log/wordarena/events.jsonl receives telemetry events (telemetry volume)
+  - GET /metrics/prometheus returns 200 with wordarena_* series
+  - infra/smoke.sh exits non-zero if any check fails
+  - docker compose down -v cleans up without leaving orphans
+validation:
+  - cd <repo> && docker build -f infra/Dockerfile -t wordarena-game:local .
+  - cd <repo> && docker compose -f infra/docker-compose.yml up -d --build
+  - docker compose -f infra/docker-compose.yml ps  # db healthy, game healthy
+  - bash infra/smoke.sh http://127.0.0.1:18080
+  - docker compose -f infra/docker-compose.yml down -v
+file_ownership:
+  - infra/Dockerfile
+  - infra/docker-compose.yml
+  - infra/smoke.sh
+  - infra/README.md
+  - docs/M1-CONTAINERS.md
+  - agent/tasks/M1-batch18-infra-compose.yml
+risk: medium
+escalation: strong-model
+notes:
+  - M1 roadmap line "production-shaped match service" lists Docker/compose, but
+    until this batch the image and compose file were only statically checked
+    and never executed.
+  - Validated on the OCI arm64 host (Docker 29.7.2, linux/aarch64) in an
+    isolated worktree, so the live systemd deployment on :18080 is untouched
+    (the smoke stack is started on a different host port).

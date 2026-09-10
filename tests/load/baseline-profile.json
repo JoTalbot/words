@@ -1,0 +1,29 @@
+{
+  "$comment": "Input profile for the M0 load baseline. This file records HOW the baseline is measured, not the measured result: results belong in docs/LOAD-BASELINE.md (owned by another lane). tools/check-test-assets.py fails if these parameters drift from server/internal/match/bench_test.go.",
+  "version": 1,
+  "source_of_truth": "server/internal/match/bench_test.go",
+  "test": "TestLoadBaseline",
+  "command": "cd server && go test ./internal/match/ -run TestLoadBaseline -v",
+  "parameters": {
+    "matches": 32,
+    "submissions_per_match": 2000,
+    "seats": 2,
+    "seat_selection": "alternating (Seat(i % 2))",
+    "tick_mixed_in": true
+  },
+  "reported_metrics": [
+    "submissions_sec_total",
+    "submissions_sec_per_match",
+    "heap_kib_per_match"
+  ],
+  "dictionary_benchmark": {
+    "test": "BenchmarkContains",
+    "package": "server/internal/dictionary",
+    "measures": "normalize + lookup, in-process"
+  },
+  "rules": [
+    "measure on an otherwise idle host; record CPU count and Go version",
+    "never weaken the assertion to make a number look better",
+    "a regression is a signal to investigate, not a reason to delete the test"
+  ]
+}

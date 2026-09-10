@@ -1,0 +1,30 @@
+id: M1-batch18-repo-hygiene
+title: Ignore runtime telemetry output and correct the infra layout docs
+owner: backend-infra
+priority: low
+complexity: trivial
+status: queued
+inputs:
+  - .gitignore
+  - infra/README.md
+dependencies: []
+outputs:
+  - .gitignore entries for /telemetry/ and *.jsonl
+  - infra/README.md layout section matching the actual repository layout
+acceptance:
+  - git status is clean after a service run that wrote /opt/words/telemetry
+  - infra/README.md no longer documents infra/{compose,k8s,agones,envoy,
+    monitoring,migrations} directories that do not exist
+  - no generated telemetry file is tracked by git
+validation:
+  - git status --porcelain   # empty on a host that has run the service
+  - git check-ignore -v telemetry/events.jsonl
+file_ownership:
+  - .gitignore
+  - infra/README.md
+  - agent/tasks/M1-batch18-repo-hygiene.yml
+risk: low
+escalation: none
+notes:
+  - infra/README.md is shared with M1-batch18-infra-compose; both are owned by
+    the same lane, so there is no cross-lane conflict.
