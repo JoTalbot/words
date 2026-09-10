@@ -1,7 +1,24 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batches_21A_21B_21C_22A_merged_deployed; task_graph_now_machine_readable; device_smoke_self_heal_live_on_main; batch22b_measured_awaiting_decision
+status: m1_vertical_slice_advancing; batches_23A_23B_merged; oci_promoted_to_main_and_reverified_live; live_result_persistence_defect_fixed; batch22b_measured_awaiting_decision
 completed_tasks:
+  - >-
+    Batch 23A (M1): fixed a live data-loss defect - match_results declared match_id and seed BIGINT
+    while the service models both as Go uint64, so every value above MaxInt64 failed at pgx encode
+    time and the durable result row was silently dropped for roughly half of all matches. Migration
+    002_match_results_uint64.sql widens both to NUMERIC(20,0); u64Param/scanU64 own the
+    representation. Found in the live journal, reproduced against pre-fix code with the exact
+    production error string, deployed to OCI and re-verified live (PR #8, 0ef97c5 -> 5653210)
+  - >-
+    Batch 23A also made the Postgres suite re-runnable: TestPostgresResultPutGet hard-coded
+    match_id 9001 and probed 9002 as absent, which only held on an empty database. Confirmed
+    pre-existing by reproducing the same failure on unmodified main against a dirty database
+  - >-
+    Batch 23B (CI): the device-smoke focus gate accepted mFocusedApp in addition to mCurrentFocus.
+    mFocusedApp stays on our package while a system sheet owns the window that receives input, so
+    Unity Android run 30 passed the gate with ImmersiveModeConfirmation in front of the board - the
+    exact case the gate exists to catch. Now reads mCurrentFocus only and matches " $PKG/" (PR #9,
+    e055d49 -> 87c5228)
   - Deterministic board generator (prng golden vectors)
   - Dictionary snapshots en/ru/uk v2, canonical-locked by compiler test
   - Deterministic scoring engine (golden)
@@ -605,6 +622,58 @@ task_graph:
     note: >-
       CI run 109 and Container smoke run 4 both success on c2079e8, which is the
       pending item the task file recorded.
+  M1-batch23a-uint64-result-columns:
+    status: verified_live_oci
+    owner: backend-storage
+    merged: 5653210
+    pull_request: 8
+    validation:
+      - >-
+        reproduction against pre-fix code and schema: pgResultStore.Put with seed
+        13868347868007641273 failed with the exact string from the production journal
+      - >-
+        go vet; go test -count=1 ./... (12 packages); go test -race on cmd/game,
+        internal/security, internal/match, internal/matchroom; all green
+      - >-
+        go test -run TestPostgres -count=1 three consecutive times against the same
+        database: ok, ok, ok
+      - >-
+        CI run 126 success on 0ef97c5; TestPostgresResultHighBitSeed confirmed to have
+        executed rather than skipped (postgres service healthy, DSN on the go test step,
+        cmd/game 45.934 s in CI vs 45.992 s locally where the test was seen passing)
+      - >-
+        LIVE on OCI at 5653210: match 9161 created with seed 13868347868007641273, durable
+        row written after the 5400-tick timeout with the seed bit-identical, API reads it
+        back, 0 result_store_error in the journal, 8/8 finished matches persisted
+        (match_results 107 -> 115)
+      - "exit gate 6/6 PASS with baseline scores 43:45 / 37:60 / 44:40; infra/smoke.sh 23/0"
+  M1-batch23b-swipe-smoke-focus-gate:
+    status: merged_verified_by_inputs_pending_device
+    owner: qa-infra
+    merged: 87c5228
+    pull_request: 9
+    validation:
+      - "bash -n and shellcheck -S warning: clean"
+      - >-
+        behaviour verified against the literal dumpsys strings from run 30: system sheet in
+        front old PASS / new FAIL; app genuinely focused old PASS / new PASS; no window info
+        old PASS / new FAIL
+      - "CI run 127 success on e055d49; container-smoke run 22 success"
+      - >-
+        not verified on a device: the hosted emulator pool has failed that leg five
+        consecutive times for unrelated reasons
+  M1-batch17-gesture-adjacency-swipe-smoke:
+    status: merged_device_assertion_infra_blocked
+    owner: unity-client
+    merged: d0befaf
+    note: >-
+      Code is on main and CI-green (WORDS_SWIPE marker at WordArenaBootstrap.cs:519). The
+      device assertion has never passed. Run 30 (id 34503965758, head ec3b7cd) recorded in
+      the task file: build/install/launch green, then INFRA_FAIL because the app process was
+      SIGKILLed about 65 s after a cold start while idmap2d, bluetooth and com.android.phone
+      were killed in the same window - host memory pressure, not the gesture path. The
+      API 33 retry leg was cancelled by the gate job, so the run yielded one data point.
+      Fifth consecutive infra failure of this leg.
   M1-batch21a-security-hardening:
     status: verified_merged
     owner: backend-security
@@ -702,7 +771,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "ec3b7cd"
-last_verified_commit: "fea986b on main (CI green); 5263bfc (21A: local suite + race + smoke 22/0 + CI #110/#5)"
-resume_from: "Main is ec3b7cd (21B merged) with 21A (5263bfc), 21C (fea986b), 22A (ff4606c) and the task-graph validator (74af124) all merged; the OCI systemd deployment runs ff4606c and was re-verified live (smoke 22/0, direct gate 3/3 PASS). Next: read the outcome of the Unity Android run dispatched on main (workflow unity-android.yml, run_number 30 at the time of writing) and record either the WORDS_SWIPE evidence or an INFRA_FAIL verdict for 17E; then M1-batch22b's deciding step; then M1-batch21g-match-codes (unguessable match ids, closes security finding S-2 and unblocks any public edge) and the Unity runtime server-endpoint field. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
-updated_at: "2026-09-10 (batch 21+22 close-out)"
+last_commit: "87c5228"
+last_verified_commit: "5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
+resume_from: "Main is 87c5228. Batch 23A (PR #8) fixed a live data-loss defect: match_results declared match_id and seed BIGINT while the service models both as uint64, so every seed above MaxInt64 - about half of all server-chosen seeds - failed to encode and the durable result row was never written. Migration 002 widens both to NUMERIC(20,0). Deployed to the OCI systemd service on 2026-09-10 with a pre-migration dump at /home/ubuntu/backup-wordarena-pre-002-*.dump; 107 rows preserved, exit gate 6/6 PASS with baseline scores, smoke 23/0, 8/8 finished matches persisted, 0 result_store_error in the journal. Batch 23B (PR #9) fixed the device-smoke focus gate, which accepted mFocusedApp and so passed while a system sheet held input focus. Next, in priority order: (1) M1-batch22b deciding step - make headless-bot print server_tick and state_version of both first frames on divergence, re-run 49 queue matches, then change either the room or the harness; independently give the bot a fallback plan so an under-coverable board is skipped instead of counted as a failure (reproduced live again on 2026-09-10: seed 13868347868007641273 reported wave 2 not fully claimable). (2) M1-batch21g-match-codes, which now needs migration 003 because 23A took 002. (3) The Unity runtime server-endpoint field. (4) Two 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
+updated_at: "2026-09-10 (batch 23: live result-persistence defect fixed and deployed)"

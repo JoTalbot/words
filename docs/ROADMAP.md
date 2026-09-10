@@ -96,19 +96,26 @@ Counts below are task-level evidence from `agent/state/current.yml` and
 
 | M1 row | State | What is still open |
 |---|---|---|
-| production-shaped match service | verified live, one step from done | promote the systemd binary from `5dbcc42` to current main; Q8 edge/TLS decision |
+| production-shaped match service | verified live | promoted to current main on 2026-09-10 and re-verified live; Q8 edge/TLS decision |
 | basic matchmaking | done | — |
 | telemetry baseline | done | — |
 | player profile + durable storage | done | identity/auth layer is M2 scope |
 | shared board UX | in progress | richer rollback animation, production UI |
 | Claim / Lock / Cross-Steal | in progress | gesture polish; device-level swipe smoke pending a stable hosted emulator (21B) |
 | combo and Sudden Death | in presentation polish | nothing server-side |
-| security / protocol robustness | done for M1 scope | finding S-2 (enumerable match ids) via `M1-batch21g-match-codes` |
-| build + CI reliability | in progress | 21B self-heal merging; the device leg has never been green |
+| security / protocol robustness | done for M1 scope | finding S-2 (enumerable match ids) via `M1-batch21g-match-codes`, which now needs migration `003` because 23A took `002` |
+| build + CI reliability | in progress | the device leg has never been green (5 consecutive infra fails); the focus gate that mis-reported those runs is fixed by 23B but has not had a clean device run to prove it |
 
 Verified live on 2026-09-10 against an isolated build of `c2079e8`: queue
 exit gate 6/6 PASS, direct control 3/3 PASS with baseline scores
 (43:45 / 37:60 / 44:40), `infra/smoke.sh` 18/18 (22/22 on main after 21A).
+
+Verified live on 2026-09-10 against the **promoted** deployment at `5653210`
+(the systemd service itself, not an isolated build): exit gate 6/6 PASS with the
+same baseline scores (43:45 / 37:60 / 44:40), `infra/smoke.sh` 23/23, and 8 of 8
+finished matches persisted — see `M1-batch23a-uint64-result-columns`, which
+fixed a defect that had been dropping roughly half of all durable match results
+on the live host.
 
 ## Gate philosophy
 

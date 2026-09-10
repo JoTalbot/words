@@ -80,8 +80,27 @@ sudo cp /opt/words/bin/wordarena-server.prev /opt/words/bin/wordarena-server
 sudo systemctl restart wordarena.service
 ```
 
-Postgres schema is currently append-compatible (profiles/results tables only);
-a binary rollback does not require data migration.
+Postgres schema is **no longer** append-compatible as of migration
+`002_match_results_uint64.sql` (batch 23A): `match_results.match_id` and
+`match_results.seed` are `NUMERIC(20,0)`, and the pre-002 binary binds them as
+native integers and scans them back into `uint64`. Rolling the binary back
+without also rolling the schema back therefore risks the exact encode failure
+002 was written to remove.
+
+Roll the binary back only for a defect unrelated to storage. If storage is
+involved, restore the pre-migration dump instead of downgrading the binary:
+
+```bash
+# taken automatically before 002 was applied on 2026-09-10:
+ls -la /home/ubuntu/backup-wordarena-pre-002-*.dump
+sudo -u postgres dropdb wordarena && sudo -u postgres createdb -O wordarena wordarena
+pg_restore -d wordarena /home/ubuntu/backup-wordarena-pre-002-<timestamp>.dump
+sudo cp /opt/words/bin/wordarena-server.prev /opt/words/bin/wordarena-server
+sudo systemctl restart wordarena.service
+```
+
+Take a dump before every future schema migration; the deploy checklist below
+does not yet enforce it.
 
 ## Crash behaviour
 

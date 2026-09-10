@@ -3,7 +3,7 @@ title: match_results lost the durable result of every match whose seed or id set
 owner: backend-storage
 priority: critical
 complexity: small
-status: verified_local_pending_ci
+status: verified_live_oci
 found_by: >-
   reading the live journal of wordarena.service on arm-server-01 while
   recovering session state, not by a test: `match lifecycle=result_store_error
@@ -105,3 +105,30 @@ notes:
     Narrowing the generator instead of widening the column was rejected: the
     batch 21A explicit-seed fairness gate lets a client choose any seed, so the
     bug would have stayed reachable at any value above MaxInt64.
+  - >-
+    CI run 126 success on 0ef97c5. TestPostgresResultHighBitSeed confirmed to have executed
+    rather than skipped: the postgres service reported healthy, the DSN was attached to the
+    `go test ./...` step, and cmd/game took 45.934 s in CI against 45.992 s in the local run
+    where the test was observed passing under -v.
+  - >-
+    DEPLOYED AND VERIFIED LIVE on arm-server-01 at 5653210 (2026-09-10). Pre-migration dump
+    taken at /home/ubuntu/backup-wordarena-pre-002-20260910-230023.dump; cmd/migrate applied
+    001 then 002; both columns report numeric(20,0); all 107 existing rows preserved.
+  - >-
+    Live end-to-end proof of the production scenario: match 9161 created with seed
+    13868347868007641273 and no clients, i.e. the 5400-tick timeout path that was failing in
+    the journal. The durable row appeared after ~180 s with the seed bit-identical, and
+    GET /v1/matches/9161/result returned it.
+  - >-
+    0 result_store_error in the journal since the restart, and 8 of 8 finished matches
+    persisted (match_results 107 -> 115). Before the fix the expected rate was about 4 of 8.
+  - >-
+    exit gate 6/6 PASS with the baseline scores 43:45 / 37:60 / 44:40 and
+    terminal_snapshots_equal/client_streams_equal true; infra/smoke.sh 23/0 against the live
+    deployment.
+deployment_note:
+  - >-
+    The rollback section of docs/M1-OPS.md claimed the schema was append-compatible and that a
+    binary rollback needs no data migration. That stopped being true with 002, so it was
+    corrected in the same change: rolling the binary back without rolling the schema back
+    reintroduces the encode failure 002 removes.

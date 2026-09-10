@@ -3,7 +3,7 @@ title: The device smoke focus gate passed on mFocusedApp while a system sheet he
 owner: qa-infra
 priority: high
 complexity: trivial
-status: verified_local_pending_ci
+status: merged_verified_by_inputs_pending_device
 found_by: >-
   reading the unity-android.yml run 30 log (id 34503965758, head ec3b7cd) to
   record the pending 17E verdict: the gate reported the app as foregrounded
