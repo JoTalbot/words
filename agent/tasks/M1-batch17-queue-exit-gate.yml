@@ -1,0 +1,33 @@
+id: M1-batch17-queue-exit-gate
+title: Headless-bot via-queue mode — exit-gate regression over matchmaking-created matches
+owner: qa
+priority: high
+complexity: small
+status: validated_local_live_pending
+inputs:
+  - server/cmd/headless-bot/main.go
+  - server/cmd/game/matchmaking.go (FIFO seat order contract)
+dependencies:
+  - M1-batch17-unity-matchmaking-queue
+outputs:
+  - headless-bot -via-queue flag (queue-created matches with server-chosen seeds)
+  - createMatchViaQueue with retry on outside-pairing interference
+  - offline solve bound to the authoritative join-info seed
+acceptance:
+  - queue-created matches satisfy the same exit-gate invariants as direct matches
+    (identical terminal snapshots, identical client streams, live scores == offline replay)
+  - FIFO seat order (first enqueue = seat 0) drives the deterministic intent script
+  - direct mode unchanged (same exit-gate output as before)
+validation:
+  - cd server && go vet ./cmd/headless-bot
+  - local direct mode: -rounds 1 -seeds 1512 -> EXIT-GATE PASS (43:45)
+  - local queue mode: -via-queue -rounds 1 -seeds 1 -> EXIT-GATE PASS (server seed, 59:44)
+  - live OCI queue-mode run after merge (deployed service)
+file_ownership:
+  - server/cmd/headless-bot/main.go
+  - agent/tasks/M1-batch17-queue-exit-gate.yml
+risk: low
+escalation: strong-model
+notes:
+  - headless-bot is QA tooling outside session B's api.go security lane
+    (agent/COORDINATION.md); no production server files touched.

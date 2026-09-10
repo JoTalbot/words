@@ -15,6 +15,11 @@
 //
 //	WORDARENA_ADDR=http://127.0.0.1:18080 go run ./cmd/headless-bot
 //	go run ./cmd/headless-bot -rounds 2 -seeds 1512,1513,1517 -v
+//	go run ./cmd/headless-bot -via-queue -rounds 1 -seeds 1
+//
+// With -via-queue the match is formed by two anonymous matchmaking
+// enqueues (batch 17D regression): seats keep FIFO order, the server
+// chooses the seed, and the same exit-gate invariants must hold.
 package main
 
 import (
@@ -283,26 +288,136 @@ type matchResult struct {
 	ElapsedMs     int64    `json:"elapsed_ms"`
 }
 
-func playOne(addr, lang string, seed uint64) (*matchResult, error) {
-	moves, want, err := solveSeed(lang, seed)
-	if err != nil {
-		return nil, err
-	}
+// createdMatch is the join info for one match regardless of how it was
+// created (direct REST create or matchmaking queue).
+type createdMatch struct {
+	MatchID uint64
+	Seed    uint64
+	Tokens  [2]string
+	UserIDs [2]uint64
+}
+
+func createMatchDirect(addr, lang string, seed uint64) (createdMatch, error) {
 	body := fmt.Sprintf(`{"language":%q,"seed":%d}`, lang, seed)
 	resp, err := http.Post(addr+"/v1/matches", "application/json", strings.NewReader(body))
 	if err != nil {
-		return nil, err
+		return createdMatch{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create match: HTTP %d", resp.StatusCode)
+		return createdMatch{}, fmt.Errorf("create match: HTTP %d", resp.StatusCode)
 	}
 	var created struct {
 		MatchID uint64    `json:"match_id"`
+		Seed    uint64    `json:"seed"`
 		Tokens  [2]string `json:"tokens"`
 		UserIDs [2]uint64 `json:"user_ids"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return createdMatch{}, err
+	}
+	return createdMatch{MatchID: created.MatchID, Seed: created.Seed, Tokens: created.Tokens, UserIDs: created.UserIDs}, nil
+}
+
+// queueEntryView mirrors the /v1/queue entry JSON (server/cmd/game/
+// matchmaking.go queueEntry).
+type queueEntryView struct {
+	QueueID string `json:"queue_id"`
+	Status  string `json:"status"`
+	MatchID uint64 `json:"match_id"`
+	Seed    uint64 `json:"seed"`
+	Token   string `json:"token"`
+	UserID  uint64 `json:"user_id"`
+}
+
+func queueEnqueue(addr, lang string) (queueEntryView, error) {
+	body := fmt.Sprintf(`{"language":%q}`, lang)
+	resp, err := http.Post(addr+"/v1/queue", "application/json", strings.NewReader(body))
+	if err != nil {
+		return queueEntryView{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		return queueEntryView{}, fmt.Errorf("queue enqueue: HTTP %d", resp.StatusCode)
+	}
+	var e queueEntryView
+	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+		return queueEntryView{}, err
+	}
+	return e, nil
+}
+
+func queuePoll(addr, id string) (queueEntryView, error) {
+	resp, err := http.Get(addr + "/v1/queue/" + id)
+	if err != nil {
+		return queueEntryView{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return queueEntryView{}, fmt.Errorf("queue poll %s: HTTP %d", id, resp.StatusCode)
+	}
+	var e queueEntryView
+	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+		return queueEntryView{}, err
+	}
+	return e, nil
+}
+
+// createMatchViaQueue pairs two anonymous queue entries and returns their
+// join info. The server keeps FIFO seat order (first enqueue -> seat 0), so
+// the entry tokens map directly onto the bot seats. If an outside player
+// steals one of the pairings on a shared server, the attempt is retried with
+// fresh entries.
+func createMatchViaQueue(addr, lang string) (createdMatch, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		a, err := queueEnqueue(addr, lang)
+		if err != nil {
+			return createdMatch{}, err
+		}
+		b, err := queueEnqueue(addr, lang)
+		if err != nil {
+			return createdMatch{}, err
+		}
+		deadline := time.Now().Add(20 * time.Second)
+		for (a.Status != "matched" || b.Status != "matched") && time.Now().Before(deadline) {
+			time.Sleep(200 * time.Millisecond)
+			if a.Status != "matched" {
+				if a, err = queuePoll(addr, a.QueueID); err != nil {
+					return createdMatch{}, err
+				}
+			} else {
+				if b, err = queuePoll(addr, b.QueueID); err != nil {
+					return createdMatch{}, err
+				}
+			}
+		}
+		if a.Status == "matched" && b.Status == "matched" && a.MatchID == b.MatchID && a.MatchID != 0 {
+			return createdMatch{
+				MatchID: a.MatchID,
+				Seed:    a.Seed,
+				Tokens:  [2]string{a.Token, b.Token},
+				UserIDs: [2]uint64{a.UserID, b.UserID},
+			}, nil
+		}
+	}
+	return createdMatch{}, fmt.Errorf("queue pairing did not complete (entries did not converge to one match)")
+}
+
+func playOne(addr, lang string, seed uint64, viaQueue bool) (*matchResult, error) {
+	var created createdMatch
+	var err error
+	if viaQueue {
+		created, err = createMatchViaQueue(addr, lang)
+	} else {
+		created, err = createMatchDirect(addr, lang, seed)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// The queued match seed is chosen by the server, so the offline solve
+	// always runs against the authoritative seed from the join info.
+	moves, want, err := solveSeed(lang, created.Seed)
+	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
@@ -338,7 +453,7 @@ func playOne(addr, lang string, seed uint64) (*matchResult, error) {
 		return nil, fmt.Errorf("seat1: expected snapshot, got %T", s1p)
 	}
 	if !proto.Equal(s0, s1) {
-		return nil, fmt.Errorf("seed %d: initial snapshots diverge", seed)
+		return nil, fmt.Errorf("seed %d: initial snapshots diverge", created.Seed)
 	}
 
 	bots := []*botClient{c0, c1}
@@ -372,7 +487,7 @@ func playOne(addr, lang string, seed uint64) (*matchResult, error) {
 			return nil, fmt.Errorf("seat1 event: %w", err)
 		}
 		if ev0.Result != wordarenav1.WordResult_ACCEPTED || ev1.Result != wordarenav1.WordResult_ACCEPTED {
-			return nil, fmt.Errorf("seed %d: %q not accepted (%v/%v)", seed, mv.word, ev0.Result, ev1.Result)
+			return nil, fmt.Errorf("seed %d: %q not accepted (%v/%v)", created.Seed, mv.word, ev0.Result, ev1.Result)
 		}
 		if !proto.Equal(ev0, ev1) {
 			streamsEqual = false
@@ -389,21 +504,21 @@ func playOne(addr, lang string, seed uint64) (*matchResult, error) {
 	}
 	terminalEqual := proto.Equal(f0, f1)
 	res := &matchResult{
-		Seed: seed, Lang: lang, Intents: len(moves),
+		Seed: created.Seed, Lang: lang, Intents: len(moves),
 		StreamsEqual: streamsEqual, TerminalEqual: terminalEqual,
 		ElapsedMs: time.Since(start).Milliseconds(),
 	}
 	for seat := 0; seat < 2; seat++ {
 		res.Scores[seat] = int64(f0.Players[seat].Score)
 		if f0.Players[seat].Score != uint32(want[seat]) {
-			return nil, fmt.Errorf("seed %d: live score %d != offline replay %d (seat %d)", seed, f0.Players[seat].Score, want[seat], seat)
+			return nil, fmt.Errorf("seed %d: live score %d != offline replay %d (seat %d)", created.Seed, f0.Players[seat].Score, want[seat], seat)
 		}
 	}
 	if !terminalEqual {
-		return nil, fmt.Errorf("seed %d: terminal snapshots diverge between clients", seed)
+		return nil, fmt.Errorf("seed %d: terminal snapshots diverge between clients", created.Seed)
 	}
 	if !streamsEqual {
-		return nil, fmt.Errorf("seed %d: client event streams differ", seed)
+		return nil, fmt.Errorf("seed %d: client event streams differ", created.Seed)
 	}
 	return res, nil
 }
@@ -413,6 +528,7 @@ func main() {
 	lang := flag.String("lang", "en", "match language")
 	seeds := flag.String("seeds", "1512,1513,1517", "comma-separated deterministic seeds")
 	rounds := flag.Int("rounds", 1, "repetitions per seed")
+	viaQueue := flag.Bool("via-queue", false, "create each match through the matchmaking queue (POST /v1/queue) instead of POST /v1/matches; the server picks the seed and -seeds only controls the match count")
 	verbose := flag.Bool("v", false, "verbose per-match output")
 	flag.Parse()
 	if *addr == "" {
@@ -439,7 +555,7 @@ func main() {
 	failed := 0
 	for r := 1; r <= *rounds; r++ {
 		for _, seed := range seedList {
-			res, err := playOne(*addr, *lang, seed)
+			res, err := playOne(*addr, *lang, seed, *viaQueue)
 			if err != nil {
 				failed++
 				fmt.Printf("FAIL seed=%d round=%d: %v\n", seed, r, err)
