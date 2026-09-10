@@ -13,7 +13,10 @@ Focus: prove the core competitive loop.
 - [~] prediction/reconciliation (server convergence proven headless; Unity pending-intent overlay + canonical snapshot/event reconciliation shell added 2026-09-10; richer mobile rollback animation pending)
 - [x] reconnect/resume (token reconnect inside grace; canonical snapshot reconciliation)
 - [x] network fault simulation (RTT/loss matrix over real WebSocket)
-- [ ] Unity swipe prototype (blocked: no Unity Editor for Linux/ARM64 on the dev host)
+- [x] Unity swipe prototype (delivered via B1 mitigation: runtime IMGUI gesture
+  path in client/unity — drag/swipe multi-cell selection with tap toggle and
+  swipe-back undo — built and smoke-tested on GitHub-hosted x86_64 Unity CI +
+  hosted Android emulator; verified run 34449018045 success, 2026-09-10)
 
 Exit gate: two remote clients can complete repeated matches with identical final state and reproducible event logs.
 
@@ -30,7 +33,9 @@ Exit gate: two remote clients can complete repeated matches with identical final
 - [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo
   presentation added 2026-09-10; server event/snapshot binding added 2026-09-10; MATCH OVER result overlay with authoritative REST record added 2026-09-10; Sudden Death result-screen polish pending)
-- [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09)
+- [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09;
+  Unity client Find match (queue) flow with enqueue/poll/seat-token connect
+  added 2026-09-10 — batch 17A)
 - [~] player profile (in-memory profiles + stats folding via player_ids done;
   durable PostgreSQL storage done 2026-09-10 — docs/M1-PERSISTENCE.md,
   WORDARENA_POSTGRES_DSN)
