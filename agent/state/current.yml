@@ -1,7 +1,23 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batches_23A_23B_24_merged; oci_promoted_and_reverified_live; batch22b_decided_and_implemented
+status: m1_vertical_slice_advancing; batches_23A_23B_24_25_merged; security_finding_S2_closed_and_verified_live; oci_on_main_with_read_capability_gate_enabled
 completed_tasks:
+  - >-
+    Batch 25 (M1 security): closed docs/SECURITY-REVIEW-M1.md finding S-2. GET
+    /v1/matches/{id}/result and /replay were unauthenticated and keyed by a monotonic
+    counter, so a one-line loop read the final score, winner and full word-by-word event
+    log of every finished match. createRoom now issues a 128-bit match code and a 128-bit
+    read capability per match from crypto/rand, migration 003 stores both with the result,
+    and WORDARENA_REQUIRE_READ_CAPABILITY=true refuses the sequential-id form with 404 and
+    requires the capability on the code form. The capability is stored rather than kept in
+    process state precisely so the batch 8 restart criterion survives the gate. Deployed to
+    OCI and verified live (PR #11, dfb7c1a)
+  - >-
+    Batch 25 also corrected the schema drift guard, which compared the service schema
+    against 001_init.sql alone and would therefore have failed the build on the first
+    migration that added a column even with service and migrations in perfect agreement. It
+    now folds every later ADD COLUMN into the comparison, with two tests proving the
+    loosened check still detects drift
   - >-
     Batch 24 (M1): closed M1-batch22b. The harness asserted proto.Equal on the two first
     WebSocket frames of a match, but the room starts its 30 Hz ticker when it is created
@@ -631,6 +647,30 @@ task_graph:
     note: >-
       CI run 109 and Container smoke run 4 both success on c2079e8, which is the
       pending item the task file recorded.
+  M1-batch21g-match-codes:
+    status: verified_live_oci_gate_enabled
+    owner: backend-security
+    merged: dfb7c1a
+    pull_request: 11
+    validation:
+      - "go vet exit 0; go test -count=1 ./... 12 packages ok; go test -race on 4 packages; gofmt clean"
+      - >-
+        6 new authorization tests + 2 new Postgres tests (code and capability survive a
+        restart through a second API instance on the same DSN) + 2 new drift-guard tests
+      - "cmd/migrate applied 003 against real Postgres locally and on OCI; unique index present"
+      - "infra/smoke.sh 27/0 against a live build (23/0 before, +4 checks)"
+      - >-
+        LIVE on OCI with the gate enabled: numeric id returns 404 even with a valid
+        capability; a 20-id sequential sweep returned zero 200s; pre-003 match 9161 returns
+        404; code with no capability 401; with a wrong capability 401; with the capability
+        200 via Authorization Bearer and via ?cap=; the capability does not appear in the
+        result body
+      - >-
+        exit gate 6/6 PASS with baseline scores 43:45 / 37:60 / 44:40; smoke 27/0; 7 of 7
+        finished matches persisted; 0 result_store_error or panic in the journal
+      - >-
+        Unity updated to address the endpoint by code and send the capability as
+        Authorization Bearer, but verified by static sanity only - no Unity toolchain here
   M1-batch22b-queue-initial-snapshot-comparison:
     status: decided_implemented_measured
     owner: qa
@@ -802,7 +842,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "4a99e82"
-last_verified_commit: "4a99e82 on main (CI + container-smoke green); 5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
-resume_from: "Main is 4a99e82. Batch 23A (PR #8) fixed the live result-persistence defect (match_id/seed BIGINT vs Go uint64; migration 002 widens both to NUMERIC(20,0)) and is deployed to the OCI systemd service, re-verified live. Batch 23B (PR #9) fixed the device-smoke focus gate. Batch 24 (PR #10) closed M1-batch22b: the initial-snapshot check compared proto.Equal on two first frames from a 30 Hz stream whose sockets connect at different ticks, so it reported clock skew as divergence; the room starts its ticker at creation (api.go:643) and serves each socket on connect (api.go:1163), proven from code. The harness now compares the game and ignores server_tick/state_version/remaining_time_ms, and the offline planner's uncoverable-board case is a typed SKIP rather than a FAIL. 98 queue matches after the change: 93 measured, 0 divergence, 5 planner skips, 0 failures. Next, in priority order: (1) M1-batch21g-match-codes - unguessable match ids closing security finding S-2; it needs migration 003 because 23A took 002. (2) The Unity runtime server-endpoint field. (3) 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. (4) The Android device leg still has never been green - five consecutive infra failures; 23B fixed the gate that mis-reported those runs but has had no clean device run to prove it, and no authorized device-farm credential is available in this environment. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
-updated_at: "2026-09-11 (batch 24: 22b decided and implemented)"
+last_commit: "dfb7c1a"
+last_verified_commit: "dfb7c1a promoted to the OCI systemd service with WORDARENA_REQUIRE_READ_CAPABILITY=true and verified live; 4a99e82 on main (CI + container-smoke green); 5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
+resume_from: "Main is dfb7c1a and the OCI systemd service runs it with WORDARENA_REQUIRE_READ_CAPABILITY=true. Batch 25 (PR #11) closed security finding S-2: result and replay were unauthenticated and keyed by a monotonic counter, so a loop read every finished match. createRoom now issues a 128-bit match code and a 128-bit read capability per match from crypto/rand, migration 003 stores both with the result, and the hardened deployment refuses the sequential-id form with 404 and requires the capability on the code form. Verified live: a numeric id returns 404 even with a valid capability, a 20-id sequential sweep returned zero 200s, code+wrong capability is 401, code+capability is 200 via header and via ?cap=, and the capability never appears in the result body. smoke 27/0, exit gate 6/6 PASS with baseline scores, 7/7 finished matches persisted, 0 result_store_error. Next, in priority order: (1) the Unity runtime server-endpoint field. (2) 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. (3) infra/smoke.sh: with the gate on, the check 'GET /v1/matches/{id}/replay is 404 while the match is active' is now vacuous - it passes because the id form is refused, not because the match is active - so it should assert on the code form instead. (4) The Android device leg still has never been green: five consecutive infra failures; 23B fixed the gate that mis-reported those runs but has had no clean device run to prove it, and no authorized device-farm credential is available here. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
+updated_at: "2026-09-11 (batch 25: S-2 closed, deployed and verified live with the gate on)"

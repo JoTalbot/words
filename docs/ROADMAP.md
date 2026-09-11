@@ -103,7 +103,7 @@ Counts below are task-level evidence from `agent/state/current.yml` and
 | shared board UX | in progress | richer rollback animation, production UI |
 | Claim / Lock / Cross-Steal | in progress | gesture polish; device-level swipe smoke pending a stable hosted emulator (21B) |
 | combo and Sudden Death | in presentation polish | nothing server-side |
-| security / protocol robustness | done for M1 scope | finding S-2 (enumerable match ids) via `M1-batch21g-match-codes`, which now needs migration `003` because 23A took `002` |
+| security / protocol robustness | done for M1 scope | — (finding S-2 closed 2026-09-11 by `M1-batch21g-match-codes`, verified live with the gate enabled) |
 | build + CI reliability | in progress | the device leg has never been green (5 consecutive infra fails); the focus gate that mis-reported those runs is fixed by 23B but has not had a clean device run to prove it |
 
 Verified live on 2026-09-10 against an isolated build of `c2079e8`: queue
