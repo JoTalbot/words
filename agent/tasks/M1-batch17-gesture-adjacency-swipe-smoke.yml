@@ -3,7 +3,7 @@ title: Eight-way adjacency gesture rules + hosted-emulator swipe smoke
 owner: unity-client
 priority: normal
 complexity: medium
-status: validating_local_green_ci_pending
+status: merged_device_assertion_infra_blocked
 inputs:
   - agent/COORDINATION.md (session B batch16-arena-swipe handoff ideas)
   - client/unity/Assets/Scripts/WordArenaBootstrap.cs
@@ -42,3 +42,47 @@ notes:
   - >-
     If the swipe smoke flakes on emulator geometry, treat as runner flake and retry once before
     adjusting coordinates (precedent: run 34437012338).
+
+device_evidence:
+  # Recorded 2026-09-11 from the GitHub Actions log of the run the previous
+  # session dispatched and never read back (unity-android.yml run 30, id
+  # 34503965758, head ec3b7cd). The code half of this task is merged on main at
+  # d0befaf and CI-green; only the device assertion is outstanding.
+  - >-
+    Build/install/launch all green on the API 35 leg: APK 42041135 bytes,
+    "Performing Streamed Install / Success", am start Status: ok,
+    LaunchState: COLD, TotalTime 12352 ms, package path resolved.
+  - >-
+    tools/android-smoke.sh then printed "INFRA_FAIL: the app process died
+    before it finished loading" and exited 1. logcat: "Unity: onDestroy",
+    "Unity: Quitting process", "Zygote: Process 2244 exited due to signal 9
+    (Killed)", "ActivityManager: Process com.jotalbot.words (pid 2244) has
+    died: fg TOP" - about 65 s after a cold start that itself took 12.4 s.
+  - >-
+    Classified INFRA_FAIL rather than PRODUCT_FAIL because the same 60-second
+    window shows the emulator killing unrelated system processes too:
+    "init: Sending signal 9 to service 'idmap2d'", "Bluetooth remote service
+    has died", "Process com.android.phone (pid 2418) has died". Several
+    unrelated processes being SIGKILLed together is host memory pressure, not a
+    defect in the gesture path. No WORDS_SWIPE assertion was ever reached, so
+    the gesture implementation is neither confirmed nor refuted by this run.
+  - >-
+    The API 33 retry leg was cancelled, not failed: the workflow's smoke-gate
+    job cancels the second leg once the first has already produced a verdict
+    artifact. So this run yielded one usable data point, not two.
+  - >-
+    Run 29 (id 34492844342-era head 2c54f63) failed the same leg. Counting this
+    one, the device leg has now failed five consecutive times, every one
+    classified upstream of the gesture assertion. Precedent for retrying rather
+    than "fixing" the app is in the header comment of tools/android-smoke.sh.
+harness_defect_found:
+  - >-
+    The focus gate in tools/android-smoke.sh accepts
+    "mCurrentFocus=Window{... $PKG" OR "mFocusedApp.*$PKG". In run 30 it passed
+    on mFocusedApp while the diagnostic immediately after printed
+    "mCurrentFocus=Window{7a31fc3 u0 ImmersiveModeConfirmation}" - a system
+    sheet held real input focus. The gate therefore reports the app as
+    foregrounded when a system window is actually in front of it, which is
+    precisely the confusion the gate was added to remove. Filed as
+    M1-batch23b-swipe-smoke-focus-gate; that task owns the script and
+    docs/unity-ci.md, this one does not.
