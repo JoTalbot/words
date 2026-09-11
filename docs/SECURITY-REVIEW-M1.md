@@ -42,7 +42,7 @@ Fix: the endpoint requires a seat credential, accepted as `Authorization: Bearer
 a rotated-away token no longer reads the board.
 Pinned by `TestSnapshotRequiresSeatCredential` and four checks in `infra/smoke.sh`.
 
-### S-2 — Sequential match ids make finished-match data enumerable (MEDIUM, accepted for M1, follow-up filed)
+### S-2 — Sequential match ids make finished-match data enumerable (MEDIUM, fixed 2026-09-11 by batch 21g)
 
 `GET /v1/matches/{id}/result` and `GET /v1/matches/{id}/replay` are unauthenticated
 and enumerable. The payload is the final score, winner, and the full word-by-word
@@ -55,10 +55,22 @@ criterion or require storing a credential handle with each result — a schema c
 that belongs with replacing sequential ids, not bolted onto them.
 
 Disposition: accepted for the loopback dev deployment, **must not** be exposed on a
-public edge without the follow-up. Follow-up task
-`agent/tasks/M1-batch21g-match-capability.yml`: unguessable match code + a per-match
-read capability stored with the result (with the `002_*.sql` migration and the
-`pgSchema` update the drift test requires).
+public edge without the follow-up.
+
+**Fixed 2026-09-11** by `agent/tasks/M1-batch21g-match-codes.yml`. Migration
+`003_match_codes.sql` adds `match_code` and `read_capability` to `match_results`;
+`POST /v1/matches` and the matchmaking poll response issue both, once; and
+`WORDARENA_REQUIRE_READ_CAPABILITY=true` refuses the sequential-id form with 404
+and requires the capability on the code form. The batch 8 restart criterion
+survives because the capability is stored with the result rather than being
+process-lifetime state - which is exactly the schema change this finding said the
+gate needed. See docs/WIRE-PROTOCOL.md for the transition window.
+
+Two things this deliberately does not claim. Match ids are still sequential and
+still appear in logs, telemetry and the create response; what changed is that
+they no longer *authorize* anything. And rows written before migration 003 have
+no capability, so a hardened deployment refuses to serve them rather than
+inventing a credential on read.
 
 ### S-3 — WebSocket accepted any origin (HIGH, fixed)
 

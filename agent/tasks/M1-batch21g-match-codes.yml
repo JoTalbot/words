@@ -3,7 +3,7 @@ title: Unguessable match codes and a per-match read capability for result/replay
 owner: backend-security
 priority: high
 complexity: medium
-status: queued
+status: verified_local_pending_ci
 dependencies:
   - M1-batch21a-security-hardening
   - M1-batch19-schema-migrations
@@ -37,3 +37,68 @@ notes:
     Filed 2026-09-10 from docs/SECURITY-REVIEW-M1.md finding S-2: the live-board leak is closed
     (S-1), the finished-match enumeration stays accepted for the loopback deployment until this
     lands.
+implemented:
+  - >-
+    migration 003_match_codes.sql adds match_code and read_capability to
+    match_results, both nullable with a UNIQUE index on match_code (NULLs are
+    distinct, so pre-003 rows do not collide). pgSchema updated to match.
+  - >-
+    createRoom issues a 128-bit code and a 128-bit capability per match from
+    crypto/rand, returns them in POST /v1/matches, and the matchmaker puts the
+    same pair on both queued seats - a queued player never calls POST
+    /v1/matches, so the poll response is the only place they can arrive.
+  - >-
+    WORDARENA_REQUIRE_READ_CAPABILITY (default false) refuses the sequential-id
+    form with 404 and requires the capability on the code form. 404 rather than
+    400 or 401 on purpose: a distinct status would confirm an id is well formed
+    and let a caller measure the counter.
+  - >-
+    the capability is compared in constant time and is tagged json:"-" so it can
+    never be echoed in a result body.
+  - >-
+    the Unity client addresses the result endpoint by code and sends the
+    capability as Authorization: Bearer, with a numeric fallback for an older
+    server.
+  - >-
+    the schema drift guard now compares the service schema against the
+    CUMULATIVE migration schema, not against 001_init.sql alone. It had to: the
+    first migration that added a column would otherwise have failed the build
+    even with the service and the migrations in perfect agreement.
+validation_done:
+  - "go vet ./...: exit 0"
+  - "go test -count=1 ./...: 12 packages ok"
+  - "gofmt -l on every touched file: clean"
+  - "bash -n and shellcheck -S warning on infra/smoke.sh: clean"
+  - >-
+    6 new authorization tests: transition window stays backward compatible; a
+    sequential id is 404 while hardened even with a valid capability, and an
+    unknown id is indistinguishable from a known one; code without a capability
+    is 401, with a wrong one 401, with the right one 200 via header and via
+    ?cap=; the result body never contains the capability; the replay endpoint
+    carries the same gate; a pre-003 row is refused rather than served.
+  - >-
+    2 new Postgres tests: the code and the capability survive a restart through
+    a second API instance on the same DSN (the batch 8 criterion under the gate),
+    and a legacy row with NULL code reads back cleanly.
+  - >-
+    2 new drift-guard tests proving the loosened comparison still has teeth: a
+    column a migration adds and the service schema lacks is detected, and a
+    duplicate or unknown-table ADD COLUMN is reported.
+  - "cmd/migrate applied 003 against a real Postgres; columns and the unique index present"
+  - "infra/smoke.sh 27/0 against a live build with the Postgres DSN (23/0 before; +4 new checks)"
+  - >-
+    Unity static sanity only (brace/paren balance, marker presence, single
+    updated call site). No Unity compile or device run: no Unity toolchain in
+    this environment, and the hosted emulator pool is separately blocked.
+followups:
+  - >-
+    Flip WORDARENA_REQUIRE_READ_CAPABILITY=true on the OCI deployment and verify
+    live that a sequential-id read is refused. Not done in this commit so the
+    change lands behind a flag that can be turned off without a rollback.
+  - >-
+    There is no re-issue endpoint for a lost capability, by design: one would be
+    an unauthenticated oracle for exactly the data this protects. If support ever
+    needs to recover a result, that has to be an authenticated operator path.
+  - >-
+    match_id is still sequential and still appears in logs, telemetry and the
+    create response. What changed is that it no longer authorizes anything.

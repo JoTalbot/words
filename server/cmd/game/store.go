@@ -17,6 +17,13 @@ type ResultRepo interface {
 	Put(res matchResult) error
 	// Get returns a stored result.
 	Get(id uint64) (matchResult, bool, error)
+	// GetByCode returns a stored result by its unguessable match code. Match
+	// ids are a monotonic counter and therefore enumerable; the code is 128
+	// bits of crypto/rand and is what clients present instead. Storing it
+	// with the result is what keeps the batch 8 restart criterion true once
+	// the read is gated: seat tokens are process-lifetime state, so a
+	// credential that must outlive a restart has to live with the result.
+	GetByCode(code string) (matchResult, bool, error)
 	// MaxMatchID returns the highest match id already stored (0 when empty).
 	// The service resumes its id counter from this value after a restart:
 	// match ids are generated per process, so without it a new process hands

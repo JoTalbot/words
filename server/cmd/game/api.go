@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -49,6 +50,20 @@ type API struct {
 	// TTL-reaped). Durable match persistence is M1 work.
 	results   map[uint64]matchResult
 	resultsMu sync.Mutex
+
+	// matchCaps holds the unguessable code and read capability issued when a
+	// room is created, keyed by match id, plus the reverse index used to
+	// resolve a code back to an id. Both are guarded by resultsMu. They are
+	// process state: after a restart the durable match_code / read_capability
+	// columns are the source of truth via ResultRepo.GetByCode.
+	matchCaps   map[uint64]matchAccess
+	resultCodes map[string]uint64
+
+	// requireReadCap disables the sequential-id form of the result and replay
+	// endpoints and requires the per-match capability on the code form. Set
+	// via WORDARENA_REQUIRE_READ_CAPABILITY; false during the transition
+	// window documented in docs/WIRE-PROTOCOL.md.
+	requireReadCap bool
 
 	// m holds process-lifetime counters served at GET /metrics
 	// (telemetry baseline, M1 prep).
@@ -133,7 +148,16 @@ type matchResult struct {
 	StateVer   int           `json:"state_version"`
 	ServerTick int           `json:"server_tick"`
 	Events     []replayEvent `json:"events,omitempty"`
-	recordedAt time.Time     `json:"-"`
+
+	// Code is the unguessable 128-bit handle clients present instead of the
+	// sequential match id (docs/SECURITY-REVIEW-M1.md S-2). Safe to echo:
+	// the caller already has it.
+	Code string `json:"match_code,omitempty"`
+	// ReadCap is the per-match read capability. Deliberately never
+	// serialized: echoing it in a result body would hand the credential to
+	// anyone who can already read the result, which is what it prevents.
+	ReadCap    string    `json:"-"`
+	recordedAt time.Time `json:"-"`
 }
 
 // replayEvent is a compact, JSON-friendly event-log record for audit and
@@ -213,6 +237,9 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		maxRooms:          envInt("WORDARENA_MAX_ROOMS", 128),
 		maxWSBytes:        int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
 		results:           map[uint64]matchResult{},
+		matchCaps:         map[uint64]matchAccess{},
+		resultCodes:       map[string]uint64{},
+		requireReadCap:    envBool("WORDARENA_REQUIRE_READ_CAPABILITY", false),
 		mm:                newMatchmaker(),
 		intentsPerSec:     envInt("WORDARENA_INTENTS_PER_SEC", 60),
 		seatWindows:       map[uint64][]time.Time{},
@@ -353,6 +380,25 @@ func (a *API) reapResults() {
 	}
 }
 
+// matchAccess is the unguessable handle pair issued for one match. Code is
+// what a client presents in the URL; ReadCap proves it is entitled to the
+// answer. They are separate so a match code can be shared - on a
+// post-match screen, in a support ticket, in a URL - without also sharing
+// the right to read the score and the full word-by-word replay.
+type matchAccess struct {
+	Code    string
+	ReadCap string
+}
+
+// accessFor returns the handle pair issued for a match, or the zero value if
+// this process never created it - which is the case for every match that
+// finished before a restart.
+func (a *API) accessFor(id uint64) matchAccess {
+	a.resultsMu.Lock()
+	defer a.resultsMu.Unlock()
+	return a.matchCaps[id]
+}
+
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -391,6 +437,12 @@ type createMatchResponse struct {
 	SuddenDeath bool      `json:"sudden_death"`
 	Tokens      [2]string `json:"tokens"`
 	UserIDs     [2]uint64 `json:"user_ids"`
+	// MatchCode is the unguessable handle for the result and replay endpoints;
+	// ReadCapability is the credential that endpoint requires once
+	// WORDARENA_REQUIRE_READ_CAPABILITY is set. Both are returned exactly once,
+	// here - the service never echoes the capability again.
+	MatchCode      string `json:"match_code"`
+	ReadCapability string `json:"read_capability"`
 }
 
 // Routes registers the service handlers, wrapped in request logging.
@@ -558,7 +610,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, seed, tokens, userIDs, err := a.createRoom(lang, req.Seed, req.PlayerIDs, req.SuddenDeath)
+	id, seed, tokens, userIDs, access, err := a.createRoom(lang, req.Seed, req.PlayerIDs, req.SuddenDeath)
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
@@ -571,6 +623,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, createMatchResponse{
 		MatchID: id, Seed: seed, Language: lang, SuddenDeath: req.SuddenDeath,
 		Tokens: tokens, UserIDs: userIDs,
+		MatchCode: access.Code, ReadCapability: access.ReadCap,
 	})
 }
 
@@ -578,25 +631,43 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 // It is shared by the direct-create endpoint and the matchmaker. playerIDs,
 // when non-nil, bind the seats to registered profiles. suddenDeath enables
 // the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
-func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, suddenDeath bool) (uint64, uint64, [2]string, [2]uint64, error) {
+func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, suddenDeath bool) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
 	var s uint64
 	if seed != nil {
 		s = *seed
 	} else {
 		var err error
 		if s, err = randomSeed(); err != nil {
-			return 0, 0, [2]string{}, [2]uint64{}, err
+			return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
 		}
 	}
 	tok0, err := randomHex(16)
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, err
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
 	}
 	tok1, err := randomHex(16)
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, err
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
 	}
+	// The match code and the read capability are 128 bits of crypto/rand each.
+	// They are issued here rather than at result time so a client can be given
+	// the handle for a match that has not finished yet, and so the pair exists
+	// even for a match that never completes.
+	code, err := randomHex(16)
+	if err != nil {
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+	}
+	readCap, err := randomHex(16)
+	if err != nil {
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+	}
+	access := matchAccess{Code: code, ReadCap: readCap}
+
 	id := a.counter.Add(1)
+	a.resultsMu.Lock()
+	a.matchCaps[id] = access
+	a.resultCodes[code] = id
+	a.resultsMu.Unlock()
 	userIDs := [2]uint64{id*2 + 1, id*2 + 2} // deterministic synthetic ids
 	if playerIDs != nil {
 		// Bind seats that supplied a profile; seats without one (zero)
@@ -618,12 +689,12 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		TokenTTL:    a.tokenTTL,
 	})
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, err
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
 	}
 	a.mu.Lock()
 	if a.maxRooms > 0 && len(a.rooms) >= a.maxRooms {
 		a.mu.Unlock()
-		return 0, 0, [2]string{}, [2]uint64{}, errRoomCapacity
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, errRoomCapacity
 	}
 	a.rooms[id] = room
 	a.mu.Unlock()
@@ -641,7 +712,7 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		SuddenDeath: suddenDeath,
 	})
 	go a.runRoomTicker(id, room)
-	return id, s, [2]string{tok0, tok1}, userIDs, nil
+	return id, s, [2]string{tok0, tok1}, userIDs, access, nil
 }
 
 // runRoomTicker advances a room at 30 Hz until shortly after match end.
@@ -813,16 +884,104 @@ func (a *API) lookupResult(id uint64) (matchResult, bool) {
 	return res, true
 }
 
+// isNumericRef reports whether a path segment is a legacy sequential match id
+// rather than a match code. Codes are hex from crypto/rand and 32 characters
+// long, so a purely decimal segment of any other length is not one either.
+func isNumericRef(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// lookupResultByCode resolves an unguessable match code, consulting the
+// in-process index first and the durable store on a miss so a code issued
+// before a restart still works.
+func (a *API) lookupResultByCode(code string) (matchResult, bool) {
+	a.resultsMu.Lock()
+	id, ok := a.resultCodes[code]
+	a.resultsMu.Unlock()
+	if ok {
+		return a.lookupResult(id)
+	}
+	if a.resultRepo == nil {
+		return matchResult{}, false
+	}
+	res, ok, err := a.resultRepo.GetByCode(code)
+	if err != nil {
+		log.Printf("result lookup=store_error_by_code err=%v", err)
+		return matchResult{}, false
+	}
+	if !ok {
+		return matchResult{}, false
+	}
+	a.resultsMu.Lock()
+	if _, exists := a.results[res.MatchID]; !exists {
+		a.results[res.MatchID] = res
+	}
+	if res.Code != "" {
+		a.resultCodes[res.Code] = res.MatchID
+	}
+	a.resultsMu.Unlock()
+	return res, true
+}
+
+// resolveMatchRef resolves the {id} path segment of the result and replay
+// endpoints. The segment is either a match code - the intended form - or, while
+// the transition window in docs/WIRE-PROTOCOL.md is open, a legacy sequential
+// match id.
+//
+// With WORDARENA_REQUIRE_READ_CAPABILITY=true the numeric form is refused
+// outright. It answers 404 rather than 400 on purpose: a distinct status would
+// confirm that a given number is shaped like a live id and let a caller measure
+// the counter, which is the enumeration S-2 describes.
+func (a *API) resolveMatchRef(ref string) (matchResult, bool) {
+	if isNumericRef(ref) {
+		if a.requireReadCap {
+			return matchResult{}, false
+		}
+		id, err := parseID(ref)
+		if err != nil {
+			return matchResult{}, false
+		}
+		return a.lookupResult(id)
+	}
+	return a.lookupResultByCode(ref)
+}
+
+// readCapSatisfied reports whether the request carries the per-match read
+// capability. The check is constant-time: the capability is a bearer credential
+// and a byte-at-a-time comparison would let a caller recover it by timing.
+func (a *API) readCapSatisfied(r *http.Request, res matchResult) bool {
+	if !a.requireReadCap {
+		return true
+	}
+	if res.ReadCap == "" {
+		// A row written before this change carries no capability. Refusing is
+		// the safe default; those matches predate the guarantee.
+		return false
+	}
+	got := bearerToken(r)
+	if got == "" {
+		got = r.URL.Query().Get("cap")
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(res.ReadCap)) == 1
+}
+
 // handleResult serves the persisted outcome of a finished match.
 func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r.PathValue("id"))
-	if err != nil {
-		httpError(w, http.StatusBadRequest, "invalid match id")
-		return
-	}
-	res, ok := a.lookupResult(id)
+	res, ok := a.resolveMatchRef(r.PathValue("id"))
 	if !ok {
 		httpError(w, http.StatusNotFound, "result not found or match still active")
+		return
+	}
+	if !a.readCapSatisfied(r, res) {
+		httpError(w, http.StatusUnauthorized, "read capability required: send Authorization: Bearer <read_capability> or ?cap=<read_capability>")
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -831,14 +990,13 @@ func (a *API) handleResult(w http.ResponseWriter, r *http.Request) {
 // handleReplay serves the full deterministic event log of a finished match
 // (audit + replay tooling).
 func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r.PathValue("id"))
-	if err != nil {
-		httpError(w, http.StatusBadRequest, "invalid match id")
-		return
-	}
-	res, ok := a.lookupResult(id)
+	res, ok := a.resolveMatchRef(r.PathValue("id"))
 	if !ok {
 		httpError(w, http.StatusNotFound, "replay not found or match still active")
+		return
+	}
+	if !a.readCapSatisfied(r, res) {
+		httpError(w, http.StatusUnauthorized, "read capability required: send Authorization: Bearer <read_capability> or ?cap=<read_capability>")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -888,7 +1046,7 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
+	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids *[2]uint64) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
 		return a.createRoom(l, nil, pids, false)
 	})
 	writeJSON(w, http.StatusAccepted, e)
@@ -993,6 +1151,13 @@ func (a *API) recordResult(room *matchroom.Room) {
 		StateVer:   snap.StateVersion,
 		ServerTick: snap.ServerTick,
 		recordedAt: time.Now(),
+	}
+	// Carry the handle pair into the durable row so the read stays possible
+	// after a restart, when the in-memory matchCaps entry is gone. This is the
+	// piece S-2 identified as needing a schema change rather than a gate.
+	if acc := a.accessFor(m.ID); acc.Code != "" {
+		res.Code = acc.Code
+		res.ReadCap = acc.ReadCap
 	}
 	for _, ev := range m.Events() {
 		res.Events = append(res.Events, replayEvent{

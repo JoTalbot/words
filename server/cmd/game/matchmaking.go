@@ -17,23 +17,28 @@ const queueTTL = 2 * time.Minute
 // transport/room details (it is injected by the API). playerIDs, when
 // non-nil, binds seats to registered profiles; a zero entry means the seat
 // stays synthetic (anonymous).
-type createRoomFn func(lang string, playerIDs *[2]uint64) (id uint64, seed uint64, tokens [2]string, userIDs [2]uint64, err error)
+type createRoomFn func(lang string, playerIDs *[2]uint64) (id uint64, seed uint64, tokens [2]string, userIDs [2]uint64, access matchAccess, err error)
 
 // queueEntry is one waiting player and, once matched, their join info.
 type queueEntry struct {
-	ID        string    `json:"queue_id"`
-	Language  string    `json:"language"`
-	Status    string    `json:"status"` // "waiting" | "matched" | "expired"
+	ID       string `json:"queue_id"`
+	Language string `json:"language"`
+	Status   string `json:"status"` // "waiting" | "matched" | "expired"
 	// PlayerID is the optional registered profile the player queued with
 	// (0 = anonymous). When both seats have profiles, the match folds its
 	// outcome into their lifetime stats on completion.
-	PlayerID  uint64    `json:"player_id,omitempty"`
-	MatchID   uint64    `json:"match_id,omitempty"`
-	Seed      uint64    `json:"seed,omitempty"`
-	Token     string    `json:"token,omitempty"`
-	UserID    uint64    `json:"user_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	deadline  time.Time
+	PlayerID uint64 `json:"player_id,omitempty"`
+	MatchID  uint64 `json:"match_id,omitempty"`
+	Seed     uint64 `json:"seed,omitempty"`
+	Token    string `json:"token,omitempty"`
+	UserID   uint64 `json:"user_id,omitempty"`
+	// MatchCode and ReadCapability are the unguessable handles for the result
+	// and replay endpoints. A queued player learns them here, exactly once,
+	// because the matchmaker - not the client - is what created the match.
+	MatchCode      string    `json:"match_code,omitempty"`
+	ReadCapability string    `json:"read_capability,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	deadline       time.Time
 }
 
 // matchmaker pairs waiting players per language.
@@ -127,12 +132,17 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 		if a.PlayerID != 0 || b.PlayerID != 0 {
 			pids = &[2]uint64{a.PlayerID, b.PlayerID}
 		}
-		id, seed, tokens, userIDs, err := create(lang, pids)
+		id, seed, tokens, userIDs, access, err := create(lang, pids)
 		if err != nil {
 			return
 		}
 		a.Status, a.MatchID, a.Seed, a.Token, a.UserID = "matched", id, seed, tokens[0], userIDs[0]
 		b.Status, b.MatchID, b.Seed, b.Token, b.UserID = "matched", id, seed, tokens[1], userIDs[1]
+		// Both seats get the same pair: the code identifies the match and the
+		// capability authorises reading its outcome, which is shared knowledge
+		// between the two players by definition.
+		a.MatchCode, a.ReadCapability = access.Code, access.ReadCap
+		b.MatchCode, b.ReadCapability = access.Code, access.ReadCap
 		mm.waiting[lang] = q[2:]
 	}
 }
