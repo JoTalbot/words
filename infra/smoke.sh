@@ -111,6 +111,33 @@ else
   bad "match creation returned no match id"
 fi
 
+# Batch 21g: the create response is the only place the unguessable match code
+# and the per-match read capability are ever handed out, so their absence here
+# means a client can never read the result once WORDARENA_REQUIRE_READ_CAPABILITY
+# is set. Both must be 128 bits of hex; a short or empty value would be guessable
+# and would reopen security finding S-2.
+MATCH_CODE=$(json_field "$(cat /tmp/wa_match.json)" match_code)
+READ_CAP=$(json_field "$(cat /tmp/wa_match.json)" read_capability)
+for pair in "match_code:$MATCH_CODE" "read_capability:$READ_CAP"; do
+  name=${pair%%:*}; value=${pair#*:}
+  if printf '%s' "$value" | grep -qE '^[0-9a-f]{32}$'; then
+    ok "$name issued as 128 bits of hex"
+  else
+    bad "$name is missing or not 32 hex chars (got '${value}')"
+  fi
+done
+if [ -n "$MATCH_CODE" ] && [ "$MATCH_CODE" != "$READ_CAP" ]; then
+  ok "match code and read capability are distinct"
+else
+  bad "match code and read capability must differ"
+fi
+# The code route must resolve even while the match is active (404, not 400): a
+# malformed route would answer 400 and hide a wiring mistake behind the same
+# status the id form legitimately returns.
+CODE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+  -H "Authorization: Bearer $READ_CAP" "$BASE/v1/matches/$MATCH_CODE/result")
+check "GET /v1/matches/{code}/result is 404 while the match is active" "404" "$CODE_STATUS"
+
 # Seat tokens are the only credential a client holds; two distinct seats must
 # be issued or the match cannot be played by two players.
 TOKEN0=$(printf '%s' "$(cat /tmp/wa_match.json)" | python3 -c '

@@ -104,6 +104,11 @@ namespace Words.Client
         private uint lastStateVersion;
         private uint clientSequence;
         private string[] liveTokens = new string[2];
+        // Batch 21g: the unguessable match code and the per-match read capability
+        // for the live match. They are issued once, at create or at queue match,
+        // and are what the result endpoint now requires.
+        private string liveMatchCode = string.Empty;
+        private string liveReadCapability = string.Empty;
         private ulong[] liveUserIds = new ulong[2];
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -961,6 +966,8 @@ namespace Words.Client
             serverMode = true;
             liveMatchId = entry.MatchId;
             liveSeed = entry.Seed;
+            liveMatchCode = entry.MatchCode;
+            liveReadCapability = entry.ReadCapability;
             liveTokens = new string[2];
             liveUserIds = new ulong[2];
             queueToken = entry.Token;
@@ -1069,7 +1076,7 @@ namespace Words.Client
 
             terminalResultFetchRequested = terminalSnapshot || terminalResultFetchRequested;
             resultFetchInProgress = true;
-            StartCoroutine(network.FetchResult(serverUrl, liveMatchId, HandleMatchResult));
+            StartCoroutine(network.FetchResult(serverUrl, liveMatchId, liveMatchCode, liveReadCapability, HandleMatchResult));
         }
 
         private void HandleMatchResult(MatchResultSummary result)
@@ -1110,6 +1117,8 @@ namespace Words.Client
             serverMode = true;
             liveMatchId = result.MatchId;
             liveSeed = result.Seed;
+            liveMatchCode = result.MatchCode;
+            liveReadCapability = result.ReadCapability;
             suddenDeath = result.SuddenDeath;
             liveTokens = result.Tokens;
             liveUserIds = result.UserIds;
@@ -1610,6 +1619,8 @@ namespace Words.Client
             terminalResultFetchRequested = false;
             liveMatchId = 0;
             liveSeed = 0;
+            liveMatchCode = string.Empty;
+            liveReadCapability = string.Empty;
             lastServerTick = 0;
             lastStateVersion = 0;
             clientSequence = 0;

@@ -80,6 +80,8 @@ namespace Words.Client
                     result.SuddenDeath = parsed.sudden_death;
                     result.Tokens = parsed.tokens;
                     result.UserIds = new ulong[] { (ulong)Math.Max(0L, parsed.user_ids[0]), (ulong)Math.Max(0L, parsed.user_ids[1]) };
+                    result.MatchCode = parsed.match_code ?? string.Empty;
+                    result.ReadCapability = parsed.read_capability ?? string.Empty;
                 }
             }
             catch (Exception exception)
@@ -206,10 +208,26 @@ namespace Words.Client
             }
         }
 
-        public IEnumerator FetchResult(string serverBaseUrl, ulong matchId, Action<MatchResultSummary> completed)
+        // FetchResult reads the authoritative outcome. It addresses the match by
+        // its unguessable code rather than by the sequential id, and sends the
+        // per-match read capability, because the id form is refused outright once
+        // the server sets WORDARENA_REQUIRE_READ_CAPABILITY (security finding
+        // S-2: sequential ids made finished-match data enumerable).
+        //
+        // matchCode may be empty when talking to an older server that did not
+        // issue one; the numeric form still works there, so the fallback keeps
+        // the client usable during the transition window.
+        public IEnumerator FetchResult(string serverBaseUrl, ulong matchId, string matchCode, string readCapability, Action<MatchResultSummary> completed)
         {
-            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/matches/" + matchId + "/result";
+            var reference = string.IsNullOrEmpty(matchCode) ? matchId.ToString() : matchCode;
+            var url = NormalizeHttpBase(serverBaseUrl) + "/v1/matches/" + reference + "/result";
             var request = UnityWebRequest.Get(url);
+            if (!string.IsNullOrEmpty(readCapability))
+            {
+                // Header rather than ?cap=: a capability in a query string ends up
+                // in proxy and access logs, which is how bearer credentials leak.
+                request.SetRequestHeader("Authorization", "Bearer " + readCapability);
+            }
             request.timeout = 10;
             EmitStatus("Fetching authoritative match result.");
             yield return request.SendWebRequest();
@@ -332,6 +350,8 @@ namespace Words.Client
                 result.Seed = (ulong)Math.Max(0L, parsed.seed);
                 result.Token = parsed.token ?? string.Empty;
                 result.UserId = (ulong)Math.Max(0L, parsed.user_id);
+                result.MatchCode = parsed.match_code ?? string.Empty;
+                result.ReadCapability = parsed.read_capability ?? string.Empty;
             }
             catch (Exception exception)
             {
@@ -721,6 +741,7 @@ namespace Words.Client
             public int[] scores;
             public int state_version;
             public int server_tick;
+            public string match_code;
         }
 
         [Serializable]
@@ -732,6 +753,11 @@ namespace Words.Client
             public bool sudden_death;
             public string[] tokens;
             public long[] user_ids;
+            // Batch 21g: the unguessable handle and the per-match read credential.
+            // Both arrive exactly once, here - the service never echoes the
+            // capability again, so losing them means never reading the result.
+            public string match_code;
+            public string read_capability;
         }
     }
 
@@ -745,6 +771,11 @@ namespace Words.Client
         public bool SuddenDeath;
         public string[] Tokens = new string[0];
         public ulong[] UserIds = new ulong[0];
+        // MatchCode identifies the match on the result and replay endpoints;
+        // ReadCapability authorises reading it once the server sets
+        // WORDARENA_REQUIRE_READ_CAPABILITY.
+        public string MatchCode = string.Empty;
+        public string ReadCapability = string.Empty;
     }
 
     public sealed class ReadyzResult
@@ -830,6 +861,8 @@ namespace Words.Client
         // Token is this seat's credential once matched; empty while waiting.
         public string Token = string.Empty;
         public ulong UserId;
+        public string MatchCode = string.Empty;
+        public string ReadCapability = string.Empty;
 
         public bool IsMatched
         {
@@ -869,6 +902,10 @@ namespace Words.Client
         public long seed;
         public string token;
         public long user_id;
+        // Batch 21g: a queued player never calls POST /v1/matches, so the poll
+        // response is the only place these can reach them.
+        public string match_code;
+        public string read_capability;
     }
 
     // Batch 17B: player profile + lifetime stats view for /v1/players.

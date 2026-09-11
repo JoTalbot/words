@@ -60,7 +60,12 @@ CREATE TABLE IF NOT EXISTS match_results (
     state_version INT         NOT NULL,
     server_tick   INT         NOT NULL,
     events        JSONB       NOT NULL,
-    recorded_at   TIMESTAMPTZ NOT NULL
+    recorded_at   TIMESTAMPTZ NOT NULL,
+    -- Unguessable handle + per-match read credential (security finding S-2).
+    -- Nullable: rows written before migration 003 have neither, and the service
+    -- refuses a capability-gated read of such a row rather than inventing one.
+    match_code      TEXT,
+    read_capability TEXT
 );
 `
 
@@ -149,6 +154,40 @@ type pgResultStore struct {
 	db *sql.DB
 }
 
+// resultColumns is the projection Get and GetByCode share. Keeping it in one
+// place is what stops the two reads from drifting: a column added to one and
+// forgotten in the other would scan into the wrong fields, and the scan targets
+// below are positional.
+//
+// match_code and read_capability are COALESCEd because rows written before
+// migration 003 have neither, and a NULL scanned into a Go string is an error
+// rather than an empty value.
+const resultColumns = `match_id::text, seed::text, language, over, winner_seat, is_tie,
+       score0, score1, state_version, server_tick, events, recorded_at,
+       COALESCE(match_code, ''), COALESCE(read_capability, '')`
+
+// scanResult reads the resultColumns projection. Every field the caller cares
+// about is filled here so the two read paths stay identical by construction.
+func scanResult(row *sql.Row) (matchResult, []byte, error) {
+	var res matchResult
+	var rawID, rawSeed string
+	var evJSON []byte
+	err := row.Scan(
+		&rawID, &rawSeed, &res.Language, &res.Over, &res.WinnerSeat,
+		&res.IsTie, &res.Scores[0], &res.Scores[1], &res.StateVer,
+		&res.ServerTick, &evJSON, &res.recordedAt, &res.Code, &res.ReadCap)
+	if err != nil {
+		return matchResult{}, nil, err
+	}
+	if res.MatchID, err = scanU64("match_id", rawID); err != nil {
+		return matchResult{}, nil, err
+	}
+	if res.Seed, err = scanU64("seed", rawSeed); err != nil {
+		return matchResult{}, nil, err
+	}
+	return res, evJSON, nil
+}
+
 func (p *pgResultStore) Put(res matchResult) error {
 	evJSON, err := json.Marshal(res.Events)
 	if err != nil {
@@ -159,13 +198,15 @@ func (p *pgResultStore) Put(res matchResult) error {
 	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO match_results
 			(match_id, seed, language, over, winner_seat, is_tie,
-			 score0, score1, state_version, server_tick, events, recorded_at)
-		VALUES ($1::numeric,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			 score0, score1, state_version, server_tick, events, recorded_at,
+			 match_code, read_capability)
+		VALUES ($1::numeric,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+		        NULLIF($13, ''), NULLIF($14, ''))
 		ON CONFLICT (match_id) DO NOTHING`,
 		u64Param(res.MatchID), u64Param(res.Seed), res.Language, res.Over,
 		res.WinnerSeat, res.IsTie,
 		res.Scores[0], res.Scores[1], res.StateVer, res.ServerTick, evJSON,
-		res.recordedAt); err != nil {
+		res.recordedAt, res.Code, res.ReadCap); err != nil {
 		return fmt.Errorf("postgres: put result: %w", err)
 	}
 	return nil
@@ -191,27 +232,39 @@ func (p *pgResultStore) MaxMatchID() (uint64, error) {
 func (p *pgResultStore) Get(id uint64) (matchResult, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var res matchResult
-	var rawID, rawSeed string
-	var evJSON []byte
-	err := p.db.QueryRowContext(ctx, `
-		SELECT match_id::text, seed::text, language, over, winner_seat, is_tie,
-		       score0, score1, state_version, server_tick, events, recorded_at
-		FROM match_results WHERE match_id = $1::numeric`, u64Param(id)).Scan(
-		&rawID, &rawSeed, &res.Language, &res.Over, &res.WinnerSeat,
-		&res.IsTie, &res.Scores[0], &res.Scores[1], &res.StateVer,
-		&res.ServerTick, &evJSON, &res.recordedAt)
+	res, evJSON, err := scanResult(p.db.QueryRowContext(ctx,
+		`SELECT `+resultColumns+` FROM match_results WHERE match_id = $1::numeric`,
+		u64Param(id)))
 	if err == sql.ErrNoRows {
 		return matchResult{}, false, nil
 	}
 	if err != nil {
 		return matchResult{}, false, fmt.Errorf("postgres: get result: %w", err)
 	}
-	if res.MatchID, err = scanU64("match_id", rawID); err != nil {
-		return matchResult{}, false, err
+	if err := json.Unmarshal(evJSON, &res.Events); err != nil {
+		return matchResult{}, false, fmt.Errorf("postgres: unmarshal events: %w", err)
 	}
-	if res.Seed, err = scanU64("seed", rawSeed); err != nil {
-		return matchResult{}, false, err
+	return res, true, nil
+}
+
+// GetByCode resolves an unguessable match code. This is the read path that
+// survives a restart once WORDARENA_REQUIRE_READ_CAPABILITY is set: the
+// in-process code index is gone after a restart, so the code has to be findable
+// in the durable store, and the capability has to come back with the row for the
+// gate to compare against.
+func (p *pgResultStore) GetByCode(code string) (matchResult, bool, error) {
+	if code == "" {
+		return matchResult{}, false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, evJSON, err := scanResult(p.db.QueryRowContext(ctx,
+		`SELECT `+resultColumns+` FROM match_results WHERE match_code = $1`, code))
+	if err == sql.ErrNoRows {
+		return matchResult{}, false, nil
+	}
+	if err != nil {
+		return matchResult{}, false, fmt.Errorf("postgres: get result by code: %w", err)
 	}
 	if err := json.Unmarshal(evJSON, &res.Events); err != nil {
 		return matchResult{}, false, fmt.Errorf("postgres: unmarshal events: %w", err)

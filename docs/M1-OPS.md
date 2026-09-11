@@ -41,6 +41,11 @@ Environment variables (see `cmd/game/main.go` and `cmd/game/telemetry.go`):
 - `WORDARENA_WS_ALLOWED_ORIGINS` — comma-separated browser origins allowed to
   open a WebSocket (`private` = loopback/private, the default). Native clients
   send no `Origin` and are unaffected.
+- `WORDARENA_REQUIRE_READ_CAPABILITY` — `true` refuses the sequential-match-id
+  form of `GET /v1/matches/{id}/result|replay` with 404 and requires the
+  per-match read capability on the match-code form. Default `false` during the
+  transition window; see docs/WIRE-PROTOCOL.md. Turning it on requires clients
+  that send the capability — the Unity client does as of batch 21g.
 - `WORDARENA_ALLOW_EXPLICIT_SEED` — `false` makes a client-supplied match
   `seed` a 400 (fairness gate; leave `true` for dev/CI replay tooling).
 

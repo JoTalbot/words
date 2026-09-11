@@ -353,3 +353,56 @@ Measurement behind the decision: 147 queue-created matches on 2026-09-10 produce
 planner being unable to cover an arbitrary board. After separating the planner
 class and comparing the game rather than the clock, 98 further queue matches
 produced 0 divergence failures and 5 planner skips (5.1%).
+
+## Result and replay are addressed by match code, not by match id
+
+Batch 21g, 2026-09-11, closing docs/SECURITY-REVIEW-M1.md finding S-2.
+
+`match_id` is a monotonic counter. `GET /v1/matches/{id}/result` and
+`GET /v1/matches/{id}/replay` were unauthenticated and keyed by it, so a one-line
+loop read the final score, the winner and the full word-by-word event log of
+every finished match on the host.
+
+`POST /v1/matches` and the matchmaking poll response now also return:
+
+| field | what it is |
+|---|---|
+| `match_code` | 128 bits of crypto/rand, hex. The handle for the result and replay endpoints. Safe to share - on a post-match screen, in a support ticket, in a URL. |
+| `read_capability` | 128 bits of crypto/rand, hex. The credential those endpoints require. **Not** safe to share, and issued exactly once: the service never echoes it again, and it is deliberately absent from the result body. |
+
+Both endpoints accept either form in the `{id}` path segment. A purely decimal
+segment is read as a legacy match id; anything else is read as a match code.
+
+### Transition window
+
+`WORDARENA_REQUIRE_READ_CAPABILITY` (default `false`) controls the cutover.
+
+| | flag `false` (today) | flag `true` (hardened) |
+|---|---|---|
+| `GET /v1/matches/{match_id}/result` | 200 | **404** |
+| `GET /v1/matches/{match_code}/result` | 200, no credential | 200 only with the capability |
+| capability transport | n/a | `Authorization: Bearer <read_capability>` (preferred) or `?cap=<read_capability>` |
+
+The hardened form answers **404, not 400 or 401**, for a numeric id. A distinct
+status would confirm that a given number is shaped like a live id and let a
+caller measure the counter, which is the enumeration S-2 describes. An unknown
+id and a known one are therefore indistinguishable.
+
+The capability comparison is constant-time; it is a bearer credential and a
+byte-at-a-time comparison would let a caller recover it by timing.
+
+### Rows written before migration 003
+
+They have no `match_code` and no `read_capability` (both columns are nullable,
+and a `UNIQUE` index treats NULLs as distinct so they do not collide). A
+capability-gated read of such a row is **refused** rather than served: inventing
+a credential on read would be worse than refusing, because the guarantee is that
+reading requires a credential issued at creation. Those matches predate the
+guarantee.
+
+### Client obligations
+
+A client must persist both values from the create or poll response. Losing them
+means never reading that match's result once the flag is set - there is no
+re-issue endpoint by design, since one would be an unauthenticated oracle for
+exactly the data the change protects.

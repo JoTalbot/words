@@ -125,8 +125,8 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 	mm.ttl = 20 * time.Millisecond
 
 	// A waiting entry that is never polled must not leak.
-	e := mm.enqueue("en", 0, func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
-		return 0, 0, [2]string{}, [2]uint64{}, errRoomCapacity
+	e := mm.enqueue("en", 0, func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, errRoomCapacity
 	})
 	if e.Status != "waiting" {
 		t.Fatalf("entry should be waiting: %+v", e)
@@ -148,8 +148,9 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 func TestMatchmakerReaperPurgesMatchedUnpolled(t *testing.T) {
 	mm := newMatchmaker()
 	mm.ttl = 30 * time.Millisecond
-	mk := func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, error) {
-		return 7, 99, [2]string{"a", "b"}, [2]uint64{1, 2}, nil
+	mk := func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
+		return 7, 99, [2]string{"a", "b"}, [2]uint64{1, 2},
+			matchAccess{Code: "code-7", ReadCap: "cap-7"}, nil
 	}
 	a := mm.enqueue("en", 0, mk)
 	b := mm.enqueue("en", 0, mk)
@@ -387,4 +388,31 @@ func TestReplayEndpointAfterMatch(t *testing.T) {
 		}
 	}
 	t.Logf("replay endpoint ok: %d events, final %d:%d", len(rep.Events), want[0], want[1])
+}
+
+// TestMatchmakerHandsBothSeatsTheSameReadHandle pins the batch 21g contract for
+// the queue path. A queued player never calls POST /v1/matches, so the poll
+// response is the only place the match code and read capability can reach them;
+// if the matchmaker dropped the pair, a queued player could create a match and
+// then never be able to read its result once the read is gated.
+func TestMatchmakerHandsBothSeatsTheSameReadHandle(t *testing.T) {
+	mm := newMatchmaker()
+	mk := func(string, *[2]uint64) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
+		return 7, 99, [2]string{"a", "b"}, [2]uint64{1, 2},
+			matchAccess{Code: "code-7", ReadCap: "cap-7"}, nil
+	}
+	a := mm.enqueue("en", 0, mk)
+	b := mm.enqueue("en", 0, mk)
+
+	for name, e := range map[string]*queueEntry{"seat0": a, "seat1": b} {
+		if e.Status != "matched" {
+			t.Fatalf("%s: status = %q, want matched", name, e.Status)
+		}
+		if e.MatchCode != "code-7" {
+			t.Errorf("%s: match_code = %q, want code-7", name, e.MatchCode)
+		}
+		if e.ReadCapability != "cap-7" {
+			t.Errorf("%s: read_capability = %q, want cap-7", name, e.ReadCapability)
+		}
+	}
 }

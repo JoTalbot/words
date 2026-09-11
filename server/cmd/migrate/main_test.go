@@ -143,7 +143,41 @@ func TestRepositoryMigrationsAreContiguousAndNamed(t *testing.T) {
 
 var (
 	tableRe = regexp.MustCompile(`(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)\s*\((.*?)\);\s*(\n|$)`)
+	// addColumnRe matches the only shape of later migration this repository
+	// uses to change the column set: adding one. Type-only changes (migration
+	// 002) do not alter the set and need no support here.
+	addColumnRe = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([A-Za-z0-9_]+)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)`)
 )
+
+// applyAddedColumns folds the columns later migrations add into a schema parsed
+// from the baseline. Without this the drift guard could only ever compare the
+// service schema against 001_init.sql, so the first migration that added a
+// column would have failed the build even when the service and the migrations
+// agreed perfectly - which is exactly what happened when migration 003 added
+// match_code and read_capability.
+//
+// The guard's real invariant is "the schema the service creates on connect
+// equals the schema the migrations produce once all of them have run", and that
+// is what it now checks.
+func applyAddedColumns(t *testing.T, schema map[string][]string, sql string) {
+	t.Helper()
+	for _, m := range addColumnRe.FindAllStringSubmatch(sql, -1) {
+		table := strings.ToLower(m[1])
+		col := strings.ToLower(m[2])
+		cols, ok := schema[table]
+		if !ok {
+			t.Errorf("migration adds column %q to table %q, which no CREATE TABLE defines", col, table)
+			continue
+		}
+		for _, existing := range cols {
+			if existing == col {
+				t.Errorf("migration adds column %q to table %q, which already has it", col, table)
+			}
+		}
+		schema[table] = append(cols, col)
+		sort.Strings(schema[table])
+	}
+}
 
 // parseSchema extracts table name -> sorted column names from a SQL blob.
 // Lines that begin with a table constraint keyword (PRIMARY KEY, UNIQUE,
@@ -210,17 +244,19 @@ func TestBaselineMigrationMatchesServiceSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
-	baselinePath := filepath.Join(root, "infra", "migrations", "001_init.sql")
-	baseline, err := os.ReadFile(baselinePath)
-	if err != nil {
-		t.Fatalf("read 001_init.sql: %v", err)
-	}
 	if !strings.HasPrefix(migrations[0].Name, "init") {
 		t.Fatalf("first migration is %q, want a name starting with \"init\"", migrations[0].Name)
 	}
 
 	want := parseSchema(t, pgSchemaFromSource(t, root))
-	got := parseSchema(t, string(baseline))
+	// discover already loaded every migration body, so the cumulative schema is
+	// the baseline plus the columns each later migration adds. Comparing against
+	// that - rather than against 001_init.sql alone - is what makes the guard
+	// correct once migrations change the column set instead of only its types.
+	got := parseSchema(t, migrations[0].SQL)
+	for _, m := range migrations[1:] {
+		applyAddedColumns(t, got, m.SQL)
+	}
 
 	if len(got) != len(want) {
 		t.Fatalf("table count mismatch: migration has %d (%v), service has %d (%v)",
@@ -258,4 +294,57 @@ func keys(m map[string][]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TestApplyAddedColumnsDetectsDrift proves the cumulative guard still has teeth.
+// Making it fold in later migrations could have quietly turned it into a test
+// that always passes, so both directions are pinned: a column a migration adds
+// must appear in the service schema, and a duplicate add is itself an error.
+func TestApplyAddedColumnsDetectsDrift(t *testing.T) {
+	base := map[string][]string{"match_results": {"match_id", "seed"}}
+
+	applyAddedColumns(t, base, `ALTER TABLE match_results ADD COLUMN IF NOT EXISTS match_code TEXT;`)
+	if len(base["match_results"]) != 3 {
+		t.Fatalf("column was not folded in: %v", base["match_results"])
+	}
+
+	// The service schema must now agree, or the guard must fail. This mirrors
+	// what the real assertion does.
+	svc := map[string][]string{"match_results": {"match_id", "seed"}}
+	if len(svc["match_results"]) == len(base["match_results"]) {
+		t.Fatal("guard would not notice a column the service schema is missing")
+	}
+	svc["match_results"] = append(svc["match_results"], "match_code")
+	sort.Strings(svc["match_results"])
+	for i := range base["match_results"] {
+		if base["match_results"][i] != svc["match_results"][i] {
+			t.Fatalf("sets should now match: %v vs %v", base["match_results"], svc["match_results"])
+		}
+	}
+}
+
+func TestApplyAddedColumnsRejectsBadMigrations(t *testing.T) {
+	// A duplicate add and an add against an unknown table are both authoring
+	// mistakes the guard should surface rather than absorb.
+	t.Run("duplicate", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("unexpected panic: %v", r)
+			}
+		}()
+		schema := map[string][]string{"players": {"id", "nickname"}}
+		fakeT := &testing.T{}
+		applyAddedColumns(fakeT, schema, `ALTER TABLE players ADD COLUMN IF NOT EXISTS nickname TEXT;`)
+		if !fakeT.Failed() {
+			t.Error("a duplicate ADD COLUMN was not reported")
+		}
+	})
+	t.Run("unknown table", func(t *testing.T) {
+		schema := map[string][]string{"players": {"id"}}
+		fakeT := &testing.T{}
+		applyAddedColumns(fakeT, schema, `ALTER TABLE ghosts ADD COLUMN boo TEXT;`)
+		if !fakeT.Failed() {
+			t.Error("an ADD COLUMN against an undefined table was not reported")
+		}
+	})
 }

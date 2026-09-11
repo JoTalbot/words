@@ -70,6 +70,19 @@ func (r *aliasingResultRepo) Get(id uint64) (matchResult, bool, error) {
 	return res, ok, nil
 }
 
+// GetByCode mirrors the real store's code lookup so the aliasing tests exercise
+// the same interface the service uses.
+func (r *aliasingResultRepo) GetByCode(code string) (matchResult, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, res := range r.byID {
+		if res.Code != "" && res.Code == code {
+			return res, true, nil
+		}
+	}
+	return matchResult{}, false, nil
+}
+
 func (r *aliasingResultRepo) MaxMatchID() (uint64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
