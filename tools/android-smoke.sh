@@ -156,7 +156,23 @@ echo "client ready: SetGameState isLoading=false"
 # through moves whenever a panel is added above the board; the previous
 # hardcoded y=880 was measured against an older layout, and a swipe that
 # misses the cells produces no marker and reads as a broken input path.
-BOARD_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
+# The marker is logged on the first frame that captures the cell rects, which
+# lands within a few hundred ms of isLoading=false - reading the buffer once
+# here lost the race and silently fell back. Poll for it briefly.
+BOARD_LINE=""
+for _ in $(seq 1 10); do
+  # The marker is logged on the first frame that captures the cell rects, which
+# lands within a few hundred ms of isLoading=false - reading the buffer once
+# here lost the race and silently fell back. Poll for it briefly.
+BOARD_LINE=""
+for _ in $(seq 1 10); do
+  BOARD_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
+  [ -n "$BOARD_LINE" ] && break
+  sleep 1
+done
+  [ -n "$BOARD_LINE" ] && break
+  sleep 1
+done
 
 rect_field() { printf '%s' "$1" | sed -n "s/.*$2=\(-\{0,1\}[0-9]\{1,\}\).*/\1/p"; }
 
