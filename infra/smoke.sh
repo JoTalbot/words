@@ -291,9 +291,19 @@ fi
 # The replay log is published when a match ends, so a freshly created (still
 # active) match must answer 404. Asserting that here pins the contract and
 # catches a regression that would serve a partial, non-final event log.
-if [ -n "${MATCH_ID:-}" ]; then
-  CODE=$(curl -s -o /tmp/wa_replay.json -w '%{http_code}' -m 10 "$BASE/v1/matches/$MATCH_ID/replay")
-  check "GET /v1/matches/{id}/replay is 404 while the match is active" "404" "$CODE"
+#
+# This must go through the match code, not the numeric id. With
+# WORDARENA_REQUIRE_READ_CAPABILITY=true - which is how the service is deployed
+# - resolveMatchRef refuses every numeric ref outright, so the id form answered
+# 404 no matter what state the match was in and the assertion could never fail.
+# The code form carries a valid capability, so a 404 here can only mean "no
+# result row yet": the 404 is caused by the match being active, which is what
+# the check claims to test. It is also the form that stays meaningful when the
+# gate is off, so one assertion covers both configurations.
+if [ -n "${MATCH_CODE:-}" ]; then
+  CODE=$(curl -s -o /tmp/wa_replay.json -w '%{http_code}' -m 10 \
+    -H "Authorization: Bearer $READ_CAP" "$BASE/v1/matches/$MATCH_CODE/replay")
+  check "GET /v1/matches/{code}/replay is 404 while the match is active" "404" "$CODE"
 fi
 
 rm -f /tmp/wa_healthz.json /tmp/wa_readyz.json /tmp/wa_metrics.json \

@@ -1,0 +1,61 @@
+id: M1-batch26c-smoke-replay-code-form
+title: Make the smoke replay assertion test match state instead of the capability gate
+owner: qa-infra
+priority: normal
+complexity: trivial
+status: verified_live_pending_ci
+risk: low
+escalation: none
+
+inputs:
+  - infra/smoke.sh
+  - server/cmd/game/api.go (resolveMatchRef, handleReplay)
+
+dependencies: []
+
+outputs:
+  - infra/smoke.sh
+  - agent/tasks/M1-batch26c-smoke-replay-code-form.yml
+
+acceptance:
+  - >-
+    The replay assertion goes through the match code with the read capability,
+    so a 404 can only mean "no result row yet".
+  - "The assertion is meaningful whether or not WORDARENA_REQUIRE_READ_CAPABILITY is set."
+  - "smoke.sh still passes end to end against the live deployment, same check count."
+
+validation:
+  - "bash -n infra/smoke.sh: clean"
+  - >-
+    Live on OCI against the systemd service at 127.0.0.1:18080: 26 passed / 0
+    failed bare, and 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres,
+    which is the CI invocation. origin/main gives the same 26/0 and 27/0, so the
+    change is count-neutral.
+  - >-
+    Discrimination proved rather than assumed, on the live service: an active
+    match answers code+capability -> 404, a finished match with a durable row
+    answers code+capability -> 200 through the same route shape, and a finished
+    match with a wrong capability answers 401. The 404 therefore tracks match
+    state, which is what the check claims to test.
+  - >-
+    The superseded id-form call was measured at the same time: also 404 on the
+    active match, which is exactly why it could never fail - resolveMatchRef
+    refuses every numeric ref outright once the gate is on, and the gate is on
+    in this deployment.
+
+file_ownership:
+  - infra/smoke.sh
+  - agent/tasks/M1-batch26c-smoke-replay-code-form.yml
+
+notes: >-
+  This is the third item on the batch 25 follow-up list, and the note described
+  it accurately: with WORDARENA_REQUIRE_READ_CAPABILITY=true the check
+  "GET /v1/matches/{id}/replay is 404 while the match is active" passed because
+  the id form is refused, not because the match was active. A regression that
+  served a partial, non-final event log would have left it green.
+
+  An env-gated companion check for the id form was written and then removed: the
+  script's callers do not set WORDARENA_REQUIRE_READ_CAPABILITY, so the assertion
+  would have silently skipped and reproduced the same class of problem one level
+  up. The code form is meaningful under both configurations, so one assertion
+  covers both.
