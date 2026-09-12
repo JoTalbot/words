@@ -118,6 +118,10 @@ jobs:
           grep -q 'PendingIntentViewModel' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           grep -q 'ReconcilePendingWithSnapshot' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
           grep -q 'Prediction rolled back' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          # Batch 26D: the device smoke swipes where the client says the board
+          # is. Pin both halves of that contract so one side cannot drift.
+          grep -q 'WORDS_BOARD_RECT' "$PROJECT_PATH/Assets/Scripts/WordArenaBootstrap.cs"
+          grep -q 'WORDS_BOARD_RECT' tools/android-smoke.sh
           grep -R 'UnityEngine\.UI\|UnityEngine\.EventSystems' "$PROJECT_PATH/Assets/Scripts" && exit 1 || true
           grep -q 'tools/android-smoke.sh' .github/workflows/unity-android.yml
           test -f tools/android-smoke.sh
