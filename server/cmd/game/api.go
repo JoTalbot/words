@@ -595,6 +595,10 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusBadRequest, "player_ids must be two distinct positive ids")
 			return
 		}
+		if !profileIDInRange(req.PlayerIDs[0]) || !profileIDInRange(req.PlayerIDs[1]) {
+			httpError(w, http.StatusBadRequest, "player_ids must be within the signed 64-bit range")
+			return
+		}
 		if _, ok, err := a.profiles.Get(req.PlayerIDs[0]); err != nil {
 			httpError(w, http.StatusInternalServerError, "profile store error")
 			return
@@ -1038,6 +1042,10 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.PlayerID != 0 {
+		if !profileIDInRange(req.PlayerID) {
+			httpError(w, http.StatusBadRequest, "player_id must be within the signed 64-bit range")
+			return
+		}
 		if _, ok, err := a.profiles.Get(req.PlayerID); err != nil {
 			httpError(w, http.StatusInternalServerError, "profile store error")
 			return
@@ -1115,6 +1123,10 @@ func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
 func (a *API) handlePlayerGet(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid player id")
+		return
+	}
+	if !profileIDInRange(id) {
 		httpError(w, http.StatusBadRequest, "invalid player id")
 		return
 	}
@@ -1511,10 +1523,26 @@ func parseID(s string) (uint64, error) {
 		if c < '0' || c > '9' {
 			return 0, fmt.Errorf("bad id")
 		}
-		id = id*10 + uint64(c-'0')
+		d := uint64(c - '0')
+		// Without this guard a long digit string wrapped silently
+		// (id*10 overflowed), so a nonsense id could alias onto a real one.
+		if id > (math.MaxUint64-d)/10 {
+			return 0, fmt.Errorf("id out of range")
+		}
+		id = id*10 + d
 	}
 	return id, nil
 }
+
+// profileIDInRange reports whether a client-supplied profile id can exist at
+// all. players.id is BIGSERIAL, i.e. a signed 64-bit identity, while the wire
+// type is uint64: an id with the top bit set is not a valid profile reference
+// and must be refused at the boundary. Letting it reach the store means the
+// Postgres backend fails inside the pgx encoder and the caller is told
+// "profile store error" (500) for a malformed request. It is the same
+// uint64-vs-BIGINT mismatch that silently dropped durable match results before
+// migration 002.
+func profileIDInRange(id uint64) bool { return id <= math.MaxInt64 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
