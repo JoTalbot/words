@@ -1,0 +1,76 @@
+id: M1-batch26e-kvm-acceleration
+title: Stop the hosted emulator booting with -accel off, the root cause of the device-leg failures
+owner: qa-infra
+priority: high
+complexity: small
+status: validated_static_pending_ci
+risk: medium
+escalation: none
+
+inputs:
+  - .github/workflows/unity-android.yml
+  - Unity Android run logs 34633614832 and 34682016206
+
+dependencies:
+  - M1-batch26d-swipe-uses-real-board-rect
+
+outputs:
+  - .github/workflows/unity-android.yml (KVM step before both emulator steps)
+  - agent/tasks/M1-batch26e-kvm-acceleration.yml
+
+acceptance:
+  - "The runner user can open /dev/kvm before the emulator starts."
+  - >-
+    The emulator boots with hardware acceleration instead of -accel off, and
+    boot time drops materially from the measured 368-588 s range.
+  - >-
+    A runner without /dev/kvm degrades with a warning rather than failing the
+    step outright.
+
+validation:
+  - "unity-android.yml parses as YAML."
+  - >-
+    Both insertions verified by position: the KVM step sits immediately before
+    "Install and launch on hosted emulator" in the primary smoke job (line 295
+    before 319) and in the API 33 retry job (371 before 395).
+  - >-
+    Root cause taken from the runner logs, not inferred. Four runs all print:
+    "ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)",
+    "The KVM line in /etc/group is: [kvm:x:993:]", "x86_64 emulation may not
+    work without hardware acceleration!", "Disabling Linux hardware
+    acceleration", and the emulator is launched with "-accel off".
+  - >-
+    Measured boot times with software emulation: 587748 ms and 368727 ms
+    (run 34633614832), 441757 ms and 373647 ms (run 34682016206).
+  - "Pending: the dispatched run must show -accel on and a shorter boot."
+
+file_ownership:
+  - .github/workflows/unity-android.yml
+  - agent/tasks/M1-batch26e-kvm-acceleration.yml
+
+findings: >-
+  The device leg has been recorded as failing because "the hosted emulator pool
+  flakes independently of our code". The logs say otherwise: the failures are
+  deterministic and caused by our own workflow never enabling hardware
+  acceleration. The kvm group exists on the runner ([kvm:x:993:]) but has no
+  members, so the emulator probes /dev/kvm, is refused, prints the remedy itself
+  ("sudo gpasswd -a $USER kvm") and falls back to -accel off.
+
+  Everything downstream follows from that. An x86_64 system image cold-booting
+  in software emulation takes 6-10 minutes, and com.android.systemui ANRs under
+  the load - which is precisely the "Application Not Responding:
+  com.android.systemui" window the focus gate reports as "a system window
+  stayed in front". Batch 23B made that gate honest; this batch removes the
+  condition it was detecting.
+
+  Group membership is not used for the fix because it does not apply to the
+  current shell; the device node is chowned and chmodded directly, which is what
+  GitHub's own KVM guidance for Actions does.
+
+notes: >-
+  Batch 26D (PR #15, merged as 686191e) is still unverified on a device. The
+  run dispatched to verify it, 34682016206, failed on both legs before reaching
+  the swipe: API 35 died with adb exit 224 after a 441757 ms boot, and API 33
+  never granted focus because systemui was ANRing. Neither leg exercised the
+  board-rect code path, so 26D is neither confirmed nor refuted. This batch is
+  the precondition for getting that answer at all.
