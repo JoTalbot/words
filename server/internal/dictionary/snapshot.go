@@ -20,9 +20,9 @@ const SnapshotVersion = "2026-09-08.v2"
 
 // manifest mirrors data/manifest.json.
 type manifest struct {
-	Schema    int                          `json:"schema"`
-	Version   string                       `json:"version"`
-	Languages map[string]manifestLanguage  `json:"languages"`
+	Schema    int                         `json:"schema"`
+	Version   string                      `json:"version"`
+	Languages map[string]manifestLanguage `json:"languages"`
 }
 
 type manifestLanguage struct {

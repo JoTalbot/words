@@ -1,0 +1,72 @@
+id: M1-batch26b-gofmt-gate
+title: Make formatting a merge precondition and clear the 8 files that had drifted
+owner: qa-infra
+priority: normal
+complexity: trivial
+status: verified_local_pending_ci
+risk: low
+escalation: none
+
+inputs:
+  - server/** (8 files flagged by gofmt on main)
+  - .github/workflows/ci.yml
+
+dependencies: []
+
+outputs:
+  - server/internal/dictionary/snapshot.go
+  - server/internal/match/fp.go
+  - server/internal/match/match.go
+  - server/internal/match/types.go
+  - server/internal/matchroom/room_test.go
+  - server/internal/protocol/convert.go
+  - server/internal/protocol/fuzz_test.go
+  - server/internal/scoring/formula.go
+  - .github/workflows/ci.yml (new gofmt step in the Go job)
+  - agent/tasks/M1-batch26b-gofmt-gate.yml
+
+acceptance:
+  - "gofmt -l server/ returns nothing."
+  - >-
+    The CI Go job fails when any server file is not gofmt-clean, and names the
+    offending files.
+  - "No behaviour change: the reformatting is semantically identical."
+
+validation:
+  - >-
+    git diff -w over server/ shows only two hunks, both semantically identical:
+    gofmt expanded fp.addU64 from a semicolon one-liner into a normal body, and
+    dropped a stray blank line in the room_test.go import block. Everything else
+    is alignment.
+  - >-
+    Cross-version check: gofmt 1.24.13 (the version CI installs) and gofmt 1.27.1
+    both report 0 files on the formatted tree, so the gate cannot fail on a
+    formatter version difference.
+  - "go vet ./... clean"
+  - >-
+    go test -count=1 ./... -> 12/12 packages ok, including the golden and
+    byte-stability tests that pin deterministic hashing through internal/match/fp.go
+  - "go test -race -count=1 on match, matchroom, protocol, scoring -> ok"
+
+file_ownership:
+  - server/internal/dictionary/snapshot.go
+  - server/internal/match/fp.go
+  - server/internal/match/match.go
+  - server/internal/match/types.go
+  - server/internal/matchroom/room_test.go
+  - server/internal/protocol/convert.go
+  - server/internal/protocol/fuzz_test.go
+  - server/internal/scoring/formula.go
+  - .github/workflows/ci.yml
+  - agent/tasks/M1-batch26b-gofmt-gate.yml
+
+notes: >-
+  Found while checking the batch 25 follow-up list, which asked for
+  "make cmd/game/matchmaking.go gofmt-clean". That file is already clean; the
+  stale note pointed at the wrong file. gofmt -l over the whole server tree
+  flagged 8 different files, and nothing in CI checked formatting at all, so the
+  drift was invisible and would have kept growing.
+
+  fp.go sits on the deterministic fingerprint path, so the reformat was
+  explicitly re-validated against the golden and byte-stability tests rather
+  than assumed safe.

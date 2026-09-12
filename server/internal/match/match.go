@@ -10,17 +10,17 @@ import (
 // Match is the authoritative 1v1 simulation. Create via New; mutate via
 // Submit and AdvanceTicks only.
 type Match struct {
-	ID     uint64
-	Seed   uint64
-	Lang   string
-	dict   dictionary.Snapshot
+	ID   uint64
+	Seed uint64
+	Lang string
+	dict dictionary.Snapshot
 
-	wave       int
-	tick       int
-	waveStart  int
-	phase      string // "active" | "sudden_death" | "over"
-	stateVer   int
-	eventSeq   int
+	wave      int
+	tick      int
+	waveStart int
+	phase     string // "active" | "sudden_death" | "over"
+	stateVer  int
+	eventSeq  int
 
 	// suddenDeath is the opt-in flag; inSuddenDeath marks the tiebreak wave.
 	suddenDeath   bool
@@ -231,8 +231,8 @@ func (m *Match) evaluate(ev Event) Event {
 	}
 
 	// Cell availability analysis (M0-MATCH-RULES §3).
-	var fresh []int    // free or opponent-unlocked cells (scoring cells)
-	var stealOf []int  // indices among fresh that belong to the opponent
+	var fresh []int   // free or opponent-unlocked cells (scoring cells)
+	var stealOf []int // indices among fresh that belong to the opponent
 	opp := Seat(1 - seat)
 	blockedLocked := false
 	for _, id := range ev.CellIDs {

@@ -50,18 +50,18 @@ func resultFromProto(r wordarenav1.WordResult) (match.WordResult, error) {
 // account id of the acting seat.
 func WordEventToProto(e match.Event, userID uint64) *wordarenav1.WordValidatedEvent {
 	return &wordarenav1.WordValidatedEvent{
-		EventId:         uint64(e.Seq),
-		ServerTick:      uint32(e.Tick),
-		ClientSequence:  0, // set by the session layer when known
-		Result:          resultToProto(e.Result),
-		NormalizedWord:  e.Word,
-		ScoreAdded:      uint32(max64(0, e.ScoreAdded)),
-		TotalScore:      uint32(max64(0, e.TotalScore)),
-		ComboMultiplier: float32(e.ComboMult),
+		EventId:          uint64(e.Seq),
+		ServerTick:       uint32(e.Tick),
+		ClientSequence:   0, // set by the session layer when known
+		Result:           resultToProto(e.Result),
+		NormalizedWord:   e.Word,
+		ScoreAdded:       uint32(max64(0, e.ScoreAdded)),
+		TotalScore:       uint32(max64(0, e.TotalScore)),
+		ComboMultiplier:  float32(e.ComboMult),
 		ClaimedCellIndex: primaryCell(e),
-		IsSteal:         e.IsSteal,
-		StateVersion:    uint32(e.StateVersion),
-		UserId:          userID,
+		IsSteal:          e.IsSteal,
+		StateVersion:     uint32(e.StateVersion),
+		UserId:           userID,
 	}
 }
 
@@ -97,10 +97,10 @@ func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStat
 			uid = uint64(p.Seat) + 1
 		}
 		out.Players = append(out.Players, &wordarenav1.PlayerState{
-			UserId:        uid,
-			Score:         uint32(max64(0, p.Score)),
-			RankPosition:  uint32(p.RankPosition),
-			IsEliminated:  p.IsEliminated,
+			UserId:          uid,
+			Score:           uint32(max64(0, p.Score)),
+			RankPosition:    uint32(p.RankPosition),
+			IsEliminated:    p.IsEliminated,
 			ComboMultiplier: float32(p.ComboMult),
 		})
 	}
