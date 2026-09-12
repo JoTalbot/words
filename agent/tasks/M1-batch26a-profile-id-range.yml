@@ -1,0 +1,71 @@
+id: M1-batch26a-profile-id-range
+title: Refuse out-of-range profile ids at the HTTP boundary instead of the pgx encoder
+owner: backend-security
+priority: high
+complexity: small
+status: verified_local_live_pending_ci
+risk: low
+escalation: none
+
+inputs:
+  - server/cmd/game/api.go (handleMatchCreate, handleQueueCreate, handlePlayerGet, parseID)
+  - server/cmd/game/store_pg.go (players.id is BIGSERIAL; u64Param/scanU64 from batch 23A)
+  - the live OCI deployment at 127.0.0.1:18080 with WORDARENA_POSTGRES_DSN set
+
+dependencies: []
+
+outputs:
+  - server/cmd/game/api.go (parseID overflow guard, profileIDInRange helper, three boundary checks)
+  - server/cmd/game/playerid_range_test.go (16 subtests across 5 test functions)
+
+acceptance:
+  - >-
+    POST /v1/matches with a player_ids entry above MaxInt64 answers 400 with a
+    fixed message, not 500 "profile store error".
+  - >-
+    POST /v1/queue with player_id above MaxInt64 answers 400, not 500.
+  - >-
+    GET /v1/players/{id} answers 400 for an id above MaxInt64 and for any digit
+    string that overflows uint64.
+  - >-
+    MaxInt64 itself is still accepted by the range check; an unknown in-range
+    profile remains a 404.
+  - "parseID rejects overflow instead of silently wrapping."
+
+validation:
+  - "gofmt -l server/cmd/game -> clean"
+  - "go vet ./... -> clean"
+  - "go test -count=1 ./... -> 12/12 packages ok"
+  - "go test -race -count=1 ./cmd/game -> ok (45.4 s)"
+  - >-
+    A/B against a real Postgres on the OCI host in a throwaway database
+    (wordarena_b26a_verify, dropped afterwards): pre-fix build answered 500
+    "profile store error" for both POST /v1/matches and POST /v1/queue; post-fix
+    build answered 400 for both, and 400 for GET /v1/players/999999999999999999999
+    where pre-fix answered 404.
+  - >-
+    Concrete alias measured on the unguarded parser: parseID("18446744073709551621")
+    returned 5 and parseID("18446744073709551617") returned 1, both with no error.
+    Both are pinned as rejections in TestParseIDRejectsOverflow and
+    TestPlayerGetRejectsOverflowingID.
+
+file_ownership:
+  - server/cmd/game/api.go
+  - server/cmd/game/playerid_range_test.go
+  - agent/tasks/M1-batch26a-profile-id-range.yml
+
+notes: >-
+  Found while working the batch 25 follow-up list. That list asked only for the
+  POST /v1/matches case; the same wire-type mismatch was also live on
+  POST /v1/queue, and parseID additionally had no overflow guard at all, so the
+  defect was wider than recorded. players.id is BIGSERIAL while player ids
+  arrive as JSON uint64, which is the same class of mismatch that silently
+  dropped roughly half of all durable match results before migration 002
+  (batch 23A) - here it surfaced as a 500 for a malformed request and as an id
+  alias rather than as data loss.
+
+  The severity is low in practice: the alias needs a caller to guess a 2^64+n
+  form for a small n, and profiles carry no secrets today (nickname, language,
+  W/L/D, total score). It is fixed because it is a boundary-validation defect
+  on an unauthenticated endpoint, and because the next field added to Profile
+  would inherit the exposure silently.
