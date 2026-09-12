@@ -1,7 +1,37 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_26_landed_26A_26B_26C_merged_and_26D_merged_pending_device_verification; stale_resume_claims_corrected; oci_on_main_with_read_capability_gate_enabled
+status: m1_vertical_slice_advancing; batch_26_complete_26A_through_26F_merged; ANDROID_DEVICE_LEG_GREEN_FOR_THE_FIRST_TIME_run_34683472147; kvm_root_cause_found_and_fixed; oci_still_on_dfb7c1a_needs_promotion
 completed_tasks:
+  - >-
+    Batch 26E (Android CI, ROOT CAUSE): the hosted emulator has been booting with
+    "-accel off" on every run. The runner logs print, on all four runs examined:
+    "ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)",
+    "The KVM line in /etc/group is: [kvm:x:993:]", "x86_64 emulation may not work
+    without hardware acceleration!", "Disabling Linux hardware acceleration". The
+    kvm group exists but has no members. Consequence: an x86_64 system image
+    cold-booting in software emulation, measured at 587748 / 368727 / 441757 /
+    373647 ms, with com.android.systemui ANRing under the load - and that ANR
+    dialog is exactly the "Application Not Responding: com.android.systemui"
+    window the focus gate reports as "a system window stayed in front". The
+    workflow now opens /dev/kvm before both emulator steps (chown+chmod, not
+    gpasswd, because group membership does not apply to the current shell).
+    Result on run 34683472147: /dev/kvm is crw-rw-rw- runner kvm, boot fell to
+    31645 ms, the focus gate passed, the API 33 retry leg was SKIPPED because the
+    first leg passed, and WORDS_SWIPE_SMOKE_OK is recorded with
+    "[WORDS_SWIPE] cells=4 word=DSVT". The whole Unity Android run is green.
+    This is the first green device leg the project has had (PR #16, b61ed0f)
+  - >-
+    Batch 26F (Android CI, self-correction): run 34683472147 also RETRACTED the
+    premise batch 26D was built on. The log shows "note: the client logged no
+    WORDS_BOARD_RECT; using the fallback row" followed by WORDS_SWIPE_SMOKE_OK,
+    then "[WORDS_BOARD_RECT] x0=0 y0=622 x1=964 y1=1108 cells=12
+    scale_permille=1000". So the marker is emitted but a few hundred ms after
+    isLoading=false, and the single logcat -d read lost the race and fell back.
+    The fallback y=880 still landed inside the real board (y0=622..y1=1108, row 1
+    of 3), which means the earlier "no WORDS_SWIPE marker" failure was the
+    missing hardware acceleration, NOT a swipe that missed the board. The read is
+    now a 10 s poll, so with this run's rect the swipe goes to row 0 at y=703
+    across x=12..952. Batch 26E is what turned the leg green (PR #17, 1798b93)
   - >-
     Batch 26A (M1 security/boundary): closed the profile-id range defect. players.id is
     BIGSERIAL (signed 64-bit) while player ids arrive as JSON uint64, so an id with the top
@@ -852,13 +882,17 @@ tests:
     during Batch 10 because SSH degraded; Dockerfile/compose statically checked
     and compose now includes optional telemetry volume wiring
 android_backend: >-
-  ANDROID_BACKEND=github-hosted-emulator (reactivecircus android-emulator-runner on
-  GitHub-hosted x86_64; API 35 first attempt, API 33 retry leg). Validated end to end in run
-  34492844342: APK build green, install green, launch green, logcat + screenshot diagnostics
-  captured on both legs (41 KB / 43 KB artifacts). The gesture assertion itself has still never
-  passed on a device, and the reason is now measured rather than assumed (system ANR dialog
-  steals focus). No local emulator is possible on OCI (no /dev/kvm, no nested virt, no SDK); no
-  third-party online emulator is used because none offers authorized automation here.
+  ANDROID_BACKEND=github-hosted-emulator (reactivecircus android-emulator-runner,
+  API 35 x86_64, pixel_2, first leg only - the API 33 retry leg is now skipped
+  when the first passes). GREEN as of run 34683472147 on main 1798b93. The
+  decisive change is hardware acceleration: the workflow opens /dev/kvm before
+  the emulator starts, so the guest boots in 31645 ms instead of 368727-587748 ms
+  and com.android.systemui no longer ANRs. Verified end to end on the device:
+  focus held by com.jotalbot.words, SetGameState isLoading=false, a real
+  adb input swipe resolved to "[WORDS_SWIPE] cells=4 word=DSVT", logcat and
+  screenshot artifacts captured. No local emulator is possible on OCI (no
+  /dev/kvm, no nested virt, no SDK) and no third-party online emulator is used,
+  because none offers authorized automation here.
 
 workers:
   - >-
@@ -890,7 +924,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "686191e"
-last_verified_commit: "686191e on main (CI + Container smoke green on 686191e5; PRs #12/#13/#14/#15 all green before merge). The OCI systemd service still runs dfb7c1a - functionally the same gameplay code, but it does NOT yet carry the batch 26A boundary fix, so promoting it is an open item."
-resume_from: "Main is 686191e. Batch 26 landed four items, all merged with green CI: 26A closed the profile-id range defect (PR #12), 26B made gofmt a merge precondition and cleared 8 drifted files (PR #13), 26C made the smoke replay assertion test match state instead of the capability gate (PR #14), 26D made the device swipe use the board rect the client publishes (PR #15). THREE CLAIMS IN THE PREVIOUS resume_from WERE WRONG AND ARE NOW CORRECTED: (a) cmd/game/matchmaking.go is already gofmt-clean - the note pointed at the wrong file, the real drift was 8 other files; (b) the device leg has NOT had five consecutive infra failures - the API 33 leg of run 34633614832 passed the focus gate and reached SetGameState isLoading=false, failing only on the WORDS_SWIPE assertion, so the emulator is usable there; (c) the Unity runtime server-endpoint field already exists (WordArenaBootstrap.cs:234, a GUILayout.TextField added in f671506) - what is genuinely missing is persistence and a way to set it without typing on a device. IMMEDIATE NEXT STEP, IN ORDER: (1) Read the result of Unity Android run 34682016206, which was dispatched specifically to verify 26D on a device. If WORDS_SWIPE now appears, the M1 'Claim/Lock/Cross-Steal' and 'build+CI reliability' roadmap rows can move; if it still does not appear while the swipe provably crosses the board, the fault is in the gesture path and must be diagnosed from the logcat artifact rather than blamed on the emulator. (2) API 35 leg follow-ups recorded in M1-batch26d: re-launch with am start when mFocusedApp leaves the package, give 'Application Not Responding: com.android.systemui' its own longer budget, and dismiss ImmersiveModeConfirmation by tap because BACK demonstrably does not work on it. (3) Promote the OCI systemd service from dfb7c1a to current main so the live deployment carries the 26A boundary fix, then re-run infra/smoke.sh and the headless-bot exit gate. (4) The Unity server-endpoint field: add PlayerPrefs persistence and a command-line/env override so automated device runs can point the client without UI interaction. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence. The Arena sandbox has no docker, adb, browser or C# compiler; Go 1.27.1 and 1.24.13 are installed under /home/user/tools and the OCI host is reachable by SSH, so build/test locally, verify live over SSH, and use GitHub CI for containers and devices."
-updated_at: "2026-09-12 (batch 26: 26A/26B/26C/26D landed; two stale resume claims corrected; Android diagnosis replaced with measured evidence)"
+last_commit: "1798b93"
+last_verified_commit: "1798b93 on main. Unity Android run 34683472147 GREEN (build + device smoke; WORDS_SWIPE_SMOKE_OK on a real emulator with KVM). CI + Container smoke green on every batch 26 merge commit. The OCI systemd service still runs dfb7c1a and does NOT carry the batch 26A boundary fix, so promoting it is the top open item."
+resume_from: "Main is 1798b93 and the ANDROID DEVICE LEG IS GREEN for the first time - Unity Android run 34683472147 passed build + device smoke, the API 33 retry leg was skipped because the first leg passed, and the log records WORDS_SWIPE_SMOKE_OK with [WORDS_SWIPE] cells=4 word=DSVT from a real adb input swipe. The decisive fix was batch 26E: the hosted emulator had been booting with -accel off on every run because the kvm group on the runner has no members, so the guest cold-booted in software emulation for 368727-587748 ms and com.android.systemui ANRd - which is exactly the window the focus gate reported as a system window in front. The workflow now opens /dev/kvm before both emulator steps and boot is 31645 ms. FOUR CLAIMS FROM EARLIER STATE FILES ARE NOW RETRACTED, all replaced with measured evidence: (a) cmd/game/matchmaking.go was already gofmt-clean, the real drift was 8 other files, now cleared with a CI gate; (b) the device leg had NOT had five consecutive infra failures - the API 33 leg of run 34633614832 passed the focus gate; (c) the failures were not pool flakiness but our own workflow never enabling KVM; (d) batch 26D premise was wrong - the fallback swipe y=880 lands inside the real board y0=622..y1=1108, so the missing WORDS_SWIPE marker was the missing acceleration, not a swipe that missed. NEXT, IN PRIORITY ORDER: (1) Promote the OCI systemd service from dfb7c1a to current main so the live deployment carries the batch 26A profile-id boundary fix; then re-run infra/smoke.sh and the headless-bot exit gate and record the result. (2) Flip the M1 roadmap rows that the green device leg now supports: Claim/Lock/Cross-Steal and build+CI reliability. (3) The Unity server-endpoint field exists but has no persistence and no non-UI override - add PlayerPrefs persistence plus a command-line/env override so automated device runs can point the client without typing on a screen. (4) The API 35 leg still deserves the 26D follow-ups as defence in depth even though KVM removed the need: re-launch with am start when mFocusedApp leaves the package, and dismiss ImmersiveModeConfirmation by tap since BACK demonstrably does not work on it. (5) Re-run the Unity Android schedule once more to confirm the green leg is repeatable and not a one off. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence. The Arena sandbox has no docker, adb, browser or C# compiler; Go 1.27.1 and 1.24.13 are under /home/user/tools, the OCI host is reachable by SSH, so build and test locally, verify live over SSH, and use GitHub CI for containers and devices."
+updated_at: "2026-09-12 (batch 26 complete 26A-26F; Android device leg green for the first time; KVM root cause found and fixed; one of our own 26D premises retracted)"
