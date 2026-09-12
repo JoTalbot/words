@@ -150,14 +150,54 @@ if [ "$ready" != 1 ]; then
   exit 1
 fi
 echo "client ready: SetGameState isLoading=false"
+
+# Batch 26D: read the board's real position before the buffer is cleared.
+# IMGUI positions the cells at runtime, so the row a swipe has to travel
+# through moves whenever a panel is added above the board; the previous
+# hardcoded y=880 was measured against an older layout, and a swipe that
+# misses the cells produces no marker and reads as a broken input path.
+BOARD_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
+
+rect_field() { printf '%s' "$1" | sed -n "s/.*$2=\(-\{0,1\}[0-9]\{1,\}\).*/\1/p"; }
+
+SWIPE_X0=""; SWIPE_Y=""; SWIPE_X1=""
+if [ -n "$BOARD_LINE" ]; then
+  BX0=$(rect_field "$BOARD_LINE" x0); BY0=$(rect_field "$BOARD_LINE" y0)
+  BX1=$(rect_field "$BOARD_LINE" x1); BY1=$(rect_field "$BOARD_LINE" y1)
+  BCELLS=$(rect_field "$BOARD_LINE" cells); BPERM=$(rect_field "$BOARD_LINE" scale_permille)
+  if [ -n "$BX0" ] && [ -n "$BY0" ] && [ -n "$BX1" ] && [ -n "$BY1" ] \
+     && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ -n "$BPERM" ] && [ "$BPERM" -gt 0 ]; then
+    # The board is a 4-column grid; travel through the middle of its first row.
+    ROWS=$(( (BCELLS + 3) / 4 ))
+    ROW_H=$(( (BY1 - BY0) / ROWS ))
+    # GUI space -> screen pixels through the GUI.matrix scale.
+    SWIPE_X0=$(( BX0 * BPERM / 1000 + 12 ))
+    SWIPE_X1=$(( BX1 * BPERM / 1000 - 12 ))
+    SWIPE_Y=$(( (BY0 + ROW_H / 2) * BPERM / 1000 ))
+    echo "board rect from the client: x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
+    echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
+  else
+    echo "note: WORDS_BOARD_RECT present but unparsable ('$BOARD_LINE'); using the fallback row"
+  fi
+else
+  echo "note: the client logged no WORDS_BOARD_RECT; using the fallback row"
+fi
+
+if [ -z "$SWIPE_Y" ]; then
+  # Fallback for a client built before batch 26D: pixel_2 is 1080x1920 and the
+  # board grid used to render around y=660..1150.
+  SWIPE_X0=100; SWIPE_Y=880; SWIPE_X1=950
+  echo "fallback swipe: y=$SWIPE_Y x=$SWIPE_X0..$SWIPE_X1"
+fi
+
 # Clear after readiness so the assertion below can only see the swipe's output.
 adb logcat -c >/dev/null 2>&1 || true
 
-# pixel_2 is 1080x1920 and the board grid renders around y=660..1150. Drag
-# across a row: the client must resolve a multi-cell path and log WORDS_SWIPE.
+# Drag across a row: the client must resolve a multi-cell path and log
+# WORDS_SWIPE.
 swipe_ok=0
 for i in 1 2 3; do
-  if adb shell input swipe 100 880 950 880 800; then swipe_ok=1; break; fi
+  if adb shell input swipe "$SWIPE_X0" "$SWIPE_Y" "$SWIPE_X1" "$SWIPE_Y" 800; then swipe_ok=1; break; fi
   echo "  swipe attempt $i failed; retrying"; sleep 3
 done
 if [ "$swipe_ok" != 1 ]; then

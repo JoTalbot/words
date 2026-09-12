@@ -1,0 +1,98 @@
+id: M1-batch26d-swipe-uses-real-board-rect
+title: Swipe where the client says the board is, instead of a row measured against an older layout
+owner: qa-infra
+priority: high
+complexity: small
+status: validated_local_pending_unity_build
+risk: medium
+escalation: none
+
+inputs:
+  - tools/android-smoke.sh
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - Unity Android run 34633614832 logs (jobs 103377477294 and 103382470851)
+
+dependencies: []
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (WORDS_BOARD_RECT marker)
+  - tools/android-smoke.sh (swipe coordinates derived from the marker)
+  - .github/workflows/unity-android.yml (preflight pins the marker on both sides)
+  - agent/tasks/M1-batch26d-swipe-uses-real-board-rect.yml
+
+acceptance:
+  - "The client publishes its board bounds once the cell rects are captured."
+  - >-
+    The device smoke swipes inside the published bounds rather than at a
+    hardcoded row, and still works against a client that predates the marker.
+  - "Preflight fails if either half of the marker contract disappears."
+
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - >-
+    The coordinate parsing and math were unit-tested in isolation against three
+    inputs, including a real logcat line with its timestamp/pid prefix and a
+    scale_permille=500 case: 12 cells -> 3 rows, row height 157, swipe y=778
+    x=43..1037; 16 cells -> 4 rows, y=721; and the scaled case correctly halves
+    every screen coordinate.
+  - "The full preflight check list from unity-android.yml passes locally, including the two new marker greps."
+  - "unity-android.yml parses as YAML."
+  - >-
+    WordArenaBootstrap.cs raw brace count stays balanced (287/287 -> 292/292,
+    +5/+5). No C# compiler exists in the Arena sandbox, so the authoritative
+    compile check is the Unity build job; this task is not claiming the C# has
+    been compiled.
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - tools/android-smoke.sh
+  - .github/workflows/unity-android.yml
+  - agent/tasks/M1-batch26d-swipe-uses-real-board-rect.yml
+
+findings: >-
+  The recorded diagnosis for the device leg - "five consecutive infra failures"
+  - is wrong for the API 33 leg, and the two legs fail for different reasons.
+  Read from the run 34633614832 job logs rather than from the state file:
+
+  API 35 (job 103377477294), genuinely infra:
+    boot took 587748 ms (~9.8 min); cold start TotalTime 19430 ms; focus attempts
+    1-2 saw mCurrentFocus=ImmersiveModeConfirmation, attempts 3-6 saw
+    "Application Not Responding: com.android.systemui" with mFocusedApp moving to
+    launcher3/QuickstepLauncher. The script already sends BACK twice per attempt
+    (lines 111-112) and it does not dismiss ImmersiveModeConfirmation. Once the
+    activity is backgrounded behind the launcher it cannot regain focus on its
+    own, and the loop never re-launches it. Exit 8.
+
+  API 33 (job 103382470851), NOT infra:
+    boot 368727 ms, cold start 7482 ms, and
+    mCurrentFocus=Window{... com.jotalbot.words/com.unity3d.player.UnityPlayerActivity}
+    - the focus gate PASSED. The client reached
+    "client ready: SetGameState isLoading=false" and a screenshot was captured.
+    The failure is "FAIL: no WORDS_SWIPE marker in logcat after a real swipe",
+    with an empty unity/app section afterwards. Exit 1.
+
+  So the API 33 emulator is usable and the gesture assertion itself is failing.
+  The smoke script swiped a hardcoded row (100,880 -> 950,880) with the comment
+  "pixel_2 is 1080x1920 and the board grid renders around y=660..1150", measured
+  when batch 17E landed. Since then batches 17A/17C added queue-summary and
+  Sudden Death rows above the board. DrawBoard positions the cells through
+  GUILayoutUtility.GetLastRect() at runtime, so the board moved and the swipe
+  now travels through empty space: no cells, no marker.
+
+  Ruled out by evidence rather than assumed: the resolution is not wrong. The
+  job log records "profile: pixel_2", "Hardware profile: pixel_2" and
+  "androidboot.qemu.skin=1080x1920", and GUI.matrix scale is
+  min(1080/1080, 1920/1920) = 1.0, so GUI space equals screen pixels on this
+  device. Pinning avd-profile would have changed nothing.
+
+follow_ups:
+  - >-
+    API 35 leg: add an explicit re-launch (am start) when mFocusedApp leaves the
+    package, and treat "Application Not Responding: com.android.systemui" as a
+    distinct, longer-budget condition instead of lumping it into the same six
+    attempts. Also consider dismissing ImmersiveModeConfirmation by tap rather
+    than BACK, since BACK demonstrably does not work on it.
+  - >-
+    If WORDS_SWIPE still does not appear once the swipe provably crosses the
+    board, the fault is in the gesture path itself and should be diagnosed from
+    the logcat artifact, not attributed to the emulator.

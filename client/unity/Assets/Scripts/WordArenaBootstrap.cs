@@ -36,6 +36,7 @@ namespace Words.Client
         private readonly List<int> dragPath = new List<int>();
         private bool dragActive;
         private bool boardRectsValid;
+        private bool boardRectLogged;
         private float boardScale = 1f;
 
         // Batch 16 production result presentation overlay state.
@@ -308,7 +309,56 @@ namespace Words.Client
                 boardCellRects.Clear();
                 boardCellRects.AddRange(captured);
                 boardRectsValid = true;
+                LogBoardRectOnce();
             }
+        }
+
+        // Batch 26D: publish where the board actually is. IMGUI lays the cells
+        // out at runtime, so their position moves every time a panel is added
+        // above them; the device smoke used a hardcoded swipe row measured
+        // against an older layout, and a swipe that misses the board produces
+        // no marker and reads as a broken input path. The rect is logged in the
+        // same GUI space HandleBoardGesture hit-tests in, together with the
+        // GUI.matrix scale as an integer permille so a caller can convert to
+        // screen pixels without depending on any float formatting culture.
+        private void LogBoardRectOnce()
+        {
+            if (boardRectLogged)
+            {
+                return;
+            }
+
+            var minX = float.MaxValue;
+            var minY = float.MaxValue;
+            var maxX = float.MinValue;
+            var maxY = float.MinValue;
+            var found = false;
+            foreach (var r in boardCellRects)
+            {
+                if (r.width <= 0f || r.height <= 0f)
+                {
+                    continue;
+                }
+
+                found = true;
+                minX = Mathf.Min(minX, r.xMin);
+                minY = Mathf.Min(minY, r.yMin);
+                maxX = Mathf.Max(maxX, r.xMax);
+                maxY = Mathf.Max(maxY, r.yMax);
+            }
+
+            if (!found)
+            {
+                return;
+            }
+
+            boardRectLogged = true;
+            Debug.Log("[WORDS_BOARD_RECT] x0=" + Mathf.RoundToInt(minX)
+                + " y0=" + Mathf.RoundToInt(minY)
+                + " x1=" + Mathf.RoundToInt(maxX)
+                + " y1=" + Mathf.RoundToInt(maxY)
+                + " cells=" + cells.Count
+                + " scale_permille=" + Mathf.RoundToInt(boardScale * 1000f));
         }
 
         // Batch 16 gesture path: drag/swipe multi-cell selection. IMGUI
