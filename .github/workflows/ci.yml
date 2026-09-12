@@ -56,6 +56,22 @@ jobs:
         with:
           go-version: '1.24'
           cache: true
+      - name: gofmt
+        working-directory: server
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Formatting is a merge precondition, not a taste: 8 files had
+          # drifted with no gate to catch it, and a reviewer reading a diff
+          # that is mostly realignment cannot see the actual change.
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed for:"
+            echo "$unformatted"
+            echo
+            echo "run: gofmt -w <files>"
+            exit 1
+          fi
       - run: go vet ./...
         working-directory: server
       - run: go test ./...

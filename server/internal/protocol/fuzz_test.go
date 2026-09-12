@@ -47,7 +47,7 @@ func seedClientEnvelopeCorpus() [][]byte {
 		{0xff, 0xff, 0xff, 0xff, 0xff},
 		validSubmitEnvelopeBytes(1, 1, 0, 1, 2),
 		validSubmitEnvelopeBytes(7, 3, 0, 1, 2, 3, 4, 5),
-		validSubmitEnvelopeBytes(1, 0),                       // empty path
+		validSubmitEnvelopeBytes(1, 0),                         // empty path
 		validSubmitEnvelopeBytes(1, 9, 0xFFFFFFFF, 0x80000000), // large indices
 		// A resume payload instead of a submit.
 		func() []byte {

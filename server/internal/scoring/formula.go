@@ -6,10 +6,10 @@ import "github.com/JoTalbot/words/server/internal/dictionary"
 // concern; scoring only consumes the derived combo value.
 const (
 	// MinWordLength is enforced by the rules layer; scoring assumes ≥ 1.
-	LengthBonusAt5    = 5
-	LengthBonusAt7    = 12
-	ComboCap          = 5
-	ComboStep         = 0.25
+	LengthBonusAt5        = 5
+	LengthBonusAt7        = 12
+	ComboCap              = 5
+	ComboStep             = 0.25
 	ComboResetWindowTicks = 300
 )
 

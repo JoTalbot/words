@@ -2,7 +2,6 @@ package matchroom
 
 import (
 	"testing"
-
 )
 
 // TestSubmitWithSeques echoes the client intent sequence in the event

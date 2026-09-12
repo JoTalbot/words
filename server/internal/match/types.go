@@ -51,10 +51,10 @@ const (
 
 // Cell is one board cell.
 type Cell struct {
-	ID      int
-	Letter  rune
-	Owner   Seat // valid when state != CellFree
-	State   CellState
+	ID                 int
+	Letter             rune
+	Owner              Seat // valid when state != CellFree
+	State              CellState
 	LockRemainingTicks int
 	// CreditedValue is the score amount recorded for this cell at its last
 	// claim; a cross-steal debits it from the previous owner.
@@ -74,26 +74,26 @@ const (
 
 // PlayerState is the mutable per-player competitive state.
 type PlayerState struct {
-	Seat         Seat
-	Score        int64
-	Combo        int   // consecutive accepted words (0 = none yet)
+	Seat           Seat
+	Score          int64
+	Combo          int // consecutive accepted words (0 = none yet)
 	LastAcceptTick int // tick of last accepted word
 }
 
 // Event is one immutable log record (accepted or rejected intent).
 type Event struct {
-	Seq           int    // 1-based event sequence in the log
-	Tick          int    // simulation tick at handling time
-	Seat          Seat
-	CellIDs       []int  // word path in board order
-	Word          string // normalized letters along the path
-	Result        WordResult
+	Seq              int // 1-based event sequence in the log
+	Tick             int // simulation tick at handling time
+	Seat             Seat
+	CellIDs          []int  // word path in board order
+	Word             string // normalized letters along the path
+	Result           WordResult
 	WordResultString string
-	ScoreAdded    int64
-	TotalScore    int64
-	ComboMult     float64
-	IsSteal       bool
-	StateVersion  int
+	ScoreAdded       int64
+	TotalScore       int64
+	ComboMult        float64
+	IsSteal          bool
+	StateVersion     int
 }
 
 // Snapshot is the canonical public state view at a tick.
@@ -107,7 +107,7 @@ type Snapshot struct {
 	StateVersion    int
 	// Phase is "active" | "sudden_death" | "over". Sudden Death is only
 	// reachable when the match was created with Config.SuddenDeath.
-	Phase   string
+	Phase string
 	// SuddenDeath reports whether the match is currently in its tiebreak
 	// wave (first accepted word wins, see docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
@@ -117,21 +117,21 @@ type Snapshot struct {
 
 // PlayerView is a snapshot of one player's competitive state.
 type PlayerView struct {
-	Seat          Seat
-	Score         int64
-	RankPosition  int
-	IsEliminated  bool
-	Combo         int
-	ComboMult     float64
+	Seat         Seat
+	Score        int64
+	RankPosition int
+	IsEliminated bool
+	Combo        int
+	ComboMult    float64
 }
 
 // CellView is the client-facing cell state.
 type CellView struct {
-	ID                int
-	Letter            string
-	OwnerSeat         int // -1 when free
-	IsLocked          bool
-	LockRemainingMs   int
+	ID              int
+	Letter          string
+	OwnerSeat       int // -1 when free
+	IsLocked        bool
+	LockRemainingMs int
 }
 
 // RankResult describes the final outcome.
