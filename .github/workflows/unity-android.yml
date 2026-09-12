@@ -292,6 +292,30 @@ jobs:
           name: words-android-${{ needs.setup.outputs.build_type }}
           path: artifact
 
+      - name: Enable KVM hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Batch 26E: every hosted-emulator run so far has booted with
+          # "-accel off". The logs show why:
+          #   ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)
+          #   The KVM line in /etc/group is: [kvm:x:993:]
+          #   Disabling Linux hardware acceleration.
+          # so the x86_64 system image cold-boots in pure software emulation -
+          # 368727, 373647, 441757 and 587748 ms across four runs - and
+          # com.android.systemui ANRs under the load, which is what the focus
+          # gate has been reporting as "a system window stayed in front". The
+          # kvm group exists but has no members. Group membership does not apply
+          # to the current shell, so the device node is opened directly, which
+          # is the fix the emulator's own diagnostic prints.
+          if [ -e /dev/kvm ]; then
+            sudo chown -R "$USER" /dev/kvm
+            sudo chmod 666 /dev/kvm
+            echo "/dev/kvm:"; ls -l /dev/kvm
+          else
+            echo "::warning::/dev/kvm is absent on this runner; the emulator will stay in software emulation"
+          fi
+
       - name: Install and launch on hosted emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -343,6 +367,30 @@ jobs:
         with:
           name: words-android-${{ needs.setup.outputs.build_type }}
           path: artifact
+
+      - name: Enable KVM hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Batch 26E: every hosted-emulator run so far has booted with
+          # "-accel off". The logs show why:
+          #   ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)
+          #   The KVM line in /etc/group is: [kvm:x:993:]
+          #   Disabling Linux hardware acceleration.
+          # so the x86_64 system image cold-boots in pure software emulation -
+          # 368727, 373647, 441757 and 587748 ms across four runs - and
+          # com.android.systemui ANRs under the load, which is what the focus
+          # gate has been reporting as "a system window stayed in front". The
+          # kvm group exists but has no members. Group membership does not apply
+          # to the current shell, so the device node is opened directly, which
+          # is the fix the emulator's own diagnostic prints.
+          if [ -e /dev/kvm ]; then
+            sudo chown -R "$USER" /dev/kvm
+            sudo chmod 666 /dev/kvm
+            echo "/dev/kvm:"; ls -l /dev/kvm
+          else
+            echo "::warning::/dev/kvm is absent on this runner; the emulator will stay in software emulation"
+          fi
 
       - name: Install and launch on hosted emulator
         uses: reactivecircus/android-emulator-runner@v2
