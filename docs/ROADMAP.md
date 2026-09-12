@@ -101,10 +101,10 @@ Counts below are task-level evidence from `agent/state/current.yml` and
 | telemetry baseline | done | — |
 | player profile + durable storage | done | identity/auth layer is M2 scope |
 | shared board UX | in progress | richer rollback animation, production UI |
-| Claim / Lock / Cross-Steal | in progress | gesture polish; device-level swipe smoke pending a stable hosted emulator (21B) |
+| Claim / Lock / Cross-Steal | in progress | gesture polish; the device swipe now targets the board rect the client publishes (batch 26D) and awaits its first device run |
 | combo and Sudden Death | in presentation polish | nothing server-side |
-| security / protocol robustness | done for M1 scope | — (finding S-2 closed 2026-09-11 by `M1-batch21g-match-codes`, verified live with the gate enabled) |
-| build + CI reliability | in progress | the device leg has never been green (5 consecutive infra fails); the focus gate that mis-reported those runs is fixed by 23B but has not had a clean device run to prove it |
+| security / protocol robustness | done for M1 scope | — (finding S-2 closed 2026-09-11 by `M1-batch21g-match-codes`, verified live with the gate enabled; profile-id boundary validation closed 2026-09-12 by `M1-batch26a-profile-id-range`) |
+| build + CI reliability | in progress | diagnosis corrected 2026-09-12: the API 33 leg of run 34633614832 passed the focus gate and reached `SetGameState isLoading=false`, so the emulator is usable there and the real failure was the swipe missing the board, not infra; the API 35 leg is genuinely infra (9.8 min boot, systemui ANR). `gofmt` is now a merge precondition (batch 26B) |
 
 Verified live on 2026-09-10 against an isolated build of `c2079e8`: queue
 exit gate 6/6 PASS, direct control 3/3 PASS with baseline scores

@@ -1,7 +1,55 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batches_23A_23B_24_25_merged; security_finding_S2_closed_and_verified_live; oci_on_main_with_read_capability_gate_enabled
+status: m1_vertical_slice_advancing; batch_26_landed_26A_26B_26C_merged_and_26D_merged_pending_device_verification; stale_resume_claims_corrected; oci_on_main_with_read_capability_gate_enabled
 completed_tasks:
+  - >-
+    Batch 26A (M1 security/boundary): closed the profile-id range defect. players.id is
+    BIGSERIAL (signed 64-bit) while player ids arrive as JSON uint64, so an id with the top
+    bit set could never exist but three handlers passed it straight to the store:
+    POST /v1/matches (player_ids) and POST /v1/queue (player_id) both answered 500
+    "profile store error" for a malformed request, and parseID had no overflow guard at all,
+    so it silently wrapped - measured on the unguarded parser, parseID("18446744073709551621")
+    returned 5 and parseID("18446744073709551617") returned 1, both with no error, meaning a
+    caller could read a profile whose id it never held by sending 2^64+n. parseID now rejects
+    overflow and profileIDInRange is the single place the bound is decided. Verified A/B
+    against real Postgres on OCI in a throwaway database: pre-fix 500 on both POST paths,
+    post-fix 400 on both. go test 12/12, -race clean, 16 subtests, failure reproduced before
+    the fix (PR #12, f9d4b4a)
+  - >-
+    Batch 26B (hygiene/CI): gofmt is now a merge precondition. Nothing in CI checked
+    formatting, so gofmt -l flagged 8 drifted files on main. git diff -w leaves only two
+    hunks, both semantically identical (fp.addU64 expanded from a semicolon one-liner, a
+    stray blank line dropped in an import block); fp.go is on the deterministic fingerprint
+    path so it was re-validated against the golden and byte-stability tests rather than
+    assumed safe. Cross-checked that gofmt 1.24.13 (what CI installs) and 1.27.1 both report
+    0 files, so the gate cannot fail on a formatter version difference (PR #13, a4b0de8)
+  - >-
+    Batch 26C (test correctness): the smoke replay assertion was vacuous since batch 25.
+    With WORDARENA_REQUIRE_READ_CAPABILITY=true - how the service is deployed - resolveMatchRef
+    refuses every numeric ref outright, so "GET /v1/matches/{id}/replay is 404 while the match
+    is active" passed because the id form is refused, not because the match was active; a
+    regression serving a partial event log would have left it green. It now goes through the
+    match code with the read capability, which is meaningful under both gate settings.
+    Discrimination proved live on OCI rather than assumed: active code+cap 404, finished
+    code+cap 200 through the same route shape, finished wrong-cap 401. Count-neutral at 26/0
+    bare and 27/0 with SMOKE_EXPECT_STORAGE=postgres, matching the recorded batch 25 evidence
+    (PR #14, bfed583)
+  - >-
+    Batch 26D (Android device leg): corrected the recorded diagnosis and fixed the actual
+    cause. The state file said "five consecutive infra failures"; the two legs of run
+    34633614832 fail for different reasons. API 35 (job 103377477294) is genuinely infra:
+    boot 587748 ms, cold start 19430 ms, ImmersiveModeConfirmation then
+    "Application Not Responding: com.android.systemui", mFocusedApp moving to the launcher.
+    API 33 (job 103382470851) is NOT infra: mCurrentFocus was our own UnityPlayerActivity so
+    the focus gate PASSED, the client reached SetGameState isLoading=false, a screenshot was
+    captured, and the failure was "no WORDS_SWIPE marker in logcat after a real swipe". The
+    script swiped a hardcoded row 100,880 -> 950,880 measured when batch 17E landed; batches
+    17A/17C have since added rows above the board and DrawBoard positions cells at runtime,
+    so the swipe now crosses empty space. Ruled out with evidence: the resolution is correct
+    (log records profile: pixel_2 and androidboot.qemu.skin=1080x1920, GUI.matrix scale 1.0),
+    so pinning avd-profile would have changed nothing. The client now logs WORDS_BOARD_RECT
+    and the script swipes inside it, with the preflight pinning both halves (PR #15, 686191e).
+    NOT yet verified on a device - Unity Android run 34682016206 dispatched to prove it
   - >-
     Batch 25 (M1 security): closed docs/SECURITY-REVIEW-M1.md finding S-2. GET
     /v1/matches/{id}/result and /replay were unauthenticated and keyed by a monotonic
@@ -842,7 +890,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "dfb7c1a"
-last_verified_commit: "dfb7c1a promoted to the OCI systemd service with WORDARENA_REQUIRE_READ_CAPABILITY=true and verified live; 4a99e82 on main (CI + container-smoke green); 5653210 promoted to the OCI systemd service and re-verified live (exit gate 6/6, smoke 23/0, 8/8 results persisted, 0 result_store_error); CI #126/#128 and container-smoke #21/#22/#23 green"
-resume_from: "Main is dfb7c1a and the OCI systemd service runs it with WORDARENA_REQUIRE_READ_CAPABILITY=true. Batch 25 (PR #11) closed security finding S-2: result and replay were unauthenticated and keyed by a monotonic counter, so a loop read every finished match. createRoom now issues a 128-bit match code and a 128-bit read capability per match from crypto/rand, migration 003 stores both with the result, and the hardened deployment refuses the sequential-id form with 404 and requires the capability on the code form. Verified live: a numeric id returns 404 even with a valid capability, a 20-id sequential sweep returned zero 200s, code+wrong capability is 401, code+capability is 200 via header and via ?cap=, and the capability never appears in the result body. smoke 27/0, exit gate 6/6 PASS with baseline scores, 7/7 finished matches persisted, 0 result_store_error. Next, in priority order: (1) the Unity runtime server-endpoint field. (2) 23A follow-ups: reject a client-supplied player_ids entry above MaxInt64 with 400 instead of reaching the pgx encoder, and make cmd/game/matchmaking.go gofmt-clean. (3) infra/smoke.sh: with the gate on, the check 'GET /v1/matches/{id}/replay is 404 while the match is active' is now vacuous - it passes because the id form is refused, not because the match is active - so it should assert on the code form instead. (4) The Android device leg still has never been green: five consecutive infra failures; 23B fixed the gate that mis-reported those runs but has had no clean device run to prove it, and no authorized device-farm credential is available here. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence."
-updated_at: "2026-09-11 (batch 25: S-2 closed, deployed and verified live with the gate on)"
+last_commit: "686191e"
+last_verified_commit: "686191e on main (CI + Container smoke green on 686191e5; PRs #12/#13/#14/#15 all green before merge). The OCI systemd service still runs dfb7c1a - functionally the same gameplay code, but it does NOT yet carry the batch 26A boundary fix, so promoting it is an open item."
+resume_from: "Main is 686191e. Batch 26 landed four items, all merged with green CI: 26A closed the profile-id range defect (PR #12), 26B made gofmt a merge precondition and cleared 8 drifted files (PR #13), 26C made the smoke replay assertion test match state instead of the capability gate (PR #14), 26D made the device swipe use the board rect the client publishes (PR #15). THREE CLAIMS IN THE PREVIOUS resume_from WERE WRONG AND ARE NOW CORRECTED: (a) cmd/game/matchmaking.go is already gofmt-clean - the note pointed at the wrong file, the real drift was 8 other files; (b) the device leg has NOT had five consecutive infra failures - the API 33 leg of run 34633614832 passed the focus gate and reached SetGameState isLoading=false, failing only on the WORDS_SWIPE assertion, so the emulator is usable there; (c) the Unity runtime server-endpoint field already exists (WordArenaBootstrap.cs:234, a GUILayout.TextField added in f671506) - what is genuinely missing is persistence and a way to set it without typing on a device. IMMEDIATE NEXT STEP, IN ORDER: (1) Read the result of Unity Android run 34682016206, which was dispatched specifically to verify 26D on a device. If WORDS_SWIPE now appears, the M1 'Claim/Lock/Cross-Steal' and 'build+CI reliability' roadmap rows can move; if it still does not appear while the swipe provably crosses the board, the fault is in the gesture path and must be diagnosed from the logcat artifact rather than blamed on the emulator. (2) API 35 leg follow-ups recorded in M1-batch26d: re-launch with am start when mFocusedApp leaves the package, give 'Application Not Responding: com.android.systemui' its own longer budget, and dismiss ImmersiveModeConfirmation by tap because BACK demonstrably does not work on it. (3) Promote the OCI systemd service from dfb7c1a to current main so the live deployment carries the 26A boundary fix, then re-run infra/smoke.sh and the headless-bot exit gate. (4) The Unity server-endpoint field: add PlayerPrefs persistence and a command-line/env override so automated device runs can point the client without UI interaction. Two human blockers stay open: the B2 uk dictionary licence review and the Q8 edge/TLS exposure decision. Do not redo the verified items in completed_tasks - reuse their evidence. The Arena sandbox has no docker, adb, browser or C# compiler; Go 1.27.1 and 1.24.13 are installed under /home/user/tools and the OCI host is reachable by SSH, so build/test locally, verify live over SSH, and use GitHub CI for containers and devices."
+updated_at: "2026-09-12 (batch 26: 26A/26B/26C/26D landed; two stale resume claims corrected; Android diagnosis replaced with measured evidence)"
