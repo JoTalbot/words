@@ -145,31 +145,23 @@ namespace Words.Client
 
         // Batch 27B: endpoint resolution with an explicit, documented
         // precedence so an automated run never has to type in the UI:
-        //   1. -wordsServerUrl <url>  (Application.arguments; editor/launcher)
-        //   2. WORDARENA_SERVER_URL   (environment)
-        //   3. <persistentDataPath>/server_url.txt (adb push + run-as on
+        //   1. WORDARENA_SERVER_URL   (environment; desktop/editor)
+        //   2. <persistentDataPath>/server_url.txt (adb push + run-as on
         //      scoped-storage APIs; the file channel a debug-build device
-        //      smoke can write without a root)
-        //   4. PlayerPrefs "words.server_url" (what the UI field persists)
-        //   5. the loopback default
+        //      smoke can write without a root - the practical Android
+        //      automation path, since app processes do not receive extra
+        //      environment variables from `am start`)
+        //   3. PlayerPrefs "words.server_url" (what the UI field persists)
+        //   4. the loopback default
+        // Unity 6 notes (measured on CI, run 34763722090): Unity's
+        // netstandard shim has no Application.arguments property, and
+        // Environment.GetEnvironmentVariable returns ReadOnlySpan<char>
+        // there - .ToString() is the one form that compiles against both
+        // the shim and the BCL.
         private static void ResolveServerUrl(out string url, out string source)
         {
             const string DefaultUrl = "http://127.0.0.1:18080";
-            for (var i = 0; i + 1 < Application.arguments.Length; i++)
-            {
-                if (Application.arguments[i] == "-wordsServerUrl")
-                {
-                    var candidate = Application.arguments[i + 1].Trim();
-                    if (candidate.Length > 0)
-                    {
-                        url = candidate;
-                        source = "arguments";
-                        return;
-                    }
-                }
-            }
-
-            var fromEnv = Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL");
+            var fromEnv = Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL").ToString();
             if (!string.IsNullOrWhiteSpace(fromEnv))
             {
                 url = fromEnv.Trim();

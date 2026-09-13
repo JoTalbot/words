@@ -3,7 +3,7 @@ title: Persist the Unity server endpoint and allow non-UI override for automated
 owner: unity-client
 priority: high
 complexity: small
-status: validated_static_pending_ci
+status: validated_static_pending_ci_unity6_compile_fix
 risk: low
 escalation: none
 
@@ -21,9 +21,11 @@ outputs:
 acceptance:
   - >-
     Endpoint resolution runs at startup with the documented precedence:
-    -wordsServerUrl <url> argument, WORDARENA_SERVER_URL environment,
-    <persistentDataPath>/server_url.txt file, PlayerPrefs words.server_url,
-    then the loopback default.
+    WORDARENA_SERVER_URL environment, <persistentDataPath>/server_url.txt
+    file, PlayerPrefs words.server_url, then the loopback default. (The
+    -wordsServerUrl argument channel from the original design was removed in
+    the Unity 6 compile fix: Unity's netstandard shim has no
+    Application.arguments property.)
   - "A value typed into the Server field is persisted to PlayerPrefs and restored on the next launch."
   - "Startup logs [WORDS_SERVER] url=... source=... so a device smoke can verify which channel won without reading preferences."
   - "A broken/missing file channel degrades to the next candidate instead of preventing startup."
