@@ -3,7 +3,7 @@ title: Multi-row diagonal swipe gesture verified by the device smoke
 owner: unity-client
 priority: low
 complexity: small
-status: validated_static_pending_ci
+status: verified_device
 risk: low
 escalation: none
 

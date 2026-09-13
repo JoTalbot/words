@@ -3,7 +3,7 @@ title: Persist the Unity server endpoint and allow non-UI override for automated
 owner: unity-client
 priority: high
 complexity: small
-status: validated_static_pending_ci_unity6_compile_fix
+status: verified_device
 risk: low
 escalation: none
 

@@ -3,7 +3,7 @@ title: Capture startup logcat + exception stacks and re-gate focus before the sw
 owner: qa-infra
 priority: critical
 complexity: small
-status: validated_static_pending_ci
+status: verified_paid_off
 risk: low
 escalation: none
 

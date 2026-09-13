@@ -3,7 +3,7 @@ title: Force a proven window-focus cycle before the device swipe so Unity's inpu
 owner: device-automation
 priority: high
 complexity: small
-status: validated_local_pending_unity_build
+status: verified_device
 risk: low
 escalation: none
 

@@ -3,7 +3,7 @@ title: Make the device-leg swipe use real screen coordinates and recover stolen 
 owner: qa-infra
 priority: critical
 complexity: small
-status: validated_static_pending_ci
+status: verified_device
 risk: low
 escalation: none
 

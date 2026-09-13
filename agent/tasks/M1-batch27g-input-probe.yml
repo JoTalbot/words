@@ -3,7 +3,7 @@ title: Probe board input arrival end-to-end and give the swipe a discrete multi-
 owner: device-automation
 priority: high
 complexity: small
-status: validated_local_pending_unity_build
+status: verified_paid_off
 risk: low
 escalation: none
 

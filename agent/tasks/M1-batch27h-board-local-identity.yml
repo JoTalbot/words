@@ -3,7 +3,7 @@ title: Stop double-subtracting the 40 px area inset in the board hit test (Board
 owner: unity-client
 priority: critical
 complexity: small
-status: validated_local_pending_unity_build
+status: verified_device
 risk: low
 escalation: none
 
