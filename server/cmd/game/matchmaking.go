@@ -17,7 +17,10 @@ const queueTTL = 2 * time.Minute
 // transport/room details (it is injected by the API). playerIDs, when
 // non-nil, binds seats to registered profiles; a zero entry means the seat
 // stays synthetic (anonymous).
-type createRoomFn func(lang string, playerIDs *[2]uint64) (id uint64, seed uint64, tokens [2]string, userIDs [2]uint64, access matchAccess, err error)
+// Batch 30C: playerIDs is seat-indexed and its LENGTH is the roster size, so
+// the same matchmaker forms 1v1 matches and larger lobbies. A zero entry
+// means that seat stays synthetic (anonymous).
+type createRoomFn func(lang string, playerIDs []uint64) (roomInfo, error)
 
 // queueEntry is one waiting player and, once matched, their join info.
 type queueEntry struct {
@@ -47,13 +50,29 @@ type matchmaker struct {
 	ttl     time.Duration
 	waiting map[string][]*queueEntry // language -> FIFO
 	entries map[string]*queueEntry   // id -> entry
+	// seats is the roster size this matchmaker forms (batch 30C). It stays
+	// 2 - the 1v1 vertical slice - until a Royale mode is switched on; the
+	// pairing loop itself is written for any N so there is no second
+	// matchmaker to keep in sync.
+	seats int
 }
 
 func newMatchmaker() *matchmaker {
+	return newMatchmakerWithSeats(2)
+}
+
+// newMatchmakerWithSeats builds a matchmaker that forms matches of the given
+// roster size. Values below 2 are clamped to 2: a "match" of one player is
+// not a match.
+func newMatchmakerWithSeats(seats int) *matchmaker {
+	if seats < 2 {
+		seats = 2
+	}
 	return &matchmaker{
 		ttl:     queueTTL,
 		waiting: map[string][]*queueEntry{},
 		entries: map[string]*queueEntry{},
+		seats:   seats,
 	}
 }
 
@@ -117,33 +136,48 @@ func (mm *matchmaker) poll(id string) (*queueEntry, bool) {
 	return e, true
 }
 
-// pairLocked pairs queued players of one language while at least two wait.
-// If room creation fails (capacity), pairing stops until the next enqueue.
-// Seats keep FIFO order (a -> seat 0, b -> seat 1); profile ids bind only
-// the seats that supplied them.
+// pairLocked forms matches of mm.seats players of one language while that
+// many wait. If room creation fails (capacity), pairing stops until the next
+// enqueue. Seats keep FIFO order (first enqueue -> seat 0); profile ids bind
+// only the seats that supplied them.
 func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
+	seats := mm.seats
+	if seats < 2 {
+		seats = 2
+	}
 	for {
 		q := mm.waiting[lang]
-		if len(q) < 2 {
+		if len(q) < seats {
 			return
 		}
-		a, b := q[0], q[1]
-		var pids *[2]uint64
-		if a.PlayerID != 0 || b.PlayerID != 0 {
-			pids = &[2]uint64{a.PlayerID, b.PlayerID}
+		group := q[:seats]
+		// playerIDs is always seats long: its length tells the room factory
+		// the roster size, and a zero entry keeps that seat anonymous.
+		pids := make([]uint64, seats)
+		for i, e := range group {
+			pids[i] = e.PlayerID
 		}
-		id, seed, tokens, userIDs, access, err := create(lang, pids)
+		info, err := create(lang, pids)
 		if err != nil {
 			return
 		}
-		a.Status, a.MatchID, a.Seed, a.Token, a.UserID = "matched", id, seed, tokens[0], userIDs[0]
-		b.Status, b.MatchID, b.Seed, b.Token, b.UserID = "matched", id, seed, tokens[1], userIDs[1]
-		// Both seats get the same pair: the code identifies the match and the
-		// capability authorises reading its outcome, which is shared knowledge
-		// between the two players by definition.
-		a.MatchCode, a.ReadCapability = access.Code, access.ReadCap
-		b.MatchCode, b.ReadCapability = access.Code, access.ReadCap
-		mm.waiting[lang] = q[2:]
+		if len(info.Tokens) < seats || len(info.UserIDs) < seats {
+			// The factory returned a smaller roster than requested. Leave the
+			// players queued rather than handing out seats that do not exist.
+			return
+		}
+		for i, e := range group {
+			e.Status = "matched"
+			e.MatchID = info.ID
+			e.Seed = info.Seed
+			e.Token = info.Tokens[i]
+			e.UserID = info.UserIDs[i]
+			// Every seat gets the same handle pair: the code identifies the
+			// match and the capability authorises reading its outcome, which
+			// is shared knowledge between its players by definition.
+			e.MatchCode, e.ReadCapability = info.Access.Code, info.Access.ReadCap
+		}
+		mm.waiting[lang] = q[seats:]
 	}
 }
 

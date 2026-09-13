@@ -1,0 +1,62 @@
+id: M2-batch30c-nway-room-matchmaker
+title: N-way room provisioning and lobby admission
+owner: gameplay-core
+priority: high
+complexity: medium
+status: in_review
+risk: medium
+escalation: none
+
+inputs:
+  - M2-batch30a-variable-roster (seat-count-agnostic simulation)
+  - M2-batch30b-roster-room (roster-shaped room and wire conversion)
+  - server/cmd/game/api.go
+  - server/cmd/game/matchmaking.go
+
+outputs:
+  - server/cmd/game/api.go (roomInfo, createRoomN, createRoom as a 1v1 wrapper)
+  - server/cmd/game/matchmaking.go (createRoomFn takes a player-id slice; matchmaker.seats, newMatchmakerWithSeats)
+  - server/cmd/game/matchmaking_test.go (three factory literals updated)
+  - server/cmd/game/roster_admission_test.go (new, 7 tests)
+
+acceptance:
+  - >-
+    Room provisioning is roster-shaped: createRoomN mints one token and one
+    non-zero user id per seat, validates seats against match.MinSeats/MaxSeats
+    before allocating anything, and rejects more player_ids than seats instead
+    of truncating the roster.
+  - >-
+    The 1v1 path is byte-identical to before: the generalized synthetic id
+    formula matchID*seats+seatIndex+1 reduces to the old id*2+1 / id*2+2, so no
+    stored match result or connected client changes meaning. createRoom remains
+    as a two-seat wrapper and no existing caller was touched.
+  - >-
+    Admission is roster-shaped: a matchmaker built with newMatchmakerWithSeats(n)
+    forms exactly one match once n players are queued, assigns tokens and user
+    ids in FIFO seat order, and shares the match code and read capability across
+    all seats. The default newMatchmaker stays at 2 seats, and a roster below 2
+    is clamped rather than accepted.
+  - >-
+    A room factory that returns fewer credentials than requested leaves every
+    player queued instead of seating them on credentials that do not exist.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./cmd/game ./internal/matchroom : ok"
+  - "7 new tests in server/cmd/game/roster_admission_test.go"
+
+file_ownership:
+  - server/cmd/game/api.go
+  - server/cmd/game/matchmaking.go
+  - server/cmd/game/matchmaking_test.go
+  - server/cmd/game/roster_admission_test.go
+
+notes: >-
+  The whole server stack is now seat-count-agnostic from the simulation up to
+  queue admission; what remains for a real 60-player mode are the two PRODUCT
+  decisions, not engineering: the elimination rule (match.IsEliminated is still
+  always false) and board sizing for a large roster (CellsPerWave is still 12,
+  sized for two players). No HTTP endpoint exposes a seats parameter yet - that
+  is deliberate, since a public knob without those two decisions would ship an
+  unplayable mode.
