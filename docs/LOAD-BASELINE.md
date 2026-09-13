@@ -63,3 +63,36 @@ optimization.
   measured blocker so far (per-match work is O(12 cells) per tick).
 - Word validation is a hash lookup after normalization: benchmark in
   `internal/dictionary` when shipping full-size dictionaries.
+
+## Roster scaling (M2 batch 30F, measured 2026-09-14)
+
+Measured by `TestRosterLoadBaseline` in `server/internal/match` on the dev
+sandbox (2 logical CPUs), one match per row, one core, 3 000 ticks and 2 000
+snapshots each:
+
+| Seats | Tick | Snapshot | Realtime headroom (1 core) |
+|---|---|---|---|
+| 2 | ~68 ns | ~2.2 µs | x488 000 |
+| 8 | ~38 ns | ~2.2 µs | x881 000 |
+| 16 | ~29 ns | ~2.4 µs | x1 157 000 |
+| 30 | ~108 ns | ~3.8 µs | x309 000 |
+| 60 | ~102 ns | ~6.5 µs | x325 000 |
+
+Reading:
+
+- **Tick cost does not scale with the roster.** It stays in the tens of
+  nanoseconds and is dominated by the 12-cell board, exactly as the
+  board-sized design predicts; the 2-vs-16-seat ordering inverts because the
+  numbers are below the noise floor of a shared 2-CPU sandbox.
+- **Snapshot cost does scale with the roster**, roughly 3x from 2 to 60 seats,
+  because a snapshot renders every player. At 30 Hz a 60-seat match spends
+  ~0.2 ms/s rendering snapshots, so it is not a bottleneck either - but it is
+  the term that grows, and it is per-subscriber fan-out (not this measurement)
+  that will dominate a Royale match: 60 subscribers each receiving a snapshot
+  that is itself 60 players long is 30x the bytes of a 1v1 at the same rate.
+- **Conclusion for Royale sizing:** the simulation is not the constraint. The
+  constraint to design against is snapshot fan-out bandwidth, which argues for
+  delta or interest-scoped snapshots before a 60-player mode ships, not for a
+  faster tick.
+
+These are engineering baselines on a shared sandbox, not capacity commitments.

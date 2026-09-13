@@ -1,0 +1,58 @@
+id: M2-batch30f-roster-load
+title: Roster scaling cost model and the two Royale product questions
+owner: gameplay-core
+priority: medium
+complexity: small
+status: in_review
+risk: low
+escalation: product
+
+inputs:
+  - M2-batch30e-roster-replay
+  - docs/LOAD-BASELINE.md (2-seat figures only)
+  - server/internal/match/bench_test.go
+
+outputs:
+  - server/internal/match/roster_bench_test.go (new: 6 benchmarks + TestRosterLoadBaseline)
+  - docs/LOAD-BASELINE.md (roster scaling section, measured)
+  - docs/PRODUCT-DECISIONS.md (Q9 elimination rule, Q10 board sizing - both OPEN, with the evidence)
+
+acceptance:
+  - >-
+    The cost of a match is now measured as a function of roster size instead of
+    assumed. Tick cost does NOT scale with the roster (tens of ns, dominated by
+    the 12-cell board); snapshot cost DOES, roughly 3x from 2 to 60 seats,
+    because a snapshot renders every player. A 60-seat match still simulates
+    hundreds of thousands of times faster than real time on one core.
+  - >-
+    The measurement is guarded, not just logged: the test fails if a full
+    roster drops below x50 realtime on one core, or if tick cost grows more
+    than 30x from 2 to 60 seats (which would mean the per-tick path started
+    scaling with the roster, contradicting the board-sized design).
+  - >-
+    The conclusion is written down where sizing will be decided: the simulation
+    is not the constraint, snapshot FAN-OUT is (60 subscribers x a 60-player
+    snapshot is ~30x the bytes of a 1v1), which argues for delta or
+    interest-scoped snapshots before a 60-player mode ships.
+  - >-
+    The two blockers are now formal register entries rather than notes buried
+    in agent state: Q9 (elimination rule, with three candidate shapes and the
+    determinism constraint that elimination must be a function of logged state)
+    and Q10 (board sizing, with the roster-independence, fan-out, MaxPathCells
+    and adjacency constraints). Both marked OPEN and owner-facing.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "TestRosterLoadBaseline measured on the dev sandbox (2 logical CPUs); figures recorded in docs/LOAD-BASELINE.md"
+
+file_ownership:
+  - server/internal/match/roster_bench_test.go
+  - docs/LOAD-BASELINE.md
+  - docs/PRODUCT-DECISIONS.md
+
+notes: >-
+  This closes the engineering half of the 60-player row: the stack is
+  seat-count agnostic, proven at three layers, and its cost is characterized.
+  What remains is genuinely product, which is why Q9 and Q10 were escalated
+  into the register instead of being guessed at.
