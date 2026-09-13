@@ -1,0 +1,40 @@
+id: M1-batch27i-sheet-dismiss-persist
+title: Make the ImmersiveModeConfirmation sheet dismissal persistent (rounds + SystemUI last resort)
+owner: device-automation
+priority: high
+complexity: small
+status: validated_local_pending_unity_build
+risk: low
+escalation: none
+
+inputs:
+  - "Run 34771146946 (27H, head 4a975dc): the 27H identity fix is in the build, but BOTH legs died in the pre-swipe gate - the sheet landed and the single round of scrim+button taps (identical measured coordinates that had worked on 34769405396 and 34770332786 leg 35) failed to dismiss it; API 33 also reports 1080x1920 (same board rect), so this is tap flakiness, not geometry"
+  - tools/android-smoke.sh (sheet_tap_scrim/button, pre_swipe_focus_gate, launch gate)
+
+dependencies:
+  - M1-batch27h-board-local-identity
+
+outputs:
+  - tools/android-smoke.sh (dismiss_immersive_sheet: 3 rounds of scrim+button taps with coordinate + wm-size echo, then am force-stop com.android.systemui as last resort; pre_swipe_focus_gate and the launch gate both use it)
+  - agent/tasks/M1-batch27i-sheet-dismiss-persist.yml
+
+acceptance:
+  - "Sheet dismissal makes up to 3 rounds of scrim + Got-it button taps (scaled to the real wm size, coordinates and size echoed for post-mortem) before failing, instead of a single round."
+  - "If the sheet survives all rounds, the script force-stops com.android.systemui (the sheet is a SystemUI dialog; SystemUI auto-restarts on the emulator) and re-checks focus before declaring INFRA_FAIL."
+  - "A Unity Android run on the merged commit passes both legs with the 27H fix in place: row swipe [WORDS_SWIPE] cells=4 word=TAAN, diagonal cells>=3 word != TAAN."
+
+validation:
+  - "bash -n tools/android-smoke.sh"
+  - "Pending: Unity Android workflow green on the merged commit"
+
+file_ownership:
+  - tools/android-smoke.sh
+  - agent/tasks/M1-batch27i-sheet-dismiss-persist.yml
+
+notes: >-
+  The sheet tap flake cost run 34771146946: the swipe path itself is now
+  root-caused and fixed (27H identity transform), and in every run that
+  got PAST the gate the sheet was already gone at swipe time (screenshot
+  + no sheet window in dumpsys) - the gate just needs to be persistent. The SystemUI force-stop is
+  deliberately last-resort only; on the hosted pool it drops the dialog
+  window for good and SystemUI restarts within seconds.
