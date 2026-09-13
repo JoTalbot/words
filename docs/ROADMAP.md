@@ -80,7 +80,15 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M2 — Alpha Core
 
-- [ ] 60-player mode
+- [~] 60-player mode — foundation in progress. Merged 2026-09-13: batch 30A
+  (the simulation is seat-count agnostic, `Config.Seats`, bounds 2..60, rank /
+  tie / result / fingerprint expressed over the roster, 1v1 bit-identical) and
+  batch 30B (roster-shaped room via `SeatUserIDs`/`SeatTokens`, seat-indexed
+  `SnapshotToProto`). Next: 30C generalizes room creation and the matchmaker
+  from exactly two seats to N. BLOCKED ON TWO PRODUCT DECISIONS before Royale
+  gameplay itself: the elimination rule (`IsEliminated` is still always false)
+  and board sizing for a large roster (`CellsPerWave` is 12, sized for two);
+  anti-snowball and bot disclosure depend on both.
 - [ ] bot strategy and disclosure policy
 - [ ] anti-snowball mechanics
 - [ ] first PvE content
