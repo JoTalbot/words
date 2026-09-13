@@ -479,19 +479,24 @@ completed_tasks:
 
 active_tasks:
   - >-
-    Unity Android run on main 7968137 (dispatched 2026-09-13 ~15:01 UTC,
-    build+device smoke, API 35 leg first): the single verification for the
-    integrated batch 27/28 work. Expected green signature: build succeeds
-    (proves the 27B Unity 6 compile fix + 28a compile), then the device leg
-    prints "board rect from the client (screen px)", a row-0 swipe marker
-    [WORDS_SWIPE] cells=4 word=TAAN (or DSVT on the fallback row), a second
-    "diagonal marker" with cells>=3 and word != TAAN (WORDS_DIAGONAL_SMOKE_OK),
-    and finally WORDS_SWIPE_SMOKE_OK. If the build fails again, read the
-    compile errors before touching product code. If a leg fails at the swipe,
-    the coordinate math in tools/android-smoke.sh is the prime suspect -
-    re-derive from the measured BOARD_RECT line, do not weaken the
-    assertion. The twice-daily schedule (15:17 UTC leg is the next one)
-    keeps retrying independently; do not keep a human polling for it.
+    Unity Android run on main c2add29 (dispatched 2026-09-13 ~15:10 UTC,
+    build+device smoke, API 35 leg first): verification for the integrated
+    batch 27/28 work after BOTH compile fixes (27B Unity 6 shim in 140701b,
+    28a Color32 byte casts in 1e14264). Expected green signature: build
+    succeeds, then the device leg prints "board rect from the client
+    (screen px)", a row-0 swipe marker [WORDS_SWIPE] cells=4 word=TAAN (or
+    DSVT on the fallback row), a second "diagonal marker" with cells>=3 and
+    word != TAAN (WORDS_DIAGONAL_SMOKE_OK), and finally
+    WORDS_SWIPE_SMOKE_OK. If the build fails again, read the compile errors
+    before touching product code (the two previous integrated builds failed
+    exactly this way and were both our own C#, not the toolchain). If a leg
+    fails at the swipe, the coordinate math in tools/android-smoke.sh is the
+    prime suspect - re-derive from the measured BOARD_RECT line, do not
+    weaken the assertion. The twice-daily schedule (cron 17 3,15 UTC; next
+    leg 15:17Z) keeps retrying independently; concurrency group
+    unity-android-main cancels in-progress, so a scheduled run may supersede
+    the dispatched one - check BOTH by head sha. Do not keep a human
+    polling for it.
 blocked_tasks:
   - B2 uk dictionary GPL-3.0+ derivative; legal review before distribution (dictionary/NOTICE.md). Real human blocker, unchanged.
   - B3 Unity Editor unavailable on Linux/ARM64 OCI host; mitigated by GitHub-hosted x86_64 Unity CI, so no local Unity work is possible.
@@ -511,6 +516,17 @@ blocked_tasks:
     B3: Unity Editor unavailable on Linux/ARM64 OCI host; Unity/Android client development must use
     GitHub-hosted x86_64 Unity/Android CI or another authorized remote build/device backend
 failed_tasks:
+  - >-
+    Unity Android build failures on the integrated batch 27/28 main, both
+    our own C# caught by the CI compile gate (kept as evidence the gate
+    earns its place): run 34763722090 (head 97dae4d) failed on batch 27B -
+    CS0117 Application.arguments (absent from Unity 6's netstandard shim)
+    and CS0029 Environment.GetEnvironmentVariable returning ReadOnlySpan<char>;
+    fixed in 140701b (PR #22) by dropping the argument channel (the file
+    channel is the practical Android automation path) and reading env via
+    .ToString(). Run 34764363334 (head 7968137) then failed on batch 28a -
+    CS1503 Color32 takes bytes, Mathf.RoundToInt returns int; fixed in
+    1e14264 (PR #23) with explicit (byte) casts (the lerp stays in 0..255).
   - >-
     Unity Android runs 34455925881 / 34457772896 / 34459251481 and 34492844342 (both legs) failed
     on hosted-emulator instability. Root cause finally identified from the screenshot artifact
@@ -936,10 +952,11 @@ task_graph:
       build (no Application.arguments; ReadOnlySpan env); fixed in PR #22
       (140701b), compile re-verified by the same dispatched run.
   M1-batch28a-rollback-flash:
-    status: merged_pending_device_marker
+    status: merged_compile_fixed_pending_device_marker
     owner: unity-client
     merged: 7179143
     pull_request: 20
+    compile_fix: 1e14264 (PR #23, Color32 byte casts, CS1503 from run 34764363334)
     note: >-
       Rejected pending intents flash red and fade to the authoritative color
       over 1.5 s; [WORDS_ROLLBACK] marker for device verification. Compile
@@ -1031,6 +1048,6 @@ workers:
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
 last_commit: "7968137"
-last_verified_commit: "7968137 on main: CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client PENDING the dispatched run (the previous integrated attempt 34763722090 failed the build on the 27B Unity 6 shim issue, now fixed in 140701b). The 26G evidence for 97a2414 (smoke 27/0, exit gate 3/3 PASS, baseline scores 43:45/37:60/44:40, NRestarts=0) remains the last full live verification."
+last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
 resume_from: "Main is 7968137 (batches 27A/27B/27C/28a/28c + the 27B Unity 6 compile fix all merged; every merge CI-green; server code byte-identical to 97a2414 so the live OCI service needs no promotion - it already runs main's server behavior). THE DEVICE REGRESSION IS DIAGNOSED AND FIXED, PENDING ONE DEVICE RUN: runs 34709145871 and 34747246880 failed both legs because the smoke converted the board's local GUI rect (x0=0) to screen pixels without the 40 px content-area inset (OnGUI BeginArea starts at (40,40); BoardLocalPoint inverts via screen/scale - 40) - the swipe started at x=12, left of the board's real screen left edge x=40, the MouseDown hit no cell, the drag never armed. 27A publishes sx*/sy* screen-pixel fields from the client and the script uses them (legacy path carries the inset); the green run 34683472147 only passed because its fallback start x=100 happened to land inside row 1 (word DSVT). A Unity Android run dispatched on 7968137 (~15:01 UTC 2026-09-13) verifies build + row swipe (expected [WORDS_SWIPE] cells=4 word=TAAN) + the new 28c diagonal swipe (expected second marker, cells>=3, word != TAAN) in one go; the twice-daily schedule (cron 17 3,15 UTC) keeps retrying independently - concurrency group unity-android-main cancels in-progress, so a scheduled run can supersede a dispatched one. IF THE RUN IS STILL IN FLIGHT AT SESSION END: check it via the GitHub API (actions/runs, look for head 7968137), and if it finished, read the smoke job log for WORDS_SWIPE_SMOKE_OK / WORDS_DIAGONAL_SMOKE_OK and record the outcome in agent/state/current.yml + task files, then update docs/ROADMAP.md rows. NEXT IN PRIORITY ORDER: (1) close out the device run evidence (27A + 28c); (2) M1-batch28b (unattended full-match device loop, [WORDS_MATCH_COMPLETE]) is the last work item for the shared board UX row - it needs a reachable server from the emulator, which is BLOCKED on the Q8 human decision (loopback-only service); until Q8 lands, 28b can only be prepared, not verified; (3) after a green device run, consider a live re-verification pass on OCI (smoke + exit gate) as a periodic habit - the last one was the 26G promotion. Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; OCI host reachable via SSH (key in session), Ollama qwen2.5:1.5b usable for short bounded drafts only (calibrated: 1.5b drafting works but needs review, 7b codegen not viable); python static sanity + bash -n are the local gates for C#/shell changes, GitHub CI is the compile gate."
 updated_at: "2026-09-13 (batch 27 complete: device-leg coordinate defect root-caused + fixed, endpoint persistence + override, roadmap exit criteria explicit; batches 28a/28c merged; 27B Unity 6 compile fix merged; main 7968137; Unity Android device run in flight verifying swipe fix + diagonal)"
