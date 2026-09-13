@@ -100,6 +100,24 @@ adb shell pm path "$PKG" || { echo "FAIL: package not installed"; exit 1; }
 #
 # A window name in dumpsys is "<hash> u0 <package>/<activity>", so matching on
 # " $PKG/" pins our activity rather than any window that merely mentions us.
+# Batch 27G: the sheet tap positions (scrim 540,1600 / button 870,449) were
+# measured on the API 35 pixel_2 image (1080x1920). The API 33 retry leg has
+# a different physical size and the fixed taps missed it entirely (run
+# 34769405396 leg 33: both recovery taps no-ops, INFRA_FAIL). Scale by the
+# device's real size; fall back to the measured 1080x1920 values.
+sheet_tap_scrim() {
+  local w h
+  read -r w h < <(adb shell wm size 2>/dev/null | tr -d '\r' | grep -o '[0-9]\{1,\}x[0-9]\{1,\}' | head -1 | tr 'x' ' ')
+  w=${w:-1080}; h=${h:-1920}
+  echo "$(( 540 * w / 1080 )) $(( 1600 * h / 1920 ))"
+}
+sheet_tap_button() {
+  local w h
+  read -r w h < <(adb shell wm size 2>/dev/null | tr -d '\r' | grep -o '[0-9]\{1,\}x[0-9]\{1,\}' | head -1 | tr 'x' ' ')
+  w=${w:-1080}; h=${h:-1920}
+  echo "$(( 870 * w / 1080 )) $(( 449 * h / 1920 ))"
+}
+
 focused=0
 for attempt in 1 2 3 4 5 6; do
   window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
@@ -115,10 +133,12 @@ for attempt in 1 2 3 4 5 6; do
     # (the card occupies roughly the top third of the 1080x1920 panel),
     # then the "Got it" button measured from the run 34764775012 screenshot
     # (1080x1920 device pixels: ~870,449) as the second attempt.
-    adb shell input tap 540 1600 >/dev/null 2>&1 || true
+    read -r _sx _sy < <(sheet_tap_scrim)
+    adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
     sleep 2
     if adb shell dumpsys window 2>/dev/null | grep -q "ImmersiveModeConfirmation"; then
-      adb shell input tap 870 449 >/dev/null 2>&1 || true
+      read -r _sx _sy < <(sheet_tap_button)
+      adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
       sleep 2
     fi
   elif ! printf '%s\n' "$window" | grep -qE "mFocusedApp=.*$PKG"; then
@@ -280,10 +300,12 @@ pre_swipe_focus_gate() {
   fi
   echo "  focus lost before the swipe; current focus:"
   printf '%s\n' "$window" | head -2 || true
-  adb shell input tap 540 1600 >/dev/null 2>&1 || true
+  read -r _sx _sy < <(sheet_tap_scrim)
+  adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
   sleep 2
   if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
-    adb shell input tap 870 449 >/dev/null 2>&1 || true
+    read -r _sx _sy < <(sheet_tap_button)
+    adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
     sleep 2
   fi
   if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
@@ -295,7 +317,8 @@ pre_swipe_focus_gate() {
   echo "  focus recovered before the swipe"
   return 0
 }
-pre_swipe_focus_gate
+ensure_input_live() {
+  pre_swipe_focus_gate
 
 # Batch 27F: force one clean window-focus cycle (lost -> gained) so Unity's
 # input pipeline is PROVEN live before any swipe. Measured on run 07aa6e6
@@ -343,37 +366,66 @@ if [ "$focus_live" != 1 ]; then
   exit 8
 fi
 echo "  Unity input live: [WORDS_FOCUS] gained after the focus cycle"
+}
+ensure_input_live
 
 # Clear after readiness so the assertion below can only see the swipe's output.
 adb logcat -c >/dev/null 2>&1 || true
 
+# Batch 27G: one swipe pass = buffer clear, a warm-up tap on cell 0's center
+# (end-to-end input-delivery probe via the client's [WORDS_INPUT] marker),
+# the row swipe, and - if the swipe produced no marker - a discrete
+# multi-point drag via input motionevent (real MotionEvents with gaps, a
+# different injection path than input swipe's interpolated stream).
+# Returns 0 on WORDS_SWIPE, 1 on a clean no-marker, 2 when adb itself fails.
+try_swipe_pass() {
+  local label="$1"
+  local tapx tapy probe swipe_ok mx step
+  tapx=$(( BSX0 + (BSX1 - BSX0) / 8 ))
+  tapy=$(( BSY0 + (BSY1 - BSY0) / 6 ))
+  adb logcat -c >/dev/null 2>&1 || true
+  adb shell input tap "$tapx" "$tapy" >/dev/null 2>&1 || true
+  sleep 2
+  probe=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_INPUT" || true)
+  echo "  input probe ($label) at ($tapx,$tapy): ${probe:-NO INPUT EVENT REACHED THE CLIENT}"
+  swipe_ok=0
+  for i in 1 2 3; do
+    if adb shell input swipe "$SWIPE_X0" "$SWIPE_Y" "$SWIPE_X1" "$SWIPE_Y" 800; then swipe_ok=1; break; fi
+    echo "  swipe attempt $i failed; retrying"; sleep 3
+  done
+  if [ "$swipe_ok" != 1 ]; then
+    adb logcat -d >"$DIAG/logcat-swipe-fail.txt" 2>&1 || true
+    return 2
+  fi
+  sleep 3
+  if adb logcat -d 2>/dev/null | grep -q "WORDS_SWIPE"; then return 0; fi
+  echo "  input swipe produced no WORDS_SWIPE ($label) - trying a discrete multi-point drag"
+  adb shell input motionevent DOWN "$SWIPE_X0" "$SWIPE_Y" >/dev/null 2>&1 || true
+  for step in 1 2 3 4 5 6 7 8; do
+    mx=$(( SWIPE_X0 + step * (SWIPE_X1 - SWIPE_X0) / 8 ))
+    adb shell input motionevent MOVE "$mx" "$SWIPE_Y" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  adb shell input motionevent UP "$SWIPE_X1" "$SWIPE_Y" >/dev/null 2>&1 || true
+  sleep 3
+  if adb logcat -d 2>/dev/null | grep -q "WORDS_SWIPE"; then return 0; fi
+  return 1
+}
+
 # Drag across a row: the client must resolve a multi-cell path and log
 # WORDS_SWIPE.
-swipe_ok=0
-for i in 1 2 3; do
-  if adb shell input swipe "$SWIPE_X0" "$SWIPE_Y" "$SWIPE_X1" "$SWIPE_Y" 800; then swipe_ok=1; break; fi
-  echo "  swipe attempt $i failed; retrying"; sleep 3
-done
-if [ "$swipe_ok" != 1 ]; then
+try_swipe_pass primary
+pass_rc=$?
+if [ "$pass_rc" = "2" ]; then
   echo "INFRA_FAIL: adb input swipe never succeeded on $BACKEND"
-  adb logcat -d >"$DIAG/logcat-swipe-fail.txt" 2>&1 || true
   exit 1
 fi
-sleep 3
-
-adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
-if adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null; then
-  echo "screenshot: $DIAG/android-smoke.png"
-fi
-
-if grep -q WORDS_SWIPE "$DIAG/logcat.txt"; then
-  grep -m 8 "WORDS_" "$DIAG/logcat.txt" || true
-else
-  # Batch 27F: one retry from a full cold restart - the exact sequence the
-  # green run 34683472147 used. If the focus cycle above left Unity's input
-  # dead for a reason the [WORDS_FOCUS] marker could not catch, a fresh
-  # process starts with a clean focus flag and a fresh first-frame window.
+if [ "$pass_rc" != "0" ]; then
+  # Batch 27F/27G: one retry from a full cold restart - the exact sequence
+  # the green run 34683472147 used. A fresh process starts with a clean
+  # focus flag and a fresh first-frame window.
   echo "  no WORDS_SWIPE - retrying once after a full app restart"
+  adb logcat -d >"$DIAG/logcat-primary.txt" 2>&1 || true
   adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
   sleep 2
   retry 2 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || {
@@ -403,28 +455,27 @@ else
     BOARD_LINE="$NEW_LINE"
     apply_board_geometry
   fi
-  pre_swipe_focus_gate
-  adb logcat -c >/dev/null 2>&1 || true
-  swipe_ok=0
-  for i in 1 2 3; do
-    if adb shell input swipe "$SWIPE_X0" "$SWIPE_Y" "$SWIPE_X1" "$SWIPE_Y" 800; then swipe_ok=1; break; fi
-    echo "  swipe attempt $i failed; retrying"; sleep 3
-  done
-  if [ "$swipe_ok" != 1 ]; then
-    echo "INFRA_FAIL: adb input swipe never succeeded on $BACKEND (retry pass)"
-    exit 1
-  fi
-  sleep 3
-  adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
-  if grep -q WORDS_SWIPE "$DIAG/logcat.txt"; then
-    echo "  WORDS_SWIPE present on the retry pass"
-    grep -m 8 "WORDS_" "$DIAG/logcat.txt" || true
-  else
-    echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe (and after a full-restart retry)"
-    echo "--- unity/app lines ---"
-    grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat.txt" | tail -40 || true
-    exit 1
-  fi
+  # Batch 27G: the retry runs the SAME focus-cycle + gained assertion as the
+  # primary pass (27F's retry skipped it and the evidence is inconclusive).
+  ensure_input_live
+  try_swipe_pass retry
+  pass_rc=$?
+fi
+
+adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+if adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null; then
+  echo "screenshot: $DIAG/android-smoke.png"
+fi
+
+if [ "$pass_rc" = "0" ]; then
+  grep -m 12 "WORDS_" "$DIAG/logcat.txt" || true
+else
+  echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe (and after a full-restart retry)"
+  echo "--- unity/app lines (primary pass) ---"
+  grep -iE "jotalbot|words|AndroidRuntime|FATAL|WORDS_INPUT" "$DIAG/logcat-primary.txt" 2>/dev/null | tail -30 || true
+  echo "--- unity/app lines (retry pass) ---"
+  grep -iE "jotalbot|words|AndroidRuntime|FATAL|WORDS_INPUT" "$DIAG/logcat.txt" | tail -40 || true
+  exit 1
 fi
 
 # Batch 28c: a second, DIAGONAL swipe proves the eight-way adjacency rule on
@@ -453,6 +504,25 @@ if [ "$diag_ok" != 1 ]; then
 fi
 sleep 3
 adb logcat -d >"$DIAG/logcat-diagonal.txt" 2>&1 || true
+# Batch 27G: if input swipe's interpolated stream does not reach the client
+# but the row pass proved the discrete motionevent path does, the diagonal
+# gets the same fallback before failing.
+if ! grep -q "WORDS_SWIPE" "$DIAG/logcat-diagonal.txt"; then
+  echo "  diagonal input swipe produced no marker - trying a discrete multi-point drag"
+  adb logcat -c >/dev/null 2>&1 || true
+  adb shell input motionevent DOWN "$DIAG_X0" "$DIAG_Y0" >/dev/null 2>&1 || true
+  dstep=1
+  while [ "$dstep" -le 8 ]; do
+    dx=$(( DIAG_X0 + dstep * (DIAG_X1 - DIAG_X0) / 8 ))
+    dy=$(( DIAG_Y0 + dstep * (DIAG_Y1 - DIAG_Y0) / 8 ))
+    adb shell input motionevent MOVE "$dx" "$dy" >/dev/null 2>&1 || true
+    sleep 1
+    dstep=$(( dstep + 1 ))
+  done
+  adb shell input motionevent UP "$DIAG_X1" "$DIAG_Y1" >/dev/null 2>&1 || true
+  sleep 3
+  adb logcat -d >"$DIAG/logcat-diagonal.txt" 2>&1 || true
+fi
 if grep -q "WORDS_SWIPE" "$DIAG/logcat-diagonal.txt"; then
   DIAG_LINE=$(grep -m 1 "WORDS_SWIPE" "$DIAG/logcat-diagonal.txt")
   echo "diagonal marker: $DIAG_LINE"
