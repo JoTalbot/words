@@ -3,7 +3,7 @@ title: Unattended full-match device loop from queue to authoritative MATCH OVER
 owner: qa-infra
 priority: normal
 complexity: medium
-status: unblocked_deploy_pending_ssh_key
+status: implemented_merged_pending_device_run
 risk: medium
 escalation: none
 
@@ -31,6 +31,14 @@ acceptance:
 
 validation:
   - "bash -n tools/android-smoke.sh: clean"
+  - >-
+    LIVE 2026-09-13: -partner verified end to end against the Q8 stage-1
+    tunnel (https://ireland-placement-dot-inner.trycloudflare.com) from the
+    Arena sandbox - two partner processes paired through the queue, played a
+    full match to its terminal state (scores 42:24, 6 and 7 partner words)
+    and both printed PARTNER-GATE: PASS.
+  - "go vet + go test ./... green (12/12 packages), gofmt clean"
+  - "CI + Container smoke green on PR #31; merged into main 4239614"
   - "python static sanity: braces balanced, marker present, no forbidden deps"
   - "Pending: one green Unity Android run with the full-match leg"
 

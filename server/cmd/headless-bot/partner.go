@@ -147,9 +147,25 @@ func waitForPartnerMatch(cfg partnerConfig) (queueEntryView, error) {
 			continue
 		}
 		time.Sleep(500 * time.Millisecond)
-		if e, err = queuePoll(cfg.addr, e.QueueID); err != nil {
-			return queueEntryView{}, err
+		polled, perr := queuePoll(cfg.addr, e.QueueID)
+		if perr != nil {
+			// Batch 28D: an expired entry is reported as HTTP 410 by the
+			// endpoint and the entry is GONE - polling it again can only fail.
+			// Measured on device run 34780793795: the partner enqueued, the
+			// emulator took longer than the queue TTL to reach the queue, and
+			// the partner exited on the 410 instead of re-entering the queue,
+			// so the client had no opponent for the rest of the run. A TTL
+			// expiry is an expected event in a device run, not a failure.
+			if strings.Contains(perr.Error(), "HTTP 410") {
+				fmt.Println("[PARTNER] queue entry gone (HTTP 410) - re-enqueuing")
+				if e, err = queueEnqueue(cfg.addr, cfg.lang); err != nil {
+					return queueEntryView{}, err
+				}
+				continue
+			}
+			return queueEntryView{}, perr
 		}
+		e = polled
 	}
 	return queueEntryView{}, fmt.Errorf("no opponent joined the queue within %s", cfg.waitFor)
 }
