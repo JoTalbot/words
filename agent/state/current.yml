@@ -1,7 +1,31 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; expected_green_run_07aa6e6_in_flight
+status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34768815730_in_flight
 completed_tasks:
+  - >-
+    Batch 27F (Unity input-gate focus cycle, PR #26 merged into ac650b0):
+    run 07aa6e6 (27E fix) finally ran a HEALTHY client - board rect
+    published 1.6 s after ready with correct screen coordinates, swipe
+    planned at x=52..992 y=743 inside row 0 - yet the swipe produced no
+    WORDS_SWIPE and the post-swipe screenshot showed the full UI rendered
+    with NO sheet in front. The run's logcat-full.txt is decisive: Unity
+    logged windowFocusChanged 'true' at launch (16:13:06.003) and 'false'
+    0.5 s later (16:13:06.537, a first-boot focus flap), then never
+    'true' again; dumpsys reported our window focused from 16:13:16.2
+    onward while the app rendered normally. Verdict: Unity's own input
+    gate (its windowFocusChanged flag) stays stuck at 'unfocused' after
+    the flap and silently drops every synthetic gesture, independent of
+    the ImmersiveModeConfirmation sheet (a secondary obstacle the 27D
+    pre-swipe gate already handles). Fix: the client logs [WORDS_FOCUS]
+    gained/lost on Application.focusChanged so the smoke asserts on
+    Unity's own gate; the smoke forces one HOME -> relaunch focus cycle
+    right before the swipe and requires a [WORDS_FOCUS] gained line in
+    logcat before any input (INFRA_FAIL 8 + evidence otherwise); the
+    board rect is re-derived if the relaunch re-publishes it; and if the
+    first swipe still yields no WORDS_SWIPE, the script retries once
+    from a full cold restart (the exact sequence of the green run
+    34683472147). Also fixed a duplicated nested board-rect poll loop
+    left by 27D.
   - >-
     Batch 27E (AWAKE NRE ROOT CAUSE + fix, PR #25 merged into 07aa6e6):
     the 27D [WORDS_DIAG] instrumentation paid off on the first run -
@@ -560,6 +584,19 @@ blocked_tasks:
     GitHub-hosted x86_64 Unity/Android CI or another authorized remote build/device backend
 failed_tasks:
   - >-
+    Unity Android run 34767504356 / 07aa6e6 (27E env NRE fix, head
+    07aa6e6, dispatched 16:04Z): build green; BOTH legs failed, but the
+    client was finally healthy - [WORDS_SERVER] source=default, board
+    rect published 1.6 s after ready (x=40..1004 y=662..1148 cells=12),
+    swipe planned inside row 0 (y=743). The failure is a NEW class:
+    Unity windowFocusChanged true at launch, false 0.5 s later, never
+    true again - the app rendered (screenshot: full UI, no sheet) but
+    the swipe produced no WORDS_SWIPE while dumpsys reported our window
+    focused. Root cause: Unity's input gate stuck at 'unfocused' after a
+    first-boot focus flap; dumpsys alone is not swipe-readiness. Fixed
+    in batch 27F (ac650b0) with the [WORDS_FOCUS] marker + forced focus
+    cycle + full-restart retry.
+  - >-
     Unity Android run 34764775012 (head c2add29): FIRST green integrated
     build, but both device legs failed with a new signature - client ready
     (SetGameState isLoading=false), then 122-143 s of client silence (no
@@ -626,6 +663,19 @@ next_tasks:
     M1 client follow-up: live-device/server configuration (runtime server endpoint field) once the
     Q8 edge-exposure decision is made; loopback-only until then
 task_graph:
+  M1-batch27f-focus-cycle:
+    status: merged_device_run_in_flight
+    owner: device-automation
+    merged: ac650b0
+    pull_request: 26
+    note: >-
+      [WORDS_FOCUS] gained/lost client marker (Application.focusChanged)
+      + forced HOME -> relaunch focus cycle before the swipe with a
+      gained-line assertion (INFRA_FAIL 8 otherwise) + board-rect
+      re-derivation after the cycle + one full-restart swipe retry
+      (the green 34683472147 sequence). Targets the stuck
+      windowFocusChanged flag measured on run 07aa6e6. Run 34768815730
+      on ac650b0 in flight.
   M1-batch10-telemetry:
     status: verified_local_and_ci
     owner: backend-observability
@@ -1133,5 +1183,6 @@ workers:
     drafting tasks with hard timeouts
 last_commit: "7968137"
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
-resume_from: "Main is 7968137 (batches 27A/27B/27C/28a/28c + the 27B Unity 6 compile fix all merged; every merge CI-green; server code byte-identical to 97a2414 so the live OCI service needs no promotion - it already runs main's server behavior). THE DEVICE REGRESSION IS DIAGNOSED AND FIXED, PENDING ONE DEVICE RUN: runs 34709145871 and 34747246880 failed both legs because the smoke converted the board's local GUI rect (x0=0) to screen pixels without the 40 px content-area inset (OnGUI BeginArea starts at (40,40); BoardLocalPoint inverts via screen/scale - 40) - the swipe started at x=12, left of the board's real screen left edge x=40, the MouseDown hit no cell, the drag never armed. 27A publishes sx*/sy* screen-pixel fields from the client and the script uses them (legacy path carries the inset); the green run 34683472147 only passed because its fallback start x=100 happened to land inside row 1 (word DSVT). A Unity Android run dispatched on 7968137 (~15:01 UTC 2026-09-13) verifies build + row swipe (expected [WORDS_SWIPE] cells=4 word=TAAN) + the new 28c diagonal swipe (expected second marker, cells>=3, word != TAAN) in one go; the twice-daily schedule (cron 17 3,15 UTC) keeps retrying independently - concurrency group unity-android-main cancels in-progress, so a scheduled run can supersede a dispatched one. IF THE RUN IS STILL IN FLIGHT AT SESSION END: check it via the GitHub API (actions/runs, look for head 7968137), and if it finished, read the smoke job log for WORDS_SWIPE_SMOKE_OK / WORDS_DIAGONAL_SMOKE_OK and record the outcome in agent/state/current.yml + task files, then update docs/ROADMAP.md rows. NEXT IN PRIORITY ORDER: (1) close out the device run evidence (27A + 28c); (2) M1-batch28b (unattended full-match device loop, [WORDS_MATCH_COMPLETE]) is the last work item for the shared board UX row - it needs a reachable server from the emulator, which is BLOCKED on the Q8 human decision (loopback-only service); until Q8 lands, 28b can only be prepared, not verified; (3) after a green device run, consider a live re-verification pass on OCI (smoke + exit gate) as a periodic habit - the last one was the 26G promotion. Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; OCI host reachable via SSH (key in session), Ollama qwen2.5:1.5b usable for short bounded drafts only (calibrated: 1.5b drafting works but needs review, 7b codegen not viable); python static sanity + bash -n are the local gates for C#/shell changes, GitHub CI is the compile gate."
+resume_from: "Main is ac650b0 (PRs #18-#26 merged; 27A/27B/27C/27D/27E/28a/28c/27F all in tree; every merge CI-green). DEVICE LEG STATUS: the regression chain is fully root-caused, layer by layer: (1) 27A fixed the 40 px inset coordinate defect; (2) 27D instrumentation caught the ImmersiveModeConfirmation sheet + proved the NRE; (3) 27E fixed the Awake NRE (Unity reference-assembly span fiction vs Android null runtime); run 07aa6e6 then proved the client healthy but exposed the FINAL layer: the Unity windowFocusChanged flag stuck at false after a 0.5 s first-boot focus flap - the app renders, dumpsys says focused, but every synthetic gesture is silently dropped. 27F (ac650b0) makes the gate observable from the client ([WORDS_FOCUS] gained/lost via Application.focusChanged) and forces a clean HOME -> relaunch cycle right before the swipe with a gained-line assertion plus a full-cold-restart retry (the green 34683472147 sequence). RUN 34768815730 (ac650b0, dispatched 16:31Z, id in /tmp/runid27f.txt) is in flight - IT IS THE EXPECTED GREEN RUN: build, then both legs should pass (row swipe [WORDS_SWIPE] cells=4 word=TAAN, diagonal cells>=3 word != TAAN, [WORDS_FOCUS] gained visible before the swipe). IF STILL IN FLIGHT AT SESSION END: poll GET /repos/JoTalbot/words/actions/runs/34768815730; on completion read the two smoke job logs (job ids from the jobs endpoint) for WORDS_SWIPE_SMOKE_OK / WORDS_DIAGONAL_SMOKE_OK; if a leg is red, download the android-smoke-diagnostics artifact (list artifacts -> archive_download_url, Accept: application/vnd.github+json - the /zip subpath 404s) and inspect logcat-full.txt for [WORDS_FOCUS] and windowFocusChanged lines. If green: record in state + task files, update docs/ROADMAP.md M1 rows (shared board UX, Claim/Lock), remove stale worktrees (wt-27d, wt-27e, wt-27a, wt-27b, wt-27bf, wt-28a, wt-28c, wt-28af, and wt-27f once 27F is fully green). NEXT: 28b unattended full-match device loop stays Q8-blocked (loopback-only service, no reachable server from the emulator) - do not weaken it. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; the dispatch endpoint wants a ref name (ref=main worked, a bare short SHA 422s with No ref found); GitHub artifact download uses archive_download_url. Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates, GitHub CI is the compile gate; OCI server 129.213.177.56 via ~/.ssh/oci_server_key.pem (server at 97a2414, no promotion needed, smoke 27/0 + exit gate 3/3 re-verified 15:07Z)."
+
 updated_at: "2026-09-13 (batch 27 complete: device-leg coordinate defect root-caused + fixed, endpoint persistence + override, roadmap exit criteria explicit; batches 28a/28c merged; 27B Unity 6 compile fix merged; main 7968137; Unity Android device run in flight verifying swipe fix + diagonal)"
