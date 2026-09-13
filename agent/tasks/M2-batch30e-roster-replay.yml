@@ -3,7 +3,7 @@ title: Replay determinism and board stability at roster scale
 owner: gameplay-core
 priority: high
 complexity: medium
-status: in_review
+status: merged_green
 risk: medium
 escalation: none
 
