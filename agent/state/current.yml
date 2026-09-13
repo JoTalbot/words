@@ -1,7 +1,21 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34769405396_RED_both_legs_swipes_dead_despite_all_gates_green; batch_27g_input_probe_paid_off_probe_found_double_inset_subtraction; batch_27h_board_local_identity_merged; run_34771146946_in_flight_expected_green
+status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34769405396_RED_both_legs_swipes_dead_despite_all_gates_green; batch_27g_input_probe_paid_off_probe_found_double_inset_subtraction; batch_27h_board_local_identity_merged; run_34771146946_RED_on_flaky_sheet_gate_not_swipes; batch_27i_sheet_persist_merged; run_34772130697_in_flight_expected_green
 completed_tasks:
+  - >-
+    Batch 27I (persistent sheet dismissal, PR #29 merged into 91f3b59):
+    run 34771146946 (27H) was a near-miss - the swipe root cause was
+    fixed in tree, but BOTH legs died in the pre-swipe gate because the
+    ImmersiveModeConfirmation sheet survived a single round of
+    scrim+button taps. The taps are flaky on the hosted pool: the
+    identical measured coordinates dismissed the sheet on 34769405396
+    and 34770332786 leg 35 but not on 34771146946, and API 33 reports
+    1080x1920 too (same board rect on both legs), so it is tap
+    flakiness, not geometry. dismiss_immersive_sheet now does up to 3
+    rounds of scrim + Got-it button taps (wm-size-scaled, coordinates
+    and size echoed for post-mortem) and, as last resort, force-stops
+    com.android.systemui (the sheet is a SystemUI dialog; it
+    auto-restarts on the emulator). Both focus gates use it.
   - >-
     Batch 27H (ROOT CAUSE of the eight-run device mystery + fix, PR #28
     merged into 4a975dc): the 27G probe (run 34770332786) delivered exact
@@ -622,6 +636,13 @@ blocked_tasks:
     GitHub-hosted x86_64 Unity/Android CI or another authorized remote build/device backend
 failed_tasks:
   - >-
+    Unity Android run 34771146946 (27H, head 4a975dc, dispatched
+    17:17Z): build green; both legs failed in the PRE-SWIPE GATE, not
+    the swipe - the sheet landed and the single tap-recovery round
+    failed to dismiss it (INFRA_FAIL before any swipe on either leg).
+    Not a swipe-path failure: the 27H fix was never exercised. Fixed
+    by 27I's persistent dismissal (91f3b59).
+  - >-
     Unity Android run 34770332786 (27G probe, head 918948a, dispatched
     17:01Z): build green; leg 35 red by design (probe run) but paid off
     completely - [WORDS_INPUT] down gui=120,703 test=80,663 hit=0 for the
@@ -723,6 +744,17 @@ next_tasks:
     M1 client follow-up: live-device/server configuration (runtime server endpoint field) once the
     Q8 edge-exposure decision is made; loopback-only until then
 task_graph:
+  M1-batch27i-sheet-dismiss-persist:
+    status: merged_device_run_in_flight
+    owner: device-automation
+    merged: 91f3b59
+    pull_request: 29
+    note: >-
+      dismiss_immersive_sheet: 3 rounds of wm-size-scaled scrim +
+      Got-it taps (coords + size echoed), then am force-stop
+      com.android.systemui as last resort; both focus gates use it.
+      Run 34772130697 on 91f3b59 in flight (dispatched 17:37Z) - the
+      expected green run with the 27H swipe fix finally gettable.
   M1-batch27h-board-local-identity:
     status: merged_device_run_in_flight
     owner: unity-client
@@ -1275,7 +1307,8 @@ workers:
     drafting tasks with hard timeouts
 last_commit: "7968137"
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
-resume_from: "Main is 4a975dc (PRs #18-#28 merged; every merge CI-green). THE EIGHT-RUN DEVICE MYSTERY IS ROOT-CAUSED AND FIXED: the 27G probe (run 34770332786) measured that Event.current.mousePosition is already in the BeginArea-local space IMGUI provides under the active GUI.matrix (adb tap at screen 160,743 arrived as 120,703 - the (40,40) area origin already subtracted), while BoardLocalPoint subtracted the 40 px inset a SECOND time - so the 27A-measured swipe start at screen x=52 tested at local x=-28 and hit no cell (marker gui=12,703 test=-28,663 hit=none), on both passes and both legs; the green run 34683472147 only passed because its fallback x=100 survived the double subtraction by margin. 27H (4a975dc) makes BoardLocalPoint the identity transform; the device-side screen math (sx*/sy*) is untouched. RUN 34771146946 (4a975dc, dispatched 17:17Z, id in /tmp/runid27h.txt) is in flight - THE EXPECTED GREEN RUN: row swipe [WORDS_SWIPE] cells=4 word=TAAN, diagonal cells>=3 word != TAAN, both legs. IF IN FLIGHT AT SESSION END: poll GET /repos/JoTalbot/words/actions/runs/34771146946; on completion read the smoke job logs for WORDS_SWIPE_SMOKE_OK + WORDS_DIAGONAL_SMOKE_OK. If green: record in state + task files (27h -> verified_device), update docs/ROADMAP.md M1 rows (shared board UX -> [x] with 28b caveat, Claim/Lock -> [x]), remove stale worktrees (wt-27a, wt-27b, wt-27bf, wt-27d, wt-27e, wt-27f, wt-27g, wt-27h, wt-28a, wt-28c, wt-28af). If red: download the android-smoke-diagnostics artifact (list -> archive_download_url) and read the [WORDS_INPUT] lines - the probe tells exactly which case it is. NEXT after green: 28b unattended full-match device loop stays Q8-blocked (loopback-only service) - do not weaken it; consider a periodic live re-verification pass on OCI (last: 15:07Z, smoke 27/0 + exit gate 3/3). Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; dispatch needs ref=main (bare SHA 422s) AND explicit inputs (run_smoke_tests defaults to false); artifacts via archive_download_url; git commit -m with backticks mangles the message (use -F file); JSON with apostrophes breaks single-quoted curl args (use --data @file). Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates, GitHub CI is the compile gate; OCI server 129.213.177.56 via ~/.ssh/oci_server_key.pem (server at 97a2414, no promotion needed)."
+resume_from: "Main is 91f3b59 (PRs #18-#29 merged; every merge CI-green). STATUS: the device-regression root cause is FIXED in tree (27H: BoardLocalPoint identity transform - the eight-run mystery was a double 40 px inset subtraction, proven by the 27G probe: adb tap at screen 160,743 arrived as gui=120,703, the swipe start at x=52 tested at local x=-28 hit=none). Run 34771146946 (27H) was a near-miss: both legs died in the pre-swipe gate on the FLAKY sheet tap (single round failed to dismiss the sheet; not a swipe failure). 27I (91f3b59) makes dismissal persistent: 3 rounds of wm-size-scaled taps + SystemUI force-stop last resort. RUN 34772130697 (91f3b59, dispatched 17:37Z, id in /tmp/runid27i.txt) is in flight - THE EXPECTED GREEN RUN: gate dismisses the sheet persistently, then row swipe [WORDS_SWIPE] cells=4 word=TAAN + diagonal cells>=3 word != TAAN, both legs. IF IN FLIGHT AT SESSION END: poll GET /repos/JoTalbot/words/actions/runs/34772130697; on completion read the smoke job logs for the gate lines (sheet dismissed on tap round N / focus back after SystemUI restart) and WORDS_SWIPE_SMOKE_OK + WORDS_DIAGONAL_SMOKE_OK. If green: record in state + task files (27h/27g/27i -> verified_device), update docs/ROADMAP.md M1 rows (shared board UX -> [x] with the 28b Q8 caveat, Claim/Lock -> [x]), then remove the stale worktrees (wt-27a, wt-27b, wt-27bf, wt-27d, wt-27e, wt-27f, wt-27g, wt-27h, wt-27i, wt-28a, wt-28c, wt-28af). If red: download the android-smoke-diagnostics artifact (list -> archive_download_url) and read the gate + [WORDS_INPUT] lines. NEXT after green: 28b unattended full-match device loop stays Q8-blocked (loopback-only service) - do not weaken it; consider a periodic OCI live re-verification (last 15:07Z: smoke 27/0, exit gate 3/3). Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; dispatch needs ref=main (bare SHA 422s) AND explicit inputs (run_smoke_tests defaults to false - 34768815730 was build-only); artifacts via archive_download_url; git commit -m with backticks mangles the message (use -F file); JSON with apostrophes breaks single-quoted curl args (use --data @file). Sandbox: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates, GitHub CI is the compile gate; OCI 129.213.177.56 via ~/.ssh/oci_server_key.pem (server 97a2414, no promotion needed)."
+
 
 
 
