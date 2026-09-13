@@ -102,14 +102,34 @@ adb shell pm path "$PKG" || { echo "FAIL: package not installed"; exit 1; }
 # " $PKG/" pins our activity rather than any window that merely mentions us.
 focused=0
 for attempt in 1 2 3 4 5 6; do
-  if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+  window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
+  if printf '%s\n' "$window" | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
     focused=1
     break
   fi
   echo "  input focus is not $PKG yet (attempt $attempt); current focus:"
-  adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | head -2 || true
-  adb shell input keyevent 4 >/dev/null 2>&1 || true
-  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+  printf '%s\n' "$window" | head -2 || true
+  if printf '%s\n' "$window" | grep -q "ImmersiveModeConfirmation"; then
+    # First-run full-screen sheet. BACK demonstrably does NOT dismiss it
+    # (measured, batch 26D note), so tap the "Got it" button area first and
+    # the scrim outside the card as a second attempt.
+    adb shell input tap 540 960 >/dev/null 2>&1 || true
+    sleep 2
+    if adb shell dumpsys window 2>/dev/null | grep -q "ImmersiveModeConfirmation"; then
+      adb shell input tap 540 160 >/dev/null 2>&1 || true
+      sleep 2
+    fi
+  elif ! printf '%s\n' "$window" | grep -qE "mFocusedApp=.*$PKG"; then
+    # Our own app is no longer front at all (launcher took over): relaunch
+    # instead of pressing BACK at the launcher. Clear the log first so the
+    # readiness gate below keys off the NEW session instead of the stale
+    # "isLoading: false" line this relaunch is recovering from.
+    adb logcat -c >/dev/null 2>&1 || true
+    adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || true
+    sleep 3
+  else
+    adb shell input keyevent 4 >/dev/null 2>&1 || true
+  fi
   sleep 5
 done
 if [ "$focused" != 1 ]; then
@@ -181,16 +201,36 @@ if [ -n "$BOARD_LINE" ]; then
   BX0=$(rect_field "$BOARD_LINE" x0); BY0=$(rect_field "$BOARD_LINE" y0)
   BX1=$(rect_field "$BOARD_LINE" x1); BY1=$(rect_field "$BOARD_LINE" y1)
   BCELLS=$(rect_field "$BOARD_LINE" cells); BPERM=$(rect_field "$BOARD_LINE" scale_permille)
-  if [ -n "$BX0" ] && [ -n "$BY0" ] && [ -n "$BX1" ] && [ -n "$BY1" ] \
+  SX0=$(rect_field "$BOARD_LINE" sx0); SY0=$(rect_field "$BOARD_LINE" sy0)
+  SX1=$(rect_field "$BOARD_LINE" sx1); SY1=$(rect_field "$BOARD_LINE" sy1)
+  if [ -n "$SX0" ] && [ -n "$SY0" ] && [ -n "$SX1" ] && [ -n "$SY1" ] \
+     && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ "$SX1" -gt "$SX0" ] && [ "$SY1" -gt "$SY0" ]; then
+    # Batch 27A: screen pixels straight from the client - the coordinate
+    # space `adb input` operates in. The board area starts at (40,40) on
+    # screen, so using the legacy local rect (x0=0) made the swipe start at
+    # x=12, LEFT of the board's real left edge x=40: the MouseDown hit no
+    # cell, the drag never armed, and no WORDS_SWIPE was logged (measured on
+    # scheduled runs 34709145871 and 34747246880, both legs). The green run
+    # 34683472147 only passed because its fallback start x=100 happened to
+    # land inside the board.
+    ROWS=$(( (BCELLS + 3) / 4 ))
+    ROW_H=$(( (SY1 - SY0) / ROWS ))
+    SWIPE_X0=$(( SX0 + 12 ))
+    SWIPE_X1=$(( SX1 - 12 ))
+    SWIPE_Y=$(( SY0 + ROW_H / 2 ))
+    echo "board rect from the client (screen px): x=$SX0..$SX1 y=$SY0..$SY1 cells=$BCELLS"
+    echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
+  elif [ -n "$BX0" ] && [ -n "$BY0" ] && [ -n "$BX1" ] && [ -n "$BY1" ] \
      && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ -n "$BPERM" ] && [ "$BPERM" -gt 0 ]; then
-    # The board is a 4-column grid; travel through the middle of its first row.
+    # Pre-27A client: only the local (area) rect is published. Convert it the
+    # way the client's own hit test does - screen = (local + 40) * scale -
+    # the 40 px area inset that the old formula dropped.
     ROWS=$(( (BCELLS + 3) / 4 ))
     ROW_H=$(( (BY1 - BY0) / ROWS ))
-    # GUI space -> screen pixels through the GUI.matrix scale.
-    SWIPE_X0=$(( BX0 * BPERM / 1000 + 12 ))
-    SWIPE_X1=$(( BX1 * BPERM / 1000 - 12 ))
-    SWIPE_Y=$(( (BY0 + ROW_H / 2) * BPERM / 1000 ))
-    echo "board rect from the client: x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
+    SWIPE_X0=$(( (BX0 + 40) * BPERM / 1000 + 12 ))
+    SWIPE_X1=$(( (BX1 + 40) * BPERM / 1000 - 12 ))
+    SWIPE_Y=$(( (BY0 + ROW_H / 2 + 40) * BPERM / 1000 ))
+    echo "board rect from the client (local, +40 inset): x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
     echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
   else
     echo "note: WORDS_BOARD_RECT present but unparsable ('$BOARD_LINE'); using the fallback row"

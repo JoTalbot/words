@@ -195,7 +195,7 @@ namespace Words.Client
             var width = Screen.width / scale;
             var height = Screen.height / scale;
 
-            GUILayout.BeginArea(new Rect(40f, 40f, width - 80f, height - 80f));
+            GUILayout.BeginArea(new Rect(AreaInset, AreaInset, width - 2f * AreaInset, height - 2f * AreaInset));
             GUILayout.Label("Word Arena", titleStyle, GUILayout.Height(72f));
             GUILayout.Label(BannerText(), bannerStyle, GUILayout.Height(58f));
             GUILayout.Label(ScoreText(), hudStyle, GUILayout.Height(48f));
@@ -353,12 +353,27 @@ namespace Words.Client
             }
 
             boardRectLogged = true;
+            // Batch 27A: also publish the rect in screen pixels. The local
+            // fields above live in the board area's GUI space; `adb input`
+            // operates in screen space, where the area starts at
+            // (AreaInset, AreaInset) and everything is multiplied by the GUI
+            // matrix scale: screen = (local + AreaInset) * scale. The device
+            // smoke converted the local rect without that transform, so its
+            // swipe started left of the board, the MouseDown hit no cell, and
+            // the drag never armed (measured on scheduled runs 34709145871 and
+            // 34747246880: both legs swiped x=12..952 while the board's screen
+            // left edge was x=40). sx*/sy* are the values the smoke must use.
+            var screenScale = boardScale > 0f ? boardScale : 1f;
             Debug.Log("[WORDS_BOARD_RECT] x0=" + Mathf.RoundToInt(minX)
                 + " y0=" + Mathf.RoundToInt(minY)
                 + " x1=" + Mathf.RoundToInt(maxX)
                 + " y1=" + Mathf.RoundToInt(maxY)
                 + " cells=" + cells.Count
-                + " scale_permille=" + Mathf.RoundToInt(boardScale * 1000f));
+                + " scale_permille=" + Mathf.RoundToInt(screenScale * 1000f)
+                + " sx0=" + Mathf.RoundToInt((minX + AreaInset) * screenScale)
+                + " sy0=" + Mathf.RoundToInt((minY + AreaInset) * screenScale)
+                + " sx1=" + Mathf.RoundToInt((maxX + AreaInset) * screenScale)
+                + " sy1=" + Mathf.RoundToInt((maxY + AreaInset) * screenScale));
         }
 
         // Batch 16 gesture path: drag/swipe multi-cell selection. IMGUI
@@ -406,10 +421,16 @@ namespace Words.Client
             }
         }
 
+        // The OnGUI content area starts at (40,40) in screen space (see the
+        // BeginArea below); cell rects are captured in that area's local space.
+        // Kept in one place so the hit-test inverse and the WORDS_BOARD_RECT
+        // screen conversion cannot drift apart.
+        private const float AreaInset = 40f;
+
         private Vector2 BoardLocalPoint(Vector2 screenPoint)
         {
             var scale = boardScale > 0f ? boardScale : 1f;
-            return new Vector2(screenPoint.x / scale - 40f, screenPoint.y / scale - 40f);
+            return new Vector2(screenPoint.x / scale - AreaInset, screenPoint.y / scale - AreaInset);
         }
 
         private int HitTestBoardCell(Vector2 localPoint)
