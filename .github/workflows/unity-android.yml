@@ -23,6 +23,15 @@ on:
         required: true
         type: boolean
         default: false
+      server_url:
+        description: >-
+          Public base URL of a reachable word-arena server (the Q8 stage-1
+          tunnel). When set, the device smoke also runs the batch 28b
+          full-match leg; when empty it falls back to the WORDS_SERVER_URL
+          repository variable and, failing that, skips the leg.
+        required: false
+        type: string
+        default: ""
       emulator_api_level:
         description: API level for the first emulator attempt (the retry leg always uses 33)
         required: false
@@ -53,6 +62,7 @@ jobs:
       build_type: ${{ steps.cfg.outputs.build_type }}
       run_smoke: ${{ steps.cfg.outputs.run_smoke }}
       api_level: ${{ steps.cfg.outputs.api_level }}
+      server_url: ${{ steps.cfg.outputs.server_url }}
     steps:
       - name: Resolve
         id: cfg
@@ -69,13 +79,20 @@ jobs:
           [ "$run_smoke" = "true" ] || run_smoke=false
           api_level="${{ inputs.emulator_api_level }}"
           [ -n "$api_level" ] || api_level=35
+          # Batch 28b: the full-match leg needs a server the emulator can
+          # reach. A dispatch input wins; otherwise the repository variable
+          # (which the scheduled run uses) applies; empty = leg skipped.
+          server_url="${{ inputs.server_url }}"
+          [ -n "$server_url" ] || server_url="${{ vars.WORDS_SERVER_URL }}"
           echo "build_type=$build_type"
           echo "run_smoke=$run_smoke"
           echo "api_level=$api_level"
+          echo "server_url=${server_url:-<unset: 28b full-match leg will be skipped>}"
           {
             echo "build_type=$build_type"
             echo "run_smoke=$run_smoke"
             echo "api_level=$api_level"
+            echo "server_url=$server_url"
           } >> "$GITHUB_OUTPUT"
 
   preflight:
@@ -333,7 +350,7 @@ jobs:
             # script cannot keep state. One call keeps the whole flow in one
             # shell and makes the assertions reviewable in the repository.
             # Backend is reported as ANDROID_BACKEND=... by the script.
-            ANDROID_BACKEND=github-hosted-emulator-api${{ matrix.api-level }} bash tools/android-smoke.sh artifact
+            WORDS_SERVER_URL="${{ needs.setup.outputs.server_url }}" ANDROID_BACKEND=github-hosted-emulator-api${{ matrix.api-level }} bash tools/android-smoke.sh artifact
 
       - name: Upload device diagnostics
         if: always()
@@ -345,7 +362,10 @@ jobs:
             logcat-full.txt
             logcat-diagonal.txt
             logcat-swipe-fail.txt
+            logcat-fullmatch.txt
+            partner-bot.log
             android-smoke.png
+            android-fullmatch.png
           if-no-files-found: ignore
           retention-days: 7
 
@@ -404,7 +424,7 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: false
           script: |
-            ANDROID_BACKEND=github-hosted-emulator-api33-retry bash tools/android-smoke.sh artifact
+            WORDS_SERVER_URL="${{ needs.setup.outputs.server_url }}" ANDROID_BACKEND=github-hosted-emulator-api33-retry bash tools/android-smoke.sh artifact
 
       - name: Upload device diagnostics
         if: always()
@@ -416,7 +436,10 @@ jobs:
             logcat-full.txt
             logcat-diagonal.txt
             logcat-swipe-fail.txt
+            logcat-fullmatch.txt
+            partner-bot.log
             android-smoke.png
+            android-fullmatch.png
           if-no-files-found: ignore
           retention-days: 7
 

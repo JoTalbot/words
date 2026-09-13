@@ -564,4 +564,108 @@ if adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null; then
 fi
 
 echo "WORDS_SWIPE_SMOKE_OK"
+
+# ---------------------------------------------------------------------------
+# Batch 28b: unattended FULL MATCH loop (the shared-board UX exit criterion).
+#
+# The legs above prove gestures. This leg proves the product: the client
+# queues on a REAL server, plays a whole match against a real opponent, and
+# the match reaches its authoritative terminal state - asserted on the
+# [WORDS_MATCH_COMPLETE] ... source=result-endpoint marker, which the client
+# only logs after the REST result endpoint confirms over=true. Local score
+# bookkeeping can never produce it.
+#
+# It runs only when WORDS_SERVER_URL is set (the Q8 stage-1 tunnel URL). With
+# no reachable server the leg is skipped with an explicit notice instead of
+# silently weakening the smoke.
+#
+# Opponent: server/cmd/headless-bot -partner, started here in the background
+# on the runner. It enqueues ONE anonymous seat, waits for the device client
+# to pair with it, and plays legal words with a per-wave grace delay so the
+# client gets cells of its own.
+# ---------------------------------------------------------------------------
+if [ -z "${WORDS_SERVER_URL:-}" ]; then
+  echo "note: WORDS_SERVER_URL is unset - skipping the batch 28b full-match leg"
+  exit 0
+fi
+
+echo "--- full match loop (batch 28b) against $WORDS_SERVER_URL ---"
+if ! curl -fsS -m 20 "$WORDS_SERVER_URL/healthz" >/dev/null 2>&1; then
+  echo "INFRA_FAIL: $WORDS_SERVER_URL/healthz is not reachable from the runner"
+  exit 9
+fi
+echo "origin health ok"
+
+PARTNER_LOG="$(cd "$DIAG" && pwd)/partner-bot.log"
+PARTNER_PID=""
+if command -v go >/dev/null 2>&1; then
+  # Absolute log path: the bot runs from server/ (its go module root) while
+  # DIAG is relative to the repository root.
+  ( cd server && nohup go run ./cmd/headless-bot -partner -v \
+      -addr "$WORDS_SERVER_URL" -partner-wait 5m -partner-budget 9m \
+      >"$PARTNER_LOG" 2>&1 & echo $! >"$PARTNER_LOG.pid" ) || true
+  # `go run` compiles first, so give the opponent time to reach the queue.
+  sleep 45
+  PARTNER_PID=$(cat "$PARTNER_LOG.pid" 2>/dev/null || true)
+  echo "partner bot pid=${PARTNER_PID:-none}; first log lines:"
+  head -5 "$PARTNER_LOG" 2>/dev/null || true
+else
+  echo "INFRA_FAIL: no Go toolchain on the runner - the partner opponent cannot start"
+  exit 9
+fi
+
+# Point the client at the public server and switch it into automation mode,
+# both through the batch 27B file channel (no typing on a device screen).
+adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+sleep 2
+printf '%s' "$WORDS_SERVER_URL" >/tmp/server_url.txt
+printf '1' >/tmp/autoplay.txt
+adb push /tmp/server_url.txt /data/local/tmp/server_url.txt >/dev/null 2>&1 || true
+adb push /tmp/autoplay.txt /data/local/tmp/autoplay.txt >/dev/null 2>&1 || true
+APP_FILES="/data/data/$PKG/files"
+adb shell "run-as $PKG sh -c 'mkdir -p $APP_FILES && cp /data/local/tmp/server_url.txt $APP_FILES/server_url.txt && cp /data/local/tmp/autoplay.txt $APP_FILES/autoplay.txt'" >/dev/null 2>&1 || {
+  echo "INFRA_FAIL: run-as could not write the endpoint/autoplay files (is this a debug build?)"
+  exit 9
+}
+echo "endpoint + autoplay pushed into $APP_FILES"
+
+adb logcat -c >/dev/null 2>&1 || true
+retry 3 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || {
+  echo "INFRA_FAIL: the client did not relaunch for the full-match leg"; exit 9; }
+pre_swipe_focus_gate || true
+
+# Hard tick budget: a stuck match must fail with artifacts, never hang the
+# runner. 9 minutes matches the partner's own budget.
+MATCH_DEADLINE=$(( $(date +%s) + 540 ))
+complete_line=""
+while [ "$(date +%s)" -lt "$MATCH_DEADLINE" ]; do
+  complete_line=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_MATCH_COMPLETE" || true)
+  [ -n "$complete_line" ] && break
+  if ! adb shell pidof "$PKG" >/dev/null 2>&1; then
+    echo "PRODUCT_FAIL: the client process died during the full-match loop"
+    adb logcat -d >"$DIAG/logcat-fullmatch.txt" 2>&1 || true
+    exit 1
+  fi
+  sleep 10
+done
+
+adb logcat -d >"$DIAG/logcat-fullmatch.txt" 2>&1 || true
+adb exec-out screencap -p >"$DIAG/android-fullmatch.png" 2>/dev/null || true
+[ -n "$PARTNER_PID" ] && kill "$PARTNER_PID" >/dev/null 2>&1 || true
+
+echo "--- partner bot log ---"
+tail -25 "$PARTNER_LOG" 2>/dev/null || true
+echo "--- client autoplay markers ---"
+grep -E "WORDS_AUTOPLAY|WORDS_ROLLBACK|WORDS_MATCH_COMPLETE" "$DIAG/logcat-fullmatch.txt" | tail -25 || true
+
+if [ -z "$complete_line" ]; then
+  echo "PRODUCT_FAIL: no [WORDS_MATCH_COMPLETE] within the 9 min budget (match never reached its authoritative terminal state)"
+  exit 1
+fi
+echo "full-match marker: $complete_line"
+if ! printf '%s' "$complete_line" | grep -q "source=result-endpoint"; then
+  echo "FAIL: the completion marker did not come from the authoritative result endpoint"
+  exit 1
+fi
+echo "WORDS_FULL_MATCH_SMOKE_OK"
 exit 0

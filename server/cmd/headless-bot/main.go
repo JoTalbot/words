@@ -642,9 +642,29 @@ func main() {
 	rounds := flag.Int("rounds", 1, "repetitions per seed")
 	viaQueue := flag.Bool("via-queue", false, "create each match through the matchmaking queue (POST /v1/queue) instead of POST /v1/matches; the server picks the seed and -seeds only controls the match count")
 	verbose := flag.Bool("v", false, "verbose per-match output")
+	// Batch 28b: partner mode - be the OPPONENT of an external client (the
+	// Unity player on the device smoke's emulator) instead of driving both
+	// seats. See partner.go.
+	partner := flag.Bool("partner", false, "wait in the matchmaking queue for an external client and play as its opponent until the match is over")
+	partnerWait := flag.Duration("partner-wait", 4*time.Minute, "how long to wait for the external client to join the queue")
+	partnerBudget := flag.Duration("partner-budget", 8*time.Minute, "hard cap on one partner match; exceeding it is a failure, not a hang")
+	partnerGrace := flag.Duration("partner-grace", 6*time.Second, "delay before the partner's first word in each wave, so the external client can claim cells first")
+	partnerInterval := flag.Duration("partner-interval", 4*time.Second, "minimum delay between partner words")
 	flag.Parse()
 	if *addr == "" {
 		*addr = "http://127.0.0.1:18080"
+	}
+	if *partner {
+		partnerMain(partnerConfig{
+			addr:     *addr,
+			lang:     *lang,
+			waitFor:  *partnerWait,
+			budget:   *partnerBudget,
+			grace:    *partnerGrace,
+			interval: *partnerInterval,
+			verbose:  *verbose,
+		})
+		return
 	}
 	seedList := []uint64{}
 	for _, s := range strings.Split(*seeds, ",") {
