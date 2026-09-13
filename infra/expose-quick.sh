@@ -75,15 +75,20 @@ fi
 
 if [ ! -x "$CFD_BIN" ]; then
   log "installing cloudflared to $CFD_BIN"
-  mkdir -p "$(dirname "$CFD_BIN")"
-  curl -sfL -m 120 -o "$CFD_BIN.tmp" "$CFD_URL"
-  chmod +x "$CFD_BIN.tmp"
-  mv "$CFD_BIN.tmp" "$CFD_BIN"
+  mkdir -p "$(dirname "$CFD_BIN")" 2>/dev/null || sudo mkdir -p "$(dirname "$CFD_BIN")"
+  cfd_tmp=$(mktemp)
+  curl -sfL -m 120 -o "$cfd_tmp" "$CFD_URL"
+  # /opt/words/bin may be root-owned on the promoted host; install via sudo.
+  sudo install -m 755 "$cfd_tmp" "$CFD_BIN"
+  rm -f "$cfd_tmp"
 fi
 log "cloudflared: $("$CFD_BIN" --version 2>/dev/null | head -1)"
 
 log "installing systemd unit"
 sudo cp "$UNIT_SRC" "$UNIT_DST"
+# The unit runs as the current user and writes its own log file.
+sudo touch "$LOG"
+sudo chown "$(id -un)" "$LOG"
 sudo systemctl daemon-reload
 sudo systemctl enable --now words-tunnel
 
