@@ -1,0 +1,56 @@
+id: M1-batch27f-focus-cycle
+title: Force a proven window-focus cycle before the device swipe so Unity's input gate is verifiably live
+owner: device-automation
+priority: high
+complexity: small
+status: validated_local_pending_unity_build
+risk: low
+escalation: none
+
+inputs:
+  - Run 07aa6e6 (main ea3ccd2) leg 35 job log + artifact: the client was finally healthy (board rect published 1.6 s after ready, correct screen coords) yet the swipe produced no WORDS_SWIPE
+  - Run 07aa6e6 leg 35 logcat-full.txt: Unity logged windowFocusChanged 'true' at launch and 'false' 0.5 s later (first-boot focus flap), then never 'true' again, while dumpsys reported our window focused and the app kept rendering
+  - tools/android-smoke.sh (pre-swipe focus gate from batch 27D trusted dumpsys alone)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (Awake)
+
+dependencies:
+  - M1-batch27d-device-diagnostics-focus
+  - M1-batch27b-endpoint-persistence
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (Application.focusChanged -> [WORDS_FOCUS] gained/lost marker)
+  - tools/android-smoke.sh (pre_swipe_focus_gate function; focus cycle HOME -> relaunch with [WORDS_FOCUS] gained assertion; apply_board_geometry re-derivation; full-restart swipe retry)
+  - agent/tasks/M1-batch27f-focus-cycle.yml
+
+acceptance:
+  - >-
+    The client logs [WORDS_FOCUS] gained / lost on every window focus
+    transition (Application.focusChanged), giving the device smoke a
+    Unity-side ground truth for its own input gate instead of dumpsys,
+    which was measured to report our window focused while Unity's
+    windowFocusChanged flag stayed stuck at 'false' (run 07aa6e6).
+  - "The smoke script forces one HOME -> relaunch focus cycle right before the swipe and asserts a [WORDS_FOCUS] gained line in logcat before any input is delivered; missing marker exits INFRA_FAIL (8) with screenshot + logcat evidence."
+  - "If the relaunch re-publishes the board rect (activity recreated), the swipe coordinates are re-derived from the fresh rect before swiping."
+  - "If the first swipe still produces no WORDS_SWIPE, the script retries once from a full cold restart (the exact sequence of the green run 34683472147) before failing."
+
+validation:
+  - "bash -n tools/android-smoke.sh"
+  - "python static sanity: C# braces balanced (310/310), marker present, task graph 41 files 0 problems"
+  - "Pending: Unity Android workflow green on the merged commit (both legs: swipe + diagonal)"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - tools/android-smoke.sh
+  - agent/tasks/M1-batch27f-focus-cycle.yml
+
+notes: >-
+  The two 27D/27E red runs each proved one layer fixed and exposed the next:
+  27D found the NRE, 27E fixed it, 07aa6e6 then showed a healthy client whose
+  swipes still vanished. The 07aa6e6 evidence (windowFocusChanged true at
+  launch, false 0.5 s later, never true again; dumpsys focused; rendering
+  alive; no sheet at screenshot time) points at Unity's own input gate being
+  stuck at 'unfocused' after the first-boot focus flap. This batch makes the
+  gate observable from the client ([WORDS_FOCUS]) and forces a clean
+  lost->gained cycle immediately before the swipe, so the swipe is only ever
+  attempted against a proven-live input pipeline - and if it still fails,
+  the full-restart retry reproduces the one measured green sequence.
