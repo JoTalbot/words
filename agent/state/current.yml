@@ -1,7 +1,26 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34768815730_build_only_green(smoke_skipped_missing_inputs); run_34769405396_in_flight
+status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34769405396_RED_both_legs_swipes_dead_despite_all_gates_green; batch_27g_input_probe_merged; run_34770332786_in_flight
 completed_tasks:
+  - >-
+    Batch 27G (input-arrival probe + motionevent fallback, PR #27 merged
+    into 918948a): run 34769405396 closed every known confounder - the
+    client was healthy, the swipe coordinates were measured inside a
+    rendered cell, the screenshot showed no sheet at swipe time, the
+    client-side [WORDS_FOCUS] gained marker was present after the forced
+    focus cycle, and even the full-cold-restart retry (fresh process)
+    swiped to nothing. logcat-full also showed [WORDS_FOCUS] gained
+    2.3 s after the launch focus flap, so the stuck-flag theory alone
+    does not explain the dead swipes. 27G adds [WORDS_INPUT]
+    down/drag/up/tap markers with raw screen + converted local
+    coordinates and the hit-test result (one run splits event delivery
+    vs coordinate drift vs hit-test failure), sheet taps scaled to the
+    real wm size (the API 33 leg's fixed 1080x1920 taps missed entirely
+    and INFRA_FAILed before the swipe), a warm-up tap probe before each
+    swipe pass (reports the first [WORDS_INPUT] line or an explicit NO
+    INPUT EVENT REACHED THE CLIENT), a discrete input motionevent
+    DOWN/MOVE.../UP drag fallback if input swipe yields no marker, and
+    the same ensure_input_live focus cycle in the retry path.
   - >-
     Batch 27F (Unity input-gate focus cycle, PR #26 merged into ac650b0):
     run 07aa6e6 (27E fix) finally ran a HEALTHY client - board rect
@@ -584,6 +603,19 @@ blocked_tasks:
     GitHub-hosted x86_64 Unity/Android CI or another authorized remote build/device backend
 failed_tasks:
   - >-
+    Unity Android run 34769405396 (27F, head a6febb5, dispatched 16:42Z
+    with explicit inputs): build green; leg 35 (API 35): client healthy,
+    board rect published, pre-swipe gate recovered the sheet, focus cycle
+    ran and the [WORDS_FOCUS] gained assertion PASSED, screenshot showed
+    a clean rendered board with no sheet - yet the swipe (x=52..992
+    y=743, measured inside row 0) produced no WORDS_SWIPE and the
+    full-cold-restart retry (fresh process, clean focus gate) also
+    produced nothing. Leg 33 (API 33): the sheet's recovery taps
+    (measured at 1080x1920) missed on that image's different screen
+    size; INFRA_FAIL before the swipe. Verdict: the swipe dies for a
+    reason no previous gate measured - 27G's [WORDS_INPUT] probe
+    localizes it in one run.
+  - >-
     Unity Android run 34767504356 / 07aa6e6 (27E env NRE fix, head
     07aa6e6, dispatched 16:04Z): build green; BOTH legs failed, but the
     client was finally healthy - [WORDS_SERVER] source=default, board
@@ -663,6 +695,17 @@ next_tasks:
     M1 client follow-up: live-device/server configuration (runtime server endpoint field) once the
     Q8 edge-exposure decision is made; loopback-only until then
 task_graph:
+  M1-batch27g-input-probe:
+    status: merged_device_run_in_flight
+    owner: device-automation
+    merged: 918948a
+    pull_request: 27
+    note: >-
+      [WORDS_INPUT] down/drag/up/tap client markers (screen + local
+      coords + hit-test result) + wm-size-scaled sheet taps + warm-up
+      tap probe per swipe pass + input motionevent multi-point drag
+      fallback + retry runs ensure_input_live. Run 34770332786 on
+      918948a in flight (dispatched 17:01Z, explicit inputs).
   M1-batch27f-focus-cycle:
     status: merged_device_run_in_flight
     owner: device-automation
@@ -1183,6 +1226,7 @@ workers:
     drafting tasks with hard timeouts
 last_commit: "7968137"
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
-resume_from: "Main is ac650b0 (PRs #18-#26 merged; 27A/27B/27C/27D/27E/28a/28c/27F all in tree; every merge CI-green). DEVICE LEG STATUS: the regression chain is fully root-caused, layer by layer: (1) 27A fixed the 40 px inset coordinate defect; (2) 27D instrumentation caught the ImmersiveModeConfirmation sheet + proved the NRE; (3) 27E fixed the Awake NRE (Unity reference-assembly span fiction vs Android null runtime); run 07aa6e6 then proved the client healthy but exposed the FINAL layer: the Unity windowFocusChanged flag stuck at false after a 0.5 s first-boot focus flap - the app renders, dumpsys says focused, but every synthetic gesture is silently dropped. 27F (ac650b0) makes the gate observable from the client ([WORDS_FOCUS] gained/lost via Application.focusChanged) and forces a clean HOME -> relaunch cycle right before the swipe with a gained-line assertion plus a full-cold-restart retry (the green 34683472147 sequence). RUN 34769405396 (a6febb5, dispatched 16:42Z with explicit inputs run_smoke_tests=true, id in /tmp/runid27f.txt) is in flight; the first dispatch 34768815730 (16:31Z) ran build-only green (the dispatch omitted the workflow inputs, whose default skips the smoke leg) - IT IS THE EXPECTED GREEN RUN: build, then both legs should pass (row swipe [WORDS_SWIPE] cells=4 word=TAAN, diagonal cells>=3 word != TAAN, [WORDS_FOCUS] gained visible before the swipe). IF STILL IN FLIGHT AT SESSION END: poll GET /repos/JoTalbot/words/actions/runs/34769405396; on completion read the two smoke job logs (job ids from the jobs endpoint) for WORDS_SWIPE_SMOKE_OK / WORDS_DIAGONAL_SMOKE_OK; if a leg is red, download the android-smoke-diagnostics artifact (list artifacts -> archive_download_url, Accept: application/vnd.github+json - the /zip subpath 404s) and inspect logcat-full.txt for [WORDS_FOCUS] and windowFocusChanged lines. If green: record in state + task files, update docs/ROADMAP.md M1 rows (shared board UX, Claim/Lock), remove stale worktrees (wt-27d, wt-27e, wt-27a, wt-27b, wt-27bf, wt-28a, wt-28c, wt-28af, and wt-27f once 27F is fully green). NEXT: 28b unattended full-match device loop stays Q8-blocked (loopback-only service, no reachable server from the emulator) - do not weaken it. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; the dispatch endpoint wants a ref name (ref=main worked, a bare short SHA 422s with No ref found); GitHub artifact download uses archive_download_url. Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates, GitHub CI is the compile gate; OCI server 129.213.177.56 via ~/.ssh/oci_server_key.pem (server at 97a2414, no promotion needed, smoke 27/0 + exit gate 3/3 re-verified 15:07Z)."
+resume_from: "Main is 918948a (PRs #18-#27 merged; every merge CI-green). DEVICE LEG: the regression is root-caused layer by layer (27A coords, 27D sheet+NRE, 27E env NRE, 27F focus gate) yet run 34769405396 swiped a measured, rendered, sheet-free, focus-gated board to NOTHING - twice (primary + full-restart retry), and the API 33 leg failed on fixed-tap sheet recovery (different screen size). The 27F [WORDS_FOCUS] marker showed focus had already recovered 2.3 s after the launch flap, so the stuck flag is not the whole story. 27G (918948a) makes the next run decisive: [WORDS_INPUT] down/drag/up/tap markers with screen + local coords + hit-test result split delivery vs coordinate drift vs hit-test; a warm-up tap probe reports whether ANY input reaches the client; a discrete input motionevent DOWN/MOVE/UP drag is the fallback if input swipe's stream does not land; sheet taps now scale to the real wm size (fixes the API 33 leg). RUN 34770332786 (918948a, dispatched 17:01Z, id in /tmp/runid27g.txt) is in flight. IF IN FLIGHT AT SESSION END: poll GET /repos/JoTalbot/words/actions/runs/34770332786; on completion read both smoke job logs - the decisive lines are the input probe (NO INPUT EVENT REACHED THE CLIENT vs a [WORDS_INPUT] down line with coordinates) and any [WORDS_INPUT]/[WORDS_SWIPE] markers; if red, download the android-smoke-diagnostics (and -retry) artifacts (list -> archive_download_url) and inspect logcat.txt / logcat-primary.txt. Interpretation guide: down+hit=cell -> the gesture path regressed (read the drag/up lines); down+hit=none -> coordinate-space drift (compare screen vs local vs the WORDS_BOARD_RECT); no marker at all -> input delivery is broken (the motionevent result in the log tells whether that path works); WORDS_SWIPE on the motionevent path -> keep the fallback, investigate input swipe separately. If green: record in state + task files, update docs/ROADMAP.md M1 rows (shared board UX, Claim/Lock), remove stale worktrees (wt-27d, wt-27e, wt-27a, wt-27b, wt-27bf, wt-28a, wt-28c, wt-28af, wt-27f, wt-27g once fully green). NEXT: 28b unattended full-match device loop stays Q8-blocked - do not weaken it. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; dispatch needs ref=main (bare SHA 422s) AND explicit inputs (run_smoke_tests defaults to false - run 34768815730 was build-only for that reason); artifacts download via archive_download_url. Two human blockers stay open: B2 uk dictionary licence review and Q8 edge/TLS exposure. Do not redo verified items - reuse their evidence. Sandbox tooling: Go 1.27.1 at /home/user/go (GOROOT); no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates, GitHub CI is the compile gate; OCI server 129.213.177.56 via ~/.ssh/oci_server_key.pem (server at 97a2414, no promotion needed, smoke 27/0 + exit gate 3/3 re-verified 15:07Z)."
+
 
 updated_at: "2026-09-13 (batch 27 complete: device-leg coordinate defect root-caused + fixed, endpoint persistence + override, roadmap exit criteria explicit; batches 28a/28c merged; 27B Unity 6 compile fix merged; main 7968137; Unity Android device run in flight verifying swipe fix + diagonal)"
