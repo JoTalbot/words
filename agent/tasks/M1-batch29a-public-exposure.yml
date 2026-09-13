@@ -3,7 +3,7 @@ title: "Open the dev match service externally (Q8 stage 1: Cloudflare quick tunn
 owner: infra-ops
 priority: high
 complexity: small
-status: validated_local_deploy_pending_ssh_key
+status: done
 risk: medium
 escalation: none
 
@@ -28,11 +28,12 @@ acceptance:
   - "After deploy, https://<tunnel>/healthz and /readyz respond through the public URL and the printed URL is verified by the script, not assumed."
   - "Rollback is one command (expose-quick.sh --stop) and returns the host to loopback-only with zero service changes; in-flight matches drop and clients re-queue."
   - "Abuse cases (match-creation spam, browser WS hijack, DoS, token theft), capacity baseline and rollback are documented in docs/SECURITY-EXPOSURE.md before the tunnel goes up."
-  - "Pending: the tunnel is actually running on the OCI host (blocked on the SSH key reissue) and a real device completes a match through the public URL (that is the 28b leg)."
+  - "The tunnel is running on the OCI host (deployed 2026-09-13T18:44Z via the re-provisioned SSH key) and /healthz+/readyz verified from an outside network; a real device completing a match through the public URL is the 28b leg."
 
 validation:
   - "bash -n infra/expose-quick.sh: clean"
-  - "Pending: expose-quick.sh on the OCI host (needs SSH access), then a device match through the public URL"
+  - "expose-quick.sh ran on the OCI host 2026-09-13; URL read from the journal; sandbox curl: /healthz 200, /readyz 200 (storage postgres)"
+  - "Pending (28b leg): a device match through the public URL"
 
 file_ownership:
   - docs/PRODUCT-DECISIONS.md
@@ -42,12 +43,17 @@ file_ownership:
   - agent/tasks/M1-batch29a-public-exposure.yml
 
 notes: >-
-  This batch is the Q8 decision turned into deployable tooling. The code
-  side of the exposure is done and reviewed; the remaining step is
-  running infra/expose-quick.sh on the OCI host, which needs the SSH
-  private key that was lost in the sandbox re-provision of 18:24Z
-  2026-09-13 (top human item). Once the URL exists: 28b proceeds
-  (headless-bot -partner opponent + client auto-wave + [WORDS_MATCH_COMPLETE]
-  + smoke leg through the 27B endpoint channel), and the "production-
-  shaped match service" M1 row moves from Q8-blocked to tunnel-deployed.
-  Stage 2 (stable domain) waits on the owner providing a domain.
+  DONE 2026-09-13. Deployed to arm-server-01 (aarch64) at 18:44Z after the
+  owner re-provisioned the SSH key. First-run host fixes (all committed to
+  the script): arch-aware cloudflared download (linux-arm64), `sudo install`
+  into the root-owned /opt/words/bin, pre-created ubuntu-owned
+  /var/log/words-tunnel.log for the User=ubuntu unit, and URL extraction
+  from the journal (cloudflared >= 2025 prints the quick-tunnel banner to
+  the console, which systemd journals instead of --logfile). Live URL:
+  https://ireland-placement-dot-inner.trycloudflare.com (ephemeral —
+  re-read from the journal after any tunnel restart). Verified from an
+  outside network: /healthz 200, /readyz 200 (storage postgres).
+  28b now proceeds (headless-bot -partner + client auto-wave +
+  [WORDS_MATCH_COMPLETE] + smoke leg through the 27B endpoint channel);
+  the "production-shaped match service" M1 row is closed. Stage 2 (stable
+  domain) waits on the owner providing a domain.

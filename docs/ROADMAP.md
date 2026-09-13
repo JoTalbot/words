@@ -26,7 +26,7 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M1 — Vertical Slice
 
-- [~] production-shaped match service (resource limits, request logging,
+- [x] production-shaped match service (resource limits, request logging,
   match result persistence, /metrics JSON + Prometheus counters,
   graceful shutdown, Docker/compose, background reaper, intent rate limiting,
   seat-token rotation + optional TTL, JSONL telemetry export, /readyz readiness/draining — 2026-09-10; Unity client lifecycle controls for /readyz, result fetch and token rotation added 2026-09-10;
@@ -39,11 +39,15 @@ Exit gate: two remote clients can complete repeated matches with identical final
   repo-hygiene guard in CI (batch 21C); unguessable match codes + stored read
   capability with the gate enabled live (batch 21g); live systemd service
   promoted to main 97a2414 and verified live — batch 26G, 2026-09-12.
-  REMAINING (explicit exit criterion): expose the service beyond loopback
-  once the Q8 edge/TLS decision lands — TLS termination, origin allowlist and
-  abuse review are the three measurable gates, all recorded in
-  docs/PRODUCT-DECISIONS.md. Q8 is a human decision.)
-- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; pending-intent reconciliation shell added 2026-09-10; drag/swipe multi-cell selection gesture path and MATCH OVER result overlay added 2026-09-10). REMAINING, each with one measurable exit criterion: (a) richer rollback animation — a rejected pending intent flashes the affected cells red and logs a [WORDS_ROLLBACK] marker verifiable on a device (M1-batch28a-rollback-flash: merged and CI-green 2026-09-13; the device marker rides on the 28b full-match loop, so it is Q8-blocked with (b)); (b) production shared-board UX — the device smoke runs an unattended full match loop from queue through swipe, send and the authoritative MATCH OVER overlay, verified by a [WORDS_MATCH_COMPLETE] marker (M1-batch28b-device-full-match-loop: BLOCKED on the Q8 edge/TLS decision - the loopback-only service is unreachable from the emulator; do not weaken the criterion)
+  Q8 exposure DONE 2026-09-13 (decision OPEN, staged): stage 1 is a Cloudflare
+  quick tunnel on the OCI host — TLS terminated at the Cloudflare edge, origin
+  stays loopback-only, no public TCP port, outbound-only tunnel under systemd
+  (infra/expose-quick.sh + infra/words-tunnel.service), abuse review in
+  docs/SECURITY-EXPOSURE.md, verified from an outside network via the public
+  URL (healthz + readyz). Stage 2 (stable domain, per-IP limits, /metrics
+  deny, public-token decision) awaits the owner-provided domain — Q8 stage 2,
+  non-blocking for M1.)
+- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; pending-intent reconciliation shell added 2026-09-10; drag/swipe multi-cell selection gesture path and MATCH OVER result overlay added 2026-09-10). REMAINING, each with one measurable exit criterion: (a) richer rollback animation — a rejected pending intent flashes the affected cells red and logs a [WORDS_ROLLBACK] marker verifiable on a device (M1-batch28a-rollback-flash: merged and CI-green 2026-09-13; the device marker rides on the 28b full-match loop, so it is Q8-blocked with (b)); (b) production shared-board UX — the device smoke runs an unattended full match loop from queue through swipe, send and the authoritative MATCH OVER overlay, verified by a [WORDS_MATCH_COMPLETE] marker (M1-batch28b-device-full-match-loop: UNBLOCKED 2026-09-13 — the Q8 stage-1 tunnel makes the service reachable from the emulator through a public https URL; do not weaken the criterion)
 - [x] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server, displays pending claims, and reconciles canonical ownership/lock snapshots; swipe gesture path with ordered selection added 2026-09-10; eight-way adjacency + bridge gesture rules and device-level swipe smoke added 2026-09-10 — batch 17E; device leg green on run 34683472147 after the 26E KVM fix). DEVICE-GREEN 2026-09-13 (run 34772130697, main 91f3b59): after the 27A/27D/27E/27H/27I chain closed the regression (the 27H identity transform fixed the double 40 px inset subtraction that the 27G probe had proven), the device smoke passes both assertions - row swipe [WORDS_SWIPE] cells=4 word=TAAN and the 28c diagonal swipe (0,0)->(2,2) with [WORDS_SWIPE] cells=3 word=TSO (a true multi-row path via the bridge rule; the verified criterion is cells >= 3 + word != the row-0 word, per M1-batch28c)
 - [x] combo and Sudden Death (server: combo engine golden since M0; Sudden
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo
@@ -100,12 +104,12 @@ Counts below are task-level evidence from `agent/state/current.yml` and
 
 | M1 row | State | What is still open |
 |---|---|---|
-| production-shaped match service | verified live | live systemd service promoted to main 97a2414 and re-verified live on 2026-09-12 (batch 26G: smoke 27/0, exit gate 3/3 with baseline scores). Only Q8 edge/TLS exposure remains — a human decision |
+| production-shaped match service | verified live | live systemd service promoted to main 97a2414 and re-verified live on 2026-09-12 (batch 26G: smoke 27/0, exit gate 3/3 with baseline scores). Q8 stage 1 done 2026-09-13: quick tunnel deployed on the OCI host and verified from an outside network; stage 2 stable domain awaits the owner-provided domain |
 | basic matchmaking | done | — |
 | telemetry baseline | done | — |
 | player profile + durable storage | done | identity/auth layer is M2 scope |
-| shared board UX | in progress | explicit exit criteria recorded 2026-09-13 (batch 27C): (a) rejected-intent rollback flash + `[WORDS_ROLLBACK]` device marker (M1-batch28a: merged, CI-green; device marker rides on the 28b loop); (b) unattended full-match device loop queue → swipe → send → authoritative MATCH OVER + `[WORDS_MATCH_COMPLETE]` marker (M1-batch28b: Q8-blocked - loopback-only service unreachable from the emulator) |
-| Claim / Lock / Cross-Steal | in progress | **Device smoke green 2026-09-13** on run 34772130697 (main 91f3b59): row swipe `[WORDS_SWIPE] cells=4 word=TAAN` + 28c diagonal `[WORDS_SWIPE] cells=3 word=TSO`. The eight-run regression is closed: 27A coordinates, 27D instrumentation, 27E Awake NRE, 27F focus gate, 27G probe (proven the double 40 px inset subtraction: the event is already BeginArea-local under the GUI.matrix), 27H identity transform, 27I persistent sheet gate. Remaining for the row: 28a rollback-flash device marker and 28b full-match loop, both Q8-blocked |
+| shared board UX | in progress | explicit exit criteria recorded 2026-09-13 (batch 27C): (a) rejected-intent rollback flash + `[WORDS_ROLLBACK]` device marker (M1-batch28a: merged, CI-green; device marker rides on the 28b loop); (b) unattended full-match device loop queue → swipe → send → authoritative MATCH OVER + `[WORDS_MATCH_COMPLETE]` marker (M1-batch28b: UNBLOCKED 2026-09-13 — Q8 stage-1 tunnel deployed and externally verified; implementation in progress) |
+| Claim / Lock / Cross-Steal | in progress | **Device smoke green 2026-09-13** on run 34772130697 (main 91f3b59): row swipe `[WORDS_SWIPE] cells=4 word=TAAN` + 28c diagonal `[WORDS_SWIPE] cells=3 word=TSO`. The eight-run regression is closed: 27A coordinates, 27D instrumentation, 27E Awake NRE, 27F focus gate, 27G probe (proven the double 40 px inset subtraction: the event is already BeginArea-local under the GUI.matrix), 27H identity transform, 27I persistent sheet gate. Remaining for the row: 28a rollback-flash device marker and 28b full-match loop (unblocked 2026-09-13 by the Q8 tunnel deploy; in progress) |
 | combo and Sudden Death | done for M1 scope | nothing server-side; presentation delivered (17C) |
 | security / protocol robustness | done for M1 scope | — (finding S-2 closed 2026-09-11 by `M1-batch21g-match-codes`, verified live with the gate enabled; profile-id boundary validation closed 2026-09-12 by `M1-batch26a-profile-id-range`) |
 | build + CI reliability | device leg repaired, pending CI | Unity Android run 34683472147 was fully green (batch 26E KVM fix: boot 31.6 s vs 368–588 s software emulation). The next two scheduled runs regressed on a coordinate defect in the smoke's board-rect conversion (27A: client now publishes screen-space `sx*/sy*`, script and focus recovery fixed). `gofmt` is a merge precondition (26B). Remaining: a green scheduled run on the merged 27A |

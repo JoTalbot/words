@@ -145,10 +145,39 @@ curl -s http://127.0.0.1:18080/metrics/prometheus | head
 7. Re-run the headless-bot exit gate after every binary change.
 8. Keep `/opt/words/bin/wordarena-server.prev` for one-step rollback.
 
+## Public exposure (Q8 stage 1: Cloudflare quick tunnel)
+
+Deployed 2026-09-13T18:44Z (decision: docs/PRODUCT-DECISIONS.md Q8, OPEN,
+staged). The origin is unchanged: it listens on 127.0.0.1:18080 only. A
+`cloudflared` quick tunnel (systemd unit `words-tunnel`, outbound-only QUIC/
+HTTP2 to the Cloudflare edge, TLS terminated at the edge) carries public
+traffic to the loopback origin. No public TCP port is opened.
+
+- Deploy / re-deploy: `bash /opt/words/infra/expose-quick.sh` (origin health
+  gate, install, unit, URL print, public verification).
+- Current public URL (EPHEMERAL — changes on every tunnel restart):
+  https://ireland-placement-dot-inner.trycloudflare.com
+- Re-read the URL after a restart:
+  `sudo journalctl -u words-tunnel --no-pager | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | head -1`
+  (cloudflared prints the banner to the console, which systemd journals;
+  `--logfile` does not contain it in cloudflared >= 2025).
+- Status: `bash /opt/words/infra/expose-quick.sh --status`
+  (unit state + healthz through the public URL).
+- Kill / rollback: `bash /opt/words/infra/expose-quick.sh --stop` — the host
+  returns to loopback-only with zero service changes.
+- Host notes: arm64 binary (`/opt/words/bin/cloudflared`, installed with
+  `sudo install` because `/opt/words/bin` is root-owned); tunnel log
+  `/var/log/words-tunnel.log` (ubuntu-owned, pre-created by the script).
+- Abuse review: docs/SECURITY-EXPOSURE.md (spam, WS hijack, DoS, token
+  theft, capacity baseline, rollback).
+- Verified from an outside network 2026-09-13: /healthz 200,
+  /readyz 200 ({"status":"ready","storage":"postgres"}).
+
+Stage 2 (stable domain, edge per-IP limits, /metrics deny, public-token
+decision) awaits the owner-provided domain.
+
 ## Known constraints
 
-- Loopback-only exposure: the Unity client can only reach the server from the
-  host itself or an authorized tunnel. Public exposure requires an edge/TLS
-  decision (docs/ARCHITECTURE.md) before enabling.
+- Public exposure is the Q8 stage-1 quick tunnel above (ephemeral URL).
 - Single process; no horizontal scale-out yet (M1 scope; see
   docs/M1-ARCH-PREP.md).
