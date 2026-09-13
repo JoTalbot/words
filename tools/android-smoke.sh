@@ -111,12 +111,14 @@ for attempt in 1 2 3 4 5 6; do
   printf '%s\n' "$window" | head -2 || true
   if printf '%s\n' "$window" | grep -q "ImmersiveModeConfirmation"; then
     # First-run full-screen sheet. BACK demonstrably does NOT dismiss it
-    # (measured, batch 26D note), so tap the "Got it" button area first and
-    # the scrim outside the card as a second attempt.
-    adb shell input tap 540 960 >/dev/null 2>&1 || true
+    # (measured, batch 26D note). Tap the scrim well below the card first
+    # (the card occupies roughly the top third of the 1080x1920 panel),
+    # then the "Got it" button measured from the run 34764775012 screenshot
+    # (1080x1920 device pixels: ~870,449) as the second attempt.
+    adb shell input tap 540 1600 >/dev/null 2>&1 || true
     sleep 2
     if adb shell dumpsys window 2>/dev/null | grep -q "ImmersiveModeConfirmation"; then
-      adb shell input tap 540 160 >/dev/null 2>&1 || true
+      adb shell input tap 870 449 >/dev/null 2>&1 || true
       sleep 2
     fi
   elif ! printf '%s\n' "$window" | grep -qE "mFocusedApp=.*$PKG"; then
@@ -170,6 +172,13 @@ if [ "$ready" != 1 ]; then
   exit 1
 fi
 echo "client ready: SetGameState isLoading=false"
+
+# Batch 27D: keep the FULL logcat from launch, not just the post-clear tail.
+# Run 34764775012 died with an OnGUI NullReferenceException visible only in
+# the development console; the script had already cleared the buffer before
+# the swipe, so logcat.txt held nothing but EGL lines. Everything below the
+# swipe keeps working on the cleared buffer; this file is the startup record.
+adb logcat -d >"$DIAG/logcat-full.txt" 2>&1 || true
 
 # Batch 26D: read the board's real position before the buffer is cleared.
 # IMGUI positions the cells at runtime, so the row a swipe has to travel
@@ -252,6 +261,33 @@ if [ -z "$SWIPE_Y" ]; then
   # 0..964 x 622..1108 with the 40 px inset, scale 1.0.
   BSX0=40; BSY0=662; BSX1=1004; BSY1=1148
   echo "fallback swipe: y=$SWIPE_Y x=$SWIPE_X0..$SWIPE_X1"
+fi
+
+# Batch 27D: re-verify focus RIGHT BEFORE the swipe. The launch gate and
+# the swipe are separated by the readiness wait plus the board-rect poll
+# (up to ~2 min when the client is silent), and focus can be stolen in that
+# window: run 34764775012 passed the gate, then ImmersiveModeConfirmation
+# landed on top of the app before the swipe. The swipe below can still work
+# under a top-anchored card (it lands under the card on this layout), but a
+# full-screen system window eats it, so recover once more here and fail as
+# INFRA if recovery fails instead of misreporting a product regression.
+window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
+if ! printf '%s\n' "$window" | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+  echo "  focus lost before the swipe; current focus:"
+  printf '%s\n' "$window" | head -2 || true
+  adb shell input tap 540 1600 >/dev/null 2>&1 || true
+  sleep 2
+  if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+    adb shell input tap 870 449 >/dev/null 2>&1 || true
+    sleep 2
+  fi
+  if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+    echo "INFRA_FAIL: $PKG lost input focus before the swipe and recovery failed on $BACKEND"
+    adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+    adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+    exit 8
+  fi
+  echo "  focus recovered before the swipe"
 fi
 
 # Clear after readiness so the assertion below can only see the swipe's output.

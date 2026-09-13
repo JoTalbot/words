@@ -342,6 +342,7 @@ jobs:
           name: android-smoke-diagnostics
           path: |
             logcat.txt
+            logcat-full.txt
             logcat-diagonal.txt
             logcat-swipe-fail.txt
             android-smoke.png
@@ -412,6 +413,7 @@ jobs:
           name: android-smoke-diagnostics-retry
           path: |
             logcat.txt
+            logcat-full.txt
             logcat-diagonal.txt
             logcat-swipe-fail.txt
             android-smoke.png

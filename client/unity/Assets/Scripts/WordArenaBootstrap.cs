@@ -126,6 +126,21 @@ namespace Words.Client
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
+            // Batch 27D: mirror error/exception logs (with stack traces) to
+            // logcat under a greppable tag for device triage. Measured: run
+            // 34764775012 showed a bare NullReferenceException in the
+            // development console that silently killed the IMGUI loop - no
+            // WORDS_BOARD_RECT, no WORDS_SWIPE, a black app area - while the
+            // logcat the smoke kept had already been cleared. Debug.Log is
+            // LogType.Log, so the handler below cannot recurse.
+            Application.logMessageReceived += (condition, stackTrace, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error)
+                {
+                    Debug.Log("[WORDS_DIAG] type=" + type + " msg=" + condition + " stack=" + stackTrace);
+                }
+            };
+
             if (FindFirstObjectByType<WordArenaBootstrap>() != null)
             {
                 return;
