@@ -101,3 +101,33 @@ production  -> multi-region Kubernetes + Agones + managed data services
 ```
 
 The local environment must exercise the same protocol and service contracts as staging. Mocks should replace external infrastructure only where the behavior is explicitly modeled and tested.
+
+## Roster model (batch 30A, M2 foundation — 2026-09-13)
+
+The authoritative simulation (`server/internal/match`) is **seat-count
+agnostic**. `Config.Seats` selects the roster size (zero means 2, so every
+1v1 caller is unchanged), bounded by `MinSeats`/`MaxSeats` = 2/60 at
+construction so a malformed request cannot allocate freely. Rank, tie
+detection, result selection and the replay fingerprint are all expressed over
+the roster rather than a hardcoded pair:
+
+- rank = 1 + (number of seats scoring strictly higher); ties share the better
+  rank, which reproduces the 1v1 rule (equal scores → both rank 1) exactly;
+- a match is tied when more than one seat holds the top score;
+- the fingerprint folds every seat's score and combo, so replay equality
+  cannot ignore seats 2..N.
+
+Still 1v1-shaped above the simulation, and therefore the next M2 batches:
+
+| Layer | State | Needed for 60-player |
+|---|---|---|
+| `internal/match` | roster-shaped | — |
+| wire protocol | already `repeated PlayerState` | — |
+| `cmd/game` room creation | `[2]` tokens/user ids | 30B: roster-shaped room |
+| matchmaker | pairs exactly two entries | 30C: N-way admission |
+| board generator | fixed 12 cells (sized for two) | board sizing rule |
+| elimination | `IsEliminated` always false | a product decision first |
+
+Elimination and board sizing are **product decisions** (PD entries) rather
+than implementation details, and anti-snowball plus bot disclosure depend on
+them; they are not assumed here.

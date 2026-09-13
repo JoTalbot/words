@@ -32,6 +32,11 @@ const (
 	CellsPerWave = 12
 	// MinWordLength is the minimum accepted word length.
 	MinWordLength = 3
+	// MinSeats and MaxSeats bound the roster. MaxSeats is the M2 Royale
+	// target (docs/ROADMAP.md); the simulation itself is seat-count
+	// agnostic, the bound exists so a bad request cannot allocate freely.
+	MinSeats = 2
+	MaxSeats = 60
 	// ComboResetWindowTicks: combo resets when the previous accepted word
 	// is older than this (10 s).
 	ComboResetWindowTicks = 300
@@ -111,7 +116,7 @@ type Snapshot struct {
 	// SuddenDeath reports whether the match is currently in its tiebreak
 	// wave (first accepted word wins, see docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
-	Players     [2]PlayerView
+	Players     []PlayerView
 	Cells       []CellView
 }
 
@@ -150,6 +155,10 @@ type Config struct {
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	// When false the match keeps M0 rules: a tied final score is a draw.
 	SuddenDeath bool
+	// Seats is the roster size (batch 30A, M2 foundation). Zero means 2, so
+	// every existing 1v1 caller is unaffected; larger values are the path to
+	// the 60-player Royale mode without a second simulation.
+	Seats int
 }
 
 // WordValidator is the dictionary capability the match needs.

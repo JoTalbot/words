@@ -26,8 +26,13 @@ type Match struct {
 	suddenDeath   bool
 	inSuddenDeath bool
 
-	cells   []Cell
-	players [2]PlayerState
+	cells []Cell
+	// Batch 30A (M2 foundation): the roster is variable-length. A 1v1 match
+	// is simply len(players) == 2 and every rule below is written in terms
+	// of the roster, not a hardcoded pair - which is the precondition for
+	// the 60-player Royale mode (docs/ROADMAP.md M2) without a second,
+	// divergent simulation.
+	players []PlayerState
 	log     []Event
 }
 
@@ -50,8 +55,17 @@ func New(cfg Config) (*Match, error) {
 		phase:       "active",
 		suddenDeath: cfg.SuddenDeath,
 	}
-	m.players[0].Seat = 0
-	m.players[1].Seat = 1
+	seats := cfg.Seats
+	if seats == 0 {
+		seats = 2 // unchanged default: every existing caller is 1v1
+	}
+	if seats < MinSeats || seats > MaxSeats {
+		return nil, fmt.Errorf("match: seats %d out of range [%d,%d]", seats, MinSeats, MaxSeats)
+	}
+	m.players = make([]PlayerState, seats)
+	for i := range m.players {
+		m.players[i].Seat = Seat(i)
+	}
 	m.cells = generateWave(cfg.Seed, cfg.Lang, 0)
 	return m, nil
 }
@@ -102,7 +116,10 @@ func (m *Match) Events() []Event { return m.log }
 func (m *Match) Cells() []Cell { return m.cells }
 
 // Players exposes live player states (read-only by convention).
-func (m *Match) Players() [2]PlayerState { return m.players }
+func (m *Match) Players() []PlayerState { return m.players }
+
+// Seats returns the roster size of this match (2 for the 1v1 modes).
+func (m *Match) Seats() int { return len(m.players) }
 
 // Combo returns current combo count for a seat.
 func (m *Match) Combo(s Seat) int { return m.players[s].Combo }
@@ -188,8 +205,23 @@ func (m *Match) startSuddenDeath() {
 	m.stateVer++
 }
 
-// isTied reports whether both players have identical scores.
-func (m *Match) isTied() bool { return m.players[0].Score == m.players[1].Score }
+// isTied reports whether the leading score is shared by more than one seat.
+// For a 1v1 match this is exactly the old "both scores equal" rule.
+func (m *Match) isTied() bool {
+	best := m.players[0].Score
+	leaders := 0
+	for _, p := range m.players {
+		if p.Score > best {
+			best = p.Score
+		}
+	}
+	for _, p := range m.players {
+		if p.Score == best {
+			leaders++
+		}
+	}
+	return leaders > 1
+}
 
 // startWave begins wave w with a freshly generated board.
 func (m *Match) startWave(w int) {
@@ -340,7 +372,8 @@ func (m *Match) Snapshot() Snapshot {
 		Phase:           m.phase,
 		SuddenDeath:     m.inSuddenDeath,
 	}
-	for seat := Seat(0); seat < 2; seat++ {
+	s.Players = make([]PlayerView, len(m.players))
+	for seat := Seat(0); int(seat) < len(m.players); seat++ {
 		p := &m.players[seat]
 		s.Players[seat] = PlayerView{
 			Seat:         seat,
@@ -372,18 +405,19 @@ func comboMultOf(p *PlayerState) float64 {
 	return scoring.ComboMultiplier(p.Combo)
 }
 
-// rankOf returns 1 (leader) or 2. Ties give both players rank 1 (M0 draw).
+// rankOf returns the competition rank of a seat: 1 for the highest score,
+// and 1 + (number of seats scoring strictly higher) otherwise. Ties share the
+// better rank, which reproduces the 1v1 rule exactly (equal scores -> both
+// rank 1) while generalizing to any roster size.
 func (m *Match) rankOf(seat Seat) int {
-	other := Seat(1 - seat)
-	a, b := m.players[seat].Score, m.players[other].Score
-	switch {
-	case a > b:
-		return 1
-	case a < b:
-		return 2
-	default:
-		return 1
+	rank := 1
+	mine := m.players[seat].Score
+	for _, p := range m.players {
+		if p.Score > mine {
+			rank++
+		}
 	}
+	return rank
 }
 
 // Result returns the final outcome once the match is over.
@@ -391,15 +425,18 @@ func (m *Match) Result() RankResult {
 	if !m.IsOver() {
 		return RankResult{Over: false}
 	}
-	a, b := m.players[0].Score, m.players[1].Score
-	switch {
-	case a > b:
-		return RankResult{WinnerSeat: 0, IsTie: false, Over: true}
-	case b > a:
-		return RankResult{WinnerSeat: 1, IsTie: false, Over: true}
-	default:
+	best := m.players[0].Score
+	winner := Seat(0)
+	for i, p := range m.players {
+		if p.Score > best {
+			best = p.Score
+			winner = Seat(i)
+		}
+	}
+	if m.isTied() {
 		return RankResult{IsTie: true, Over: true}
 	}
+	return RankResult{WinnerSeat: winner, IsTie: false, Over: true}
 }
 
 // Fingerprint is a deterministic digest of competitive state for equality
@@ -412,10 +449,12 @@ func (m *Match) Fingerprint() string {
 	h.addI64(int64(m.tick))
 	h.addI64(int64(m.wave))
 	h.addI64(int64(m.stateVer))
-	h.addI64(m.players[0].Score)
-	h.addI64(m.players[1].Score)
-	h.addI64(int64(m.players[0].Combo))
-	h.addI64(int64(m.players[1].Combo))
+	for _, p := range m.players {
+		h.addI64(p.Score)
+	}
+	for _, p := range m.players {
+		h.addI64(int64(p.Combo))
+	}
 	for _, c := range m.cells {
 		h.addByte(byte(c.Letter))
 		h.addI64(int64(c.State))
