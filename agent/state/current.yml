@@ -1,7 +1,31 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged; diagnostic_run_66b9dc5_in_flight
+status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; expected_green_run_07aa6e6_in_flight
 completed_tasks:
+  - >-
+    Batch 27E (AWAKE NRE ROOT CAUSE + fix, PR #25 merged into 07aa6e6):
+    the 27D [WORDS_DIAG] instrumentation paid off on the first run -
+    34766120301's logcat-full.txt carried the stack:
+    "NullReferenceException ... Words.Client.WordArenaBootstrap.ResolveServerUrl
+    (WordArenaBootstrap.cs:188)". Line 188 is the 27B env read:
+    Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL").ToString().
+    Unity's reference assembly declares the span return (which is exactly
+    why the .ToString() form compiled after the CS0029 in run
+    34763722090), but the ANDROID RUNTIME method returns null for a
+    missing variable, so the Awake-time call NRE'd, the OnGUI loop died,
+    and the app went silent: no WORDS_BOARD_RECT (the healthy 08:15Z run
+    logged it within 0.14 s of ready; the broken builds took 122-143 s of
+    polling and found nothing), no WORDS_SWIPE even from the fallback row
+    y=880 that produced the green run 34683472147, and the leg 35
+    screenshot showed the development console exception over a black app
+    area. Static audit of the c72ce73..c2add29 diff could not see it
+    because the reference-assembly type said "struct, cannot be null" -
+    the compile-time and runtime worlds disagree, which is why the
+    discipline is measured stacks, not read-the-code guesses. Fix: the
+    env channel is meaningless in the Android player (app processes do
+    not inherit custom variables from am start), so it is compiled out
+    with #if !UNITY_ANDROID (kept null-safe on the desktop path).
+    Precedence is now file > PlayerPrefs > loopback default on Android.
   - >-
     Batch 27D (device diagnostics + focus re-gate, PR #24 merged into
     66b9dc5): run 34764775012 (first green integrated build) failed both
@@ -497,34 +521,25 @@ completed_tasks:
 
 active_tasks:
   - >-
-    Unity Android run on main 66b9dc5 (dispatched 2026-09-13 ~15:37 UTC):
-    the INSTRUMENTED diagnostic run (batch 27D). It answers two questions.
-    (1) The NRE: run 34764775012 built green for the first time, then both
-    legs died with a new signature - client ready (SetGameState
-    isLoading=false) followed by 122-143 s of client silence (no
-    WORDS_BOARD_RECT; the healthy 08:15Z run logged it within 0.14 s) and
-    no WORDS_SWIPE even from the fallback row y=880 that produced the green
-    run 34683472147. The leg 35 screenshot shows a NullReferenceException
-    in the Unity development console over a BLACK app area - an OnGUI
-    exception that stops the IMGUI loop, which explains both symptoms. The
-    static audit of the c72ce73..c2add29 client diff found no
-    reference-unsafe per-frame path, so 27D makes the run self-diagnosing:
-    [WORDS_DIAG] mirrors Error/Exception logs WITH STACKS to logcat, and
-    logcat-full.txt preserves the startup record before the buffer clear.
-    If the run reproduces the silence, read [WORDS_DIAG] in
-    android-smoke-diagnostics/logcat-full.txt - the stack is the next fix.
-    If the client is healthy, look for WORDS_SWIPE cells=4 word=TAAN +
-    WORDS_DIAGONAL_SMOKE_OK (27A + 28c verification).
-    (2) The sheet race: 34764775012 also proved the launch focus gate can
-    pass one instant before ImmersiveModeConfirmation lands on top (the
-    gate and the first dumpsys print were 0.13 s apart and disagreed). 27D
-    re-gates focus immediately before the swipe with measured tap
-    positions (scrim 540,1600 below the card; button ~870,449 from the
-    run screenshot) and reports unrecoverable loss as INFRA_FAIL exit 8.
-    The twice-daily schedule (cron 17 3,15 UTC) keeps retrying
-    independently; concurrency group unity-android-main cancels
-    in-progress, so a scheduled run may supersede the dispatched one -
-    check runs by head sha, not just by event. Do not keep a human polling.
+    Unity Android run on main 07aa6e6 (dispatched 2026-09-13 ~16:05 UTC):
+    the EXPECTED GREEN run. Both device-leg root causes are now fixed:
+    (1) the coordinate defect (27A - swipe started left of the board,
+    40 px area inset dropped) and (2) the Awake NullReferenceException
+    (27E - GetEnvironmentVariable returns null at Android runtime where
+    the reference assembly declares a span; the env channel is now
+    #if !UNITY_ANDROID-only, file channel is the Android automation
+    path). 27D instrumentation stays in for the first runs after this.
+    Expected signature: build green; device leg prints "board rect from
+    the client (screen px)" within ~1 s of ready (the healthy 08:15Z run
+    logged it within 0.14 s), [WORDS_SWIPE] cells=4 word=TAAN (or DSVT
+    on the fallback row), a second "diagonal marker" with cells>=3 and
+    word != TAAN (WORDS_DIAGONAL_SMOKE_OK), and finally
+    WORDS_SWIPE_SMOKE_OK. If a leg still fails, the artifacts now carry
+    logcat-full.txt (startup record) and [WORDS_DIAG] exception stacks -
+    read those before touching product code. The twice-daily schedule
+    (cron 17 3,15 UTC) keeps retrying independently; concurrency group
+    unity-android-main cancels in-progress, so check runs by head sha.
+
 blocked_tasks:
   - B2 uk dictionary GPL-3.0+ derivative; legal review before distribution (dictionary/NOTICE.md). Real human blocker, unchanged.
   - B3 Unity Editor unavailable on Linux/ARM64 OCI host; mitigated by GitHub-hosted x86_64 Unity CI, so no local Unity work is possible.
@@ -984,15 +999,18 @@ task_graph:
       Container smoke green. Device verification rides the dispatched
       Unity Android run on 7968137.
   M1-batch27b-endpoint-persistence:
-    status: merged_compile_fixed
+    status: merged_nre_fixed
     owner: unity-client
-    merged: 7968137
+    merged: 07aa6e6
     pull_request: 19
     note: >-
-      PlayerPrefs persistence + non-UI override (env > file > prefs >
-      default) + [WORDS_SERVER] marker. First version failed the Unity 6
-      build (no Application.arguments; ReadOnlySpan env); fixed in PR #22
-      (140701b), compile re-verified by the same dispatched run.
+      PlayerPrefs persistence + non-UI override + [WORDS_SERVER] marker.
+      Two compile/runtime fixes along the way: PR #22 (140701b) dropped
+      the Application.arguments channel (absent in the Unity 6 shim);
+      PR #25 (27E) moved the env channel behind #if !UNITY_ANDROID after
+      the runtime-null NRE was root-caused by the 27D [WORDS_DIAG] stack
+      (run 34766120301). Final Android precedence: file > prefs >
+      loopback default; env is desktop-only.
   M1-batch28a-rollback-flash:
     status: merged_compile_fixed_pending_device_marker
     owner: unity-client
@@ -1015,15 +1033,29 @@ task_graph:
       device; assertion marker + cells>=3 + word != TAAN. Device
       verification rides the dispatched Unity Android run on 7968137.
   M1-batch27d-device-diagnostics-focus:
-    status: merged_diagnostic_run_in_flight
+    status: merged_paid_off
     owner: qa-infra
     merged: 66b9dc5
     pull_request: 24
     note: >-
       [WORDS_DIAG] exception-stack mirror + logcat-full.txt + pre-swipe
-      focus re-gate with measured sheet tap positions. Run 66b9dc5 is the
-      diagnostic run; its artifacts must answer where the 34764775012 NRE
-      is (if it reproduces).
+      focus re-gate with measured sheet tap positions. PAID OFF on the
+      first diagnostic run (34766120301): logcat-full.txt carried the
+      [WORDS_DIAG] stack pointing at ResolveServerUrl line 188, and the
+      pre-swipe gate caught + recovered a focus theft live. Kept in the
+      build (cheap, greppable, proved its worth).
+  M1-batch27e-env-null-nre:
+    status: merged_pending_device_run
+    owner: unity-client
+    merged: 07aa6e6
+    pull_request: 25
+    note: >-
+      Root-caused from the 27D [WORDS_DIAG] stack (run 34766120301):
+      GetEnvironmentVariable returns null at Android runtime for a
+      missing variable while the reference assembly declares a span
+      return - .ToString() compiled, NRE'd at Awake. Env channel is now
+      #if !UNITY_ANDROID-only; file channel is the Android automation
+      path. Device verification rides run 07aa6e6.
 
 tests:
   server: green locally (go vet ./...; go test -count=1 ./... over 12 packages;
