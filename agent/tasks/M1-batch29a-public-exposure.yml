@@ -1,0 +1,53 @@
+id: M1-batch29a-public-exposure
+title: "Open the dev match service externally (Q8 stage 1: Cloudflare quick tunnel)"
+owner: infra-ops
+priority: high
+complexity: small
+status: validated_local_deploy_pending_ssh_key
+risk: medium
+escalation: none
+
+inputs:
+  - "Q8 decision 2026-09-13 (owner): OPEN - expose the dev match service for device play and the 28b full-match loop; staged temporary-tunnel now, stable domain later"
+  - docs/PRODUCT-DECISIONS.md Q8 (the exposure requirements: TLS termination, origin allowlisting, abuse review)
+  - server/internal/security/security.go (existing per-caller rate limiting, bounded bodies, OriginPolicy - native clients pass with no Origin header)
+  - infra/ layout, docs/M1-OPS.md (service on the OCI host, loopback 127.0.0.1:18080, ubuntu user)
+
+dependencies:
+  - M1-batch28b-device-full-match-loop
+
+outputs:
+  - docs/PRODUCT-DECISIONS.md (Q8 decision recorded: OPEN, staged)
+  - infra/expose-quick.sh (one-command deploy: origin health gate, cloudflared install, systemd unit, URL extraction, public /healthz+/readyz verification, --status/--stop)
+  - infra/words-tunnel.service (tunnel systemd unit: outbound-only, NoNewPrivileges, auto-restart)
+  - docs/SECURITY-EXPOSURE.md (abuse cases, capacity notes, rollback - required by the project rules for security/infra changes)
+  - agent/tasks/M1-batch29a-public-exposure.yml
+
+acceptance:
+  - "The origin service is never reconfigured: the listen address stays 127.0.0.1:18080, no public TCP port is opened, and the deploy script refuses to run when the local origin is unhealthy."
+  - "After deploy, https://<tunnel>/healthz and /readyz respond through the public URL and the printed URL is verified by the script, not assumed."
+  - "Rollback is one command (expose-quick.sh --stop) and returns the host to loopback-only with zero service changes; in-flight matches drop and clients re-queue."
+  - "Abuse cases (match-creation spam, browser WS hijack, DoS, token theft), capacity baseline and rollback are documented in docs/SECURITY-EXPOSURE.md before the tunnel goes up."
+  - "Pending: the tunnel is actually running on the OCI host (blocked on the SSH key reissue) and a real device completes a match through the public URL (that is the 28b leg)."
+
+validation:
+  - "bash -n infra/expose-quick.sh: clean"
+  - "Pending: expose-quick.sh on the OCI host (needs SSH access), then a device match through the public URL"
+
+file_ownership:
+  - docs/PRODUCT-DECISIONS.md
+  - infra/expose-quick.sh
+  - infra/words-tunnel.service
+  - docs/SECURITY-EXPOSURE.md
+  - agent/tasks/M1-batch29a-public-exposure.yml
+
+notes: >-
+  This batch is the Q8 decision turned into deployable tooling. The code
+  side of the exposure is done and reviewed; the remaining step is
+  running infra/expose-quick.sh on the OCI host, which needs the SSH
+  private key that was lost in the sandbox re-provision of 18:24Z
+  2026-09-13 (top human item). Once the URL exists: 28b proceeds
+  (headless-bot -partner opponent + client auto-wave + [WORDS_MATCH_COMPLETE]
+  + smoke leg through the 27B endpoint channel), and the "production-
+  shaped match service" M1 row moves from Q8-blocked to tunnel-deployed.
+  Stage 2 (stable domain) waits on the owner providing a domain.

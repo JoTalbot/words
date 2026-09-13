@@ -1,0 +1,25 @@
+# Cloudflare quick tunnel in front of the loopback-only Word Arena match
+# service (Q8 decision 2026-09-13, stage 1). TLS is terminated at the
+# Cloudflare edge; the origin never leaves 127.0.0.1. The tunnel makes an
+# OUTBOUND connection only - no public TCP port is opened on the host.
+#
+# Installed by infra/expose-quick.sh. Rollback:
+#   sudo systemctl disable --now words-tunnel
+# which returns the host to loopback-only with zero service changes.
+[Unit]
+Description=Word Arena quick tunnel (Cloudflare edge -> 127.0.0.1:18080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/words/bin/cloudflared tunnel --url http://127.0.0.1:18080 --no-autoupdate --logfile /var/log/words-tunnel.log
+Restart=on-failure
+RestartSec=5
+User=ubuntu
+# The tunnel process only holds outbound QUIC/TLS connections.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -57,6 +57,25 @@ single developer). Safe default until decided: keep loopback-only and test
 via host-local clients (web-m0, headless-bot) or an authorized tunnel.
 Recorded 2026-09-10 alongside docs/M1-OPS.md.
 
+**Decision (2026-09-13, owner): OPEN.** The dev match service is exposed
+publicly, staged:
+1. **Now: temporary tunnel.** Cloudflare quick tunnel on the OCI host
+   (infra/expose-quick.sh): TLS terminated at the Cloudflare edge, the
+   origin stays loopback-only, no public TCP port, no domain, no account.
+   The URL (https://<random>.trycloudflare.com) is ephemeral - restart the
+   tunnel to rotate it. This unblocks real-device play and the M1-batch28b
+   full-match device loop (emulator reaches the server through the 27B
+   endpoint channel).
+2. **Later: stable name.** Requires a domain (owner to provide). Named
+   Cloudflare tunnel or Caddy + Let's Encrypt on the host; when that
+   lands, re-run the abuse review for a permanent URL (per-IP limits at
+   the edge, and whether public match creation gets an access token).
+
+Abuse/capacity/rollback notes for the exposure live in
+docs/SECURITY-EXPOSURE.md (required by the "Rules for future changes":
+security changes document abuse cases, infrastructure changes carry
+capacity and rollback notes).
+
 ## Rules for future changes
 
 - Gameplay changes require an explicit design note and deterministic test update.

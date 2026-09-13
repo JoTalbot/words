@@ -3,7 +3,7 @@ title: Unattended full-match device loop from queue to authoritative MATCH OVER
 owner: qa-infra
 priority: normal
 complexity: medium
-status: queued
+status: unblocked_deploy_pending_ssh_key
 risk: medium
 escalation: none
 
@@ -40,9 +40,29 @@ file_ownership:
   - agent/tasks/M1-batch28b-device-full-match-loop.yml
 
 notes: >-
-  Today the device smoke proves selection only (WORDS_SWIPE) and stops. The
-  full loop is the exit criterion that lets the shared board UX row flip to
-  [x] without leaving "production UI" as an unmeasured claim. It depends on
-  27B so the emulator can point at a real server; until Q8 exposes the
-  service, the leg runs against an authorized tunnel or is marked BLOCKED on
-  Q8 - it must not weaken the assertion either way.
+  Today the device smoke proves selection only (WORDS_SWIPE) and stops.
+  The full loop is the exit criterion that lets the shared board UX row
+  flip to [x] without leaving "production UI" as an unmeasured claim.
+  Q8 DECIDED OPEN 2026-09-13 (owner): stage 1 = Cloudflare quick tunnel
+  on the OCI host (infra/expose-quick.sh, systemd unit words-tunnel,
+  abuse/capacity/rollback notes in docs/SECURITY-EXPOSURE.md) - the
+  origin stays loopback-only, TLS at the Cloudflare edge, no public
+  port. Deployment itself is pending the OCI SSH key (lost in the
+  sandbox re-provision 18:24Z 2026-09-13; reissue is the top human
+  item). IMPLEMENTATION DESIGN (now that a reachable server exists):
+  (1) the device smoke leg pushes the public URL through the 27B file
+  channel (adb push server_url.txt + run-as) so the emulator client
+  points at https://<tunnel>; (2) the opponent is headless-bot in a new
+  -partner mode: ONE queue enqueue, wait for the real client to pair,
+  then play to terminal state with the existing exact-cover wave solver
+  (reuses botClient/coverWave/solveSeed; -via-queue already proves the
+  enqueue + pairing mechanics); (3) the client gets a bounded
+  auto-play loop for server matches - each wave it builds candidate
+  paths (rows, then eight-way neighbours), validates against the
+  client dictionary, submits the first legal word, and retries another
+  path on rejection - plus the [WORDS_MATCH_COMPLETE] final=...
+  source=result-endpoint marker after Fetch result confirms the
+  terminal snapshot; (4) the leg asserts the marker + the MATCH OVER
+  overlay and turns a stuck match into PRODUCT_FAIL via a hard tick
+  budget instead of hanging the runner. Everything else already exists
+  (queue flow, send path, overlay, endpoint channel, smoke scaffolding).
