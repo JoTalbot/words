@@ -94,6 +94,8 @@ namespace Words.Client
         private bool terminalResultFetchRequested;
         private float lastAcceptedAt = -999f;
         private string serverUrl = "http://127.0.0.1:18080";
+        private string serverUrlSource = "default";
+        private string lastPersistedServerUrl = string.Empty;
         private string language = "en";
         private string status = "Demo board ready. Use Create server match to bind this UI to the authoritative backend.";
         private string readySummary = "Ready: not checked";
@@ -128,10 +130,83 @@ namespace Words.Client
         private void Awake()
         {
             ResetDemoState();
+            // Batch 27B: resolve the endpoint before any network call so
+            // automated device runs can point the client without typing on a
+            // screen (command line / env / file / PlayerPrefs, highest
+            // priority first).
+            ResolveServerUrl(out serverUrl, out serverUrlSource);
+            lastPersistedServerUrl = serverUrl;
+            Debug.Log("[WORDS_SERVER] url=" + serverUrl + " source=" + serverUrlSource);
             network = new WordArenaNetworkClient();
             network.StatusChanged += message => EnqueueOnMainThread(() => SetStatus(message));
             network.SnapshotReceived += snapshot => EnqueueOnMainThread(() => ApplyServerSnapshot(snapshot));
             network.WordEventReceived += wordEvent => EnqueueOnMainThread(() => ApplyServerEvent(wordEvent));
+        }
+
+        // Batch 27B: endpoint resolution with an explicit, documented
+        // precedence so an automated run never has to type in the UI:
+        //   1. -wordsServerUrl <url>  (Application.arguments; editor/launcher)
+        //   2. WORDARENA_SERVER_URL   (environment)
+        //   3. <persistentDataPath>/server_url.txt (adb push + run-as on
+        //      scoped-storage APIs; the file channel a debug-build device
+        //      smoke can write without a root)
+        //   4. PlayerPrefs "words.server_url" (what the UI field persists)
+        //   5. the loopback default
+        private static void ResolveServerUrl(out string url, out string source)
+        {
+            const string DefaultUrl = "http://127.0.0.1:18080";
+            for (var i = 0; i + 1 < Application.arguments.Length; i++)
+            {
+                if (Application.arguments[i] == "-wordsServerUrl")
+                {
+                    var candidate = Application.arguments[i + 1].Trim();
+                    if (candidate.Length > 0)
+                    {
+                        url = candidate;
+                        source = "arguments";
+                        return;
+                    }
+                }
+            }
+
+            var fromEnv = Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL");
+            if (!string.IsNullOrWhiteSpace(fromEnv))
+            {
+                url = fromEnv.Trim();
+                source = "env";
+                return;
+            }
+
+            try
+            {
+                var filePath = System.IO.Path.Combine(Application.persistentDataPath, "server_url.txt");
+                if (System.IO.File.Exists(filePath))
+                {
+                    var fromFile = System.IO.File.ReadAllText(filePath).Trim();
+                    if (fromFile.Length > 0)
+                    {
+                        url = fromFile;
+                        source = "file";
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // The file channel is best effort; a broken file must not
+                // prevent the app from starting with the next candidate.
+            }
+
+            var fromPrefs = PlayerPrefs.GetString("words.server_url", string.Empty).Trim();
+            if (fromPrefs.Length > 0)
+            {
+                url = fromPrefs;
+                source = "prefs";
+                return;
+            }
+
+            url = DefaultUrl;
+            source = "default";
         }
 
         private void OnDestroy()
@@ -233,6 +308,14 @@ namespace Words.Client
             GUILayout.BeginHorizontal();
             GUILayout.Label("Server", hudStyle, GUILayout.Width(130f), GUILayout.Height(48f));
             serverUrl = GUILayout.TextField(serverUrl, inputStyle, GUILayout.Height(48f));
+            // Batch 27B: persist UI edits so the next launch starts where the
+            // player left off; only fires on an actual value change.
+            if (serverUrl != lastPersistedServerUrl)
+            {
+                lastPersistedServerUrl = serverUrl;
+                PlayerPrefs.SetString("words.server_url", serverUrl);
+                PlayerPrefs.Save();
+            }
             GUILayout.Label("Lang", hudStyle, GUILayout.Width(90f), GUILayout.Height(48f));
             language = GUILayout.TextField(language, inputStyle, GUILayout.Width(90f), GUILayout.Height(48f));
             GUILayout.EndHorizontal();
