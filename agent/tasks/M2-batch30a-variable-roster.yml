@@ -1,0 +1,70 @@
+id: M2-batch30a-variable-roster
+title: Variable-length match roster (the 60-player Royale foundation)
+owner: gameplay-core
+priority: high
+complexity: medium
+status: merged_green
+risk: medium
+escalation: none
+
+inputs:
+  - docs/ROADMAP.md M2 row "60-player mode"
+  - docs/M0-MATCH-RULES.md (rules the 1v1 simulation must keep reproducing)
+  - server/internal/match (the authoritative simulation)
+
+outputs:
+  - server/internal/match/match.go (roster-shaped state, rank, tie, result, fingerprint)
+  - server/internal/match/types.go (Config.Seats, MinSeats/MaxSeats, Snapshot.Players slice)
+  - server/internal/match/roster_test.go (new)
+  - agent/tasks/M2-batch30a-variable-roster.yml
+
+acceptance:
+  - >-
+    The simulation no longer hardcodes two seats: Config.Seats selects the
+    roster size, zero means 2, and values outside [MinSeats, MaxSeats] are
+    rejected at construction so a bad request cannot allocate freely.
+  - >-
+    1v1 behaviour is bit-identical to M0/M1: the default roster is 2, a
+    distinct score gives ranks 1/2, equal scores give 1/1 and a tie, and the
+    whole existing suite (12 packages, plus -race on cmd/game, match and
+    matchroom) stays green without touching any other package's logic.
+  - >-
+    Rank generalizes competitively (1 + number of strictly higher scores, ties
+    share the better rank) and Result picks the top scorer or reports a tie
+    when the top score is shared - verified on 4- and 6-seat rosters.
+  - >-
+    Scoring and cell ownership are per-seat for ANY seat index, not just 0/1
+    (verified by submitting from seat 7 of an 8-seat match).
+  - >-
+    Fingerprint covers every seat, so replay equality cannot silently ignore
+    seats 2..N.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race ./cmd/game ./internal/match ./internal/matchroom : ok"
+  - "6 new tests in server/internal/match/roster_test.go"
+
+file_ownership:
+  - server/internal/match/match.go
+  - server/internal/match/types.go
+  - server/internal/match/roster_test.go
+
+notes: >-
+  This is deliberately the FOUNDATION only, not the Royale mode. What is
+  intentionally NOT in this batch, and what each one needs, is recorded here
+  so the next batch does not have to re-derive it:
+    - elimination: PlayerView.IsEliminated is still always false. Royale needs
+      an elimination rule (score floor? last-place cull per wave?) which is a
+      product decision, not an implementation detail - it belongs in
+      docs/PRODUCT-DECISIONS.md before code.
+    - board size: CellsPerWave is still 12, sized for two players. A 60-seat
+      board needs its own sizing rule and a new generateWave contract; the
+      current generator is deterministic per (seed, lang, wave) and must stay
+      so.
+    - transport: the wire protocol already carries a repeated PlayerState, so
+      snapshots scale, but api.go still creates rooms with a [2] token/user-id
+      tuple and matchmaking pairs exactly two entries. Those are the next two
+      batches (30B room roster, 30C matchmaker N-way admission).
+    - anti-snowball and bot disclosure (the other M2 rows) depend on the
+      elimination decision above.

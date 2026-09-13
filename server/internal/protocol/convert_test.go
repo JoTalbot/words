@@ -34,7 +34,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		MatchID: 42, Language: "en", Seed: 7, ServerTick: 30,
 		RemainingTimeMs: 59999, CurrentWave: 1, StateVersion: 3, Phase: "active",
 	}
-	snap.Players = [2]match.PlayerView{
+	snap.Players = []match.PlayerView{
 		{Seat: 0, Score: 5, RankPosition: 1, ComboMult: 1},
 		{Seat: 1, Score: 0, RankPosition: 2, ComboMult: 1},
 	}
