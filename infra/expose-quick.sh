@@ -43,8 +43,16 @@ origin_healthy() {
 }
 
 read_public_url() {
-  # The quick tunnel prints its edge URL to the log on startup.
-  sudo grep -oE 'https://[a-z0-9-]+\.[a-z]+\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 || true
+  # The quick tunnel prints its edge URL on startup. cloudflared >= 2025
+  # prints the banner to the console, which systemd captures in the journal
+  # rather than --logfile, so check the journal as a fallback.
+  local u
+  u=$(sudo grep -oE 'https://[a-z0-9-]+\.[a-z]+\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1)
+  if [ -n "$u" ]; then
+    printf '%s\n' "$u"
+    return
+  fi
+  sudo journalctl -u words-tunnel --no-pager 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.[a-z]+\.trycloudflare\.com' | head -1 || true
 }
 
 case "${1:-}" in
