@@ -194,7 +194,7 @@ func FuzzSnapshotEncodeDecode(f *testing.F) {
 			})
 		}
 
-		env := SnapshotEnvelope(matchID, SnapshotToProto(snap, [2]uint64{11, 22}))
+		env := SnapshotEnvelope(matchID, SnapshotToProto(snap, []uint64{11, 22}))
 		out, err := proto.Marshal(env)
 		if err != nil {
 			t.Fatalf("snapshot marshal failed: %v", err)

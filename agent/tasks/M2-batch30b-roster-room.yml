@@ -1,0 +1,58 @@
+id: M2-batch30b-roster-room
+title: Roster-shaped match room and wire conversion
+owner: gameplay-core
+priority: high
+complexity: medium
+status: merged_green
+risk: medium
+escalation: none
+
+inputs:
+  - M2-batch30a-variable-roster (the seat-count-agnostic simulation)
+  - server/internal/matchroom/room.go
+  - server/internal/protocol/convert.go
+
+outputs:
+  - server/internal/matchroom/room.go (SeatUserIDs/SeatTokens, Seats(), UserIDs())
+  - server/internal/matchroom/roster_test.go (new)
+  - server/internal/protocol/convert.go (SnapshotToProto takes a seat-indexed slice)
+  - server/cmd/game/api.go (uses room.UserIDs())
+
+acceptance:
+  - >-
+    One room implementation serves both shapes: the 1v1 Config fields
+    (UserIDs/Token0/Token1) are the two-seat spelling of the roster fields
+    (SeatUserIDs/SeatTokens), so no existing caller changed and there is no
+    second room to keep in sync.
+  - >-
+    A 12-seat room maps every seat to its user id and its token, and its
+    snapshot carries 12 players.
+  - >-
+    A short token slice is legal (seats join later through SetToken, which is
+    how a Royale lobby fills), while a token for a seat outside the roster is
+    rejected at construction instead of being silently dropped.
+  - >-
+    An out-of-range seat lookup returns 0 rather than panicking - the room is
+    reachable from the transport, so an index panic would be a DoS.
+  - >-
+    SnapshotToProto takes a seat-indexed slice of any length and keeps the
+    pre-existing seat+1 fallback for missing ids.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race ./cmd/game ./internal/matchroom ./internal/match : ok"
+  - "5 new tests in server/internal/matchroom/roster_test.go"
+
+file_ownership:
+  - server/internal/matchroom/room.go
+  - server/internal/matchroom/roster_test.go
+  - server/internal/protocol/convert.go
+  - server/cmd/game/api.go
+
+notes: >-
+  Still 1v1-shaped above this layer and therefore the next batch (30C):
+  cmd/game createRoom mints exactly two tokens and two synthetic user ids, and
+  the matchmaker pairs exactly two queue entries. Elimination and board sizing
+  for a large roster remain PRODUCT decisions (see M2-batch30a notes) and are
+  deliberately not implemented here.

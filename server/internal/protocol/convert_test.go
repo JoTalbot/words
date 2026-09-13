@@ -42,7 +42,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		{ID: 0, Letter: "a", OwnerSeat: 0, IsLocked: true, LockRemainingMs: 120},
 		{ID: 1, Letter: "b", OwnerSeat: -1},
 	}
-	pb := SnapshotToProto(snap, [2]uint64{9001, 9002})
+	pb := SnapshotToProto(snap, []uint64{9001, 9002})
 	if pb.MatchId != 42 || pb.ServerTick != 30 || pb.CurrentWave != 1 || pb.StateVersion != 3 {
 		t.Fatalf("snapshot headers: %+v", pb)
 	}

@@ -82,7 +82,9 @@ func primaryCell(e match.Event) uint32 {
 
 // SnapshotToProto renders the canonical snapshot for the wire. userIDs maps
 // match seats (0,1) to account ids; the zero value falls back to seat+1.
-func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStateSnapshot {
+// Batch 30B: userIDs is indexed by seat and may be any length; a seat with no
+// entry (or a zero entry) falls back to seat+1, the pre-existing behaviour.
+func SnapshotToProto(s match.Snapshot, userIDs []uint64) *wordarenav1.MatchStateSnapshot {
 	out := &wordarenav1.MatchStateSnapshot{
 		MatchId:         s.MatchID,
 		ServerTick:      uint32(s.ServerTick),
@@ -92,7 +94,7 @@ func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStat
 		Over:            s.Phase == "over",
 	}
 	for _, p := range s.Players {
-		uid := userIDs[p.Seat]
+		uid := seatUser(userIDs, int(p.Seat))
 		if uid == 0 {
 			uid = uint64(p.Seat) + 1
 		}
@@ -107,7 +109,7 @@ func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStat
 	for _, c := range s.Cells {
 		owner := uint64(0)
 		if c.OwnerSeat >= 0 {
-			uid := userIDs[c.OwnerSeat]
+			uid := seatUser(userIDs, c.OwnerSeat)
 			if uid == 0 {
 				uid = uint64(c.OwnerSeat) + 1
 			}
@@ -122,6 +124,15 @@ func SnapshotToProto(s match.Snapshot, userIDs [2]uint64) *wordarenav1.MatchStat
 		})
 	}
 	return out
+}
+
+// seatUser reads a seat's user id defensively: an out-of-range seat yields 0,
+// which callers map to the seat+1 fallback.
+func seatUser(userIDs []uint64, seat int) uint64 {
+	if seat < 0 || seat >= len(userIDs) {
+		return 0
+	}
+	return userIDs[seat]
 }
 
 // EnvelopeToServerEvent maps a ClientEnvelope word submission to a seat
