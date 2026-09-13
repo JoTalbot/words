@@ -1,0 +1,46 @@
+id: M2-batch30e-roster-replay
+title: Replay determinism and board stability at roster scale
+owner: gameplay-core
+priority: high
+complexity: medium
+status: in_review
+risk: medium
+escalation: none
+
+inputs:
+  - M2-batch30a-variable-roster
+  - M2-batch30d-nway-e2e
+  - server/internal/match/match_test.go (TestReplayProperty, 2 seats only)
+
+outputs:
+  - server/internal/match/roster_replay_test.go (new, 2 tests)
+
+acceptance:
+  - >-
+    Replay determinism, the property anti-cheat and spectating rest on, now
+    holds at roster scale: 40 randomized matches across 3, 5, 8 and 16 seats
+    are rebuilt from their event log alone and must match event by event
+    (result, score added, running total, steal flag), then agree on the full
+    fingerprint and on every seat's final score - not just the two busiest.
+    Measured coverage of the generated workload: 1797 events, 375 of them
+    scoring, across all 16 distinct seats, so the property is genuinely
+    exercised rather than passing vacuously.
+  - >-
+    The roster must not leak into wave generation: the same (seed, language,
+    wave) produces an identical board at 2, 3, 7, 30 and 60 seats, checked for
+    wave 0 and again for the lazily generated wave 1. Without this a client
+    could not render a board until the final roster were known.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./internal/match ./cmd/game : ok"
+
+file_ownership:
+  - server/internal/match/roster_replay_test.go
+
+notes: >-
+  Closes the verification gap left by 30A-30D: the roster is now proven at the
+  simulation layer (replay), the room layer (30D regression) and the transport
+  layer (30D e2e). Royale gameplay itself remains blocked on the two PRODUCT
+  decisions: the elimination rule and board sizing for a large roster.
