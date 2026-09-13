@@ -97,3 +97,33 @@ func TestOutOfRangeSeatUserIDIsZeroNotAPanic(t *testing.T) {
 		t.Fatalf("out-of-range seat user id %d, want 0", got)
 	}
 }
+
+// TestSubmitAcceptsEverySeatInTheRoster pins the 30D fix: the submit path used
+// to reject any seat above 1, so in a Royale roster every player except the
+// first two was silently unable to play. The bound is the roster size.
+func TestSubmitAcceptsEverySeatInTheRoster(t *testing.T) {
+	const seats = 7
+	ids := make([]uint64, seats)
+	for i := range ids {
+		ids[i] = uint64(i + 1)
+	}
+	r, err := New(Config{MatchID: 1, Seed: 1, Language: "en", SeatUserIDs: ids})
+	if err != nil {
+		t.Fatalf("new room: %v", err)
+	}
+	defer r.Close()
+	for seat := 0; seat < seats; seat++ {
+		// An empty path is a legal intent that the simulation rejects on
+		// content; what matters here is that the room does not refuse the
+		// seat itself.
+		if _, err := r.Submit(match.Seat(seat), nil); err != nil {
+			t.Fatalf("seat %d cannot submit: %v", seat, err)
+		}
+	}
+	if _, err := r.Submit(match.Seat(seats), nil); err == nil {
+		t.Fatalf("seat %d is outside the roster and must be refused", seats)
+	}
+	if _, err := r.Submit(match.Seat(-1), nil); err == nil {
+		t.Fatal("a negative seat must be refused")
+	}
+}

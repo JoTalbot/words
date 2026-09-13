@@ -1,0 +1,57 @@
+id: M2-batch30d-nway-e2e
+title: N-way end-to-end proof over the live transport (and the seat>1 submit bug)
+owner: gameplay-core
+priority: high
+complexity: medium
+status: in_review
+risk: high
+escalation: none
+
+inputs:
+  - M2-batch30c-nway-room-matchmaker
+  - server/cmd/game/api_test.go (the 1v1 e2e harness reused here)
+  - server/internal/matchroom/room.go
+
+outputs:
+  - server/cmd/game/nway_e2e_test.go (new, 2 tests)
+  - server/internal/matchroom/room.go (SubmitWithSeq bound fixed)
+  - server/internal/matchroom/roster_test.go (+1 regression test)
+
+acceptance:
+  - >-
+    BUG FOUND AND FIXED: Room.SubmitWithSeq rejected any seat above 1, a
+    leftover 1v1 bound that survived 30A-30C because nothing had yet driven a
+    large roster through the transport. In a Royale match every player except
+    the first two would have been unable to play a word. The bound is now the
+    room's own roster size, with a regression test walking all 7 seats of a
+    7-seat room plus the two out-of-range cases.
+  - >-
+    An 8-seat match connects all eight clients over the real HTTP + WebSocket
+    routes and every seat receives the identical board - and it is the same
+    board the 1v1 e2e test pins for the same seed, so roster size does not
+    perturb deterministic wave generation.
+  - >-
+    Every seat appears in every observer's snapshot (a client cannot render a
+    scoreboard for players it never receives), a word played by seat 5 is
+    attributed to seat 5's user id for all eight observers, only that seat is
+    credited, and all eight seats converge on the same state version and tick.
+  - >-
+    Widening the roster did not widen authentication: a seat token minted for a
+    different match is refused at the WebSocket handshake.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./cmd/game ./internal/matchroom ./internal/match : ok"
+  - "the N-way e2e test fails (read timeout on the word event) against the pre-fix room, which is how the bug was caught"
+
+file_ownership:
+  - server/cmd/game/nway_e2e_test.go
+  - server/internal/matchroom/room.go
+  - server/internal/matchroom/roster_test.go
+
+notes: >-
+  The lesson for the rest of M2: unit tests over the roster API were not enough
+  to catch a hard-coded 1v1 bound one layer down, so every further roster
+  change should get an end-to-end leg. Royale gameplay itself remains blocked on
+  the two PRODUCT decisions (elimination rule, board sizing for a large roster).
