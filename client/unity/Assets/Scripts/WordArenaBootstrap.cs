@@ -154,6 +154,15 @@ namespace Words.Client
         private void Awake()
         {
             ResetDemoState();
+            // Batch 27F: record window focus transitions so the device smoke
+            // can PROVE Unity's input pipeline is live before it swipes. On
+            // the hosted emulator a post-launch focus flap was measured
+            // leaving Unity's windowFocusChanged flag stuck at 'false' (run
+            // 07aa6e6 leg 35: 'true' at launch, 'false' 0.5 s later, never
+            // 'true' again): the app kept rendering the board but silently
+            // dropped every synthetic gesture, while dumpsys still reported
+            // our window as focused.
+            Application.focusChanged += OnWindowFocusChanged;
             // Batch 27B: resolve the endpoint before any network call so
             // automated device runs can point the client without typing on a
             // screen (command line / env / file / PlayerPrefs, highest
@@ -165,6 +174,16 @@ namespace Words.Client
             network.StatusChanged += message => EnqueueOnMainThread(() => SetStatus(message));
             network.SnapshotReceived += snapshot => EnqueueOnMainThread(() => ApplyServerSnapshot(snapshot));
             network.WordEventReceived += wordEvent => EnqueueOnMainThread(() => ApplyServerEvent(wordEvent));
+        }
+
+        // Batch 27F: focus-transition marker for the device smoke. The job
+        // forces a HOME -> relaunch cycle right before the swipe and then
+        // asserts that this 'gained' line exists in logcat - dumpsys alone
+        // proved insufficient (it reported our window focused while Unity's
+        // input gate stayed dead, batch 27F note above).
+        private void OnWindowFocusChanged(bool hasFocus)
+        {
+            Debug.Log("[WORDS_FOCUS] " + (hasFocus ? "gained" : "lost"));
         }
 
         // Batch 27B: endpoint resolution with an explicit, documented

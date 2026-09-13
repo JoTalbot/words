@@ -189,79 +189,78 @@ adb logcat -d >"$DIAG/logcat-full.txt" 2>&1 || true
 # lands within a few hundred ms of isLoading=false - reading the buffer once
 # here lost the race and silently fell back. Poll for it briefly.
 BOARD_LINE=""
-for _ in $(seq 1 10); do
-  # The marker is logged on the first frame that captures the cell rects, which
-# lands within a few hundred ms of isLoading=false - reading the buffer once
-# here lost the race and silently fell back. Poll for it briefly.
-BOARD_LINE=""
-for _ in $(seq 1 10); do
+for _ in $(seq 1 15); do
   BOARD_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
-  [ -n "$BOARD_LINE" ] && break
-  sleep 1
-done
   [ -n "$BOARD_LINE" ] && break
   sleep 1
 done
 
 rect_field() { printf '%s' "$1" | sed -n "s/.*$2=\(-\{0,1\}[0-9]\{1,\}\).*/\1/p"; }
 
-SWIPE_X0=""; SWIPE_Y=""; SWIPE_X1=""
-if [ -n "$BOARD_LINE" ]; then
-  BX0=$(rect_field "$BOARD_LINE" x0); BY0=$(rect_field "$BOARD_LINE" y0)
-  BX1=$(rect_field "$BOARD_LINE" x1); BY1=$(rect_field "$BOARD_LINE" y1)
-  BCELLS=$(rect_field "$BOARD_LINE" cells); BPERM=$(rect_field "$BOARD_LINE" scale_permille)
-  SX0=$(rect_field "$BOARD_LINE" sx0); SY0=$(rect_field "$BOARD_LINE" sy0)
-  SX1=$(rect_field "$BOARD_LINE" sx1); SY1=$(rect_field "$BOARD_LINE" sy1)
-  if [ -n "$SX0" ] && [ -n "$SY0" ] && [ -n "$SX1" ] && [ -n "$SY1" ] \
-     && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ "$SX1" -gt "$SX0" ] && [ "$SY1" -gt "$SY0" ]; then
-    # Batch 27A: screen pixels straight from the client - the coordinate
-    # space `adb input` operates in. The board area starts at (40,40) on
-    # screen, so using the legacy local rect (x0=0) made the swipe start at
-    # x=12, LEFT of the board's real left edge x=40: the MouseDown hit no
-    # cell, the drag never armed, and no WORDS_SWIPE was logged (measured on
-    # scheduled runs 34709145871 and 34747246880, both legs). The green run
-    # 34683472147 only passed because its fallback start x=100 happened to
-    # land inside the board.
-    ROWS=$(( (BCELLS + 3) / 4 ))
-    ROW_H=$(( (SY1 - SY0) / ROWS ))
-    BSX0=$SX0; BSY0=$SY0; BSX1=$SX1; BSY1=$SY1
-    SWIPE_X0=$(( SX0 + 12 ))
-    SWIPE_X1=$(( SX1 - 12 ))
-    SWIPE_Y=$(( SY0 + ROW_H / 2 ))
-    echo "board rect from the client (screen px): x=$SX0..$SX1 y=$SY0..$SY1 cells=$BCELLS"
-    echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
-  elif [ -n "$BX0" ] && [ -n "$BY0" ] && [ -n "$BX1" ] && [ -n "$BY1" ] \
-     && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ -n "$BPERM" ] && [ "$BPERM" -gt 0 ]; then
-    # Pre-27A client: only the local (area) rect is published. Convert it the
-    # way the client's own hit test does - screen = (local + 40) * scale -
-    # the 40 px area inset that the old formula dropped.
-    ROWS=$(( (BCELLS + 3) / 4 ))
-    ROW_H=$(( (BY1 - BY0) / ROWS ))
-    BSX0=$(( (BX0 + 40) * BPERM / 1000 ))
-    BSY0=$(( (BY0 + 40) * BPERM / 1000 ))
-    BSX1=$(( (BX1 + 40) * BPERM / 1000 ))
-    BSY1=$(( (BY1 + 40) * BPERM / 1000 ))
-    SWIPE_X0=$(( BSX0 + 12 ))
-    SWIPE_X1=$(( BSX1 - 12 ))
-    SWIPE_Y=$(( BSY0 + ROW_H / 2 ))
-    echo "board rect from the client (local, +40 inset): x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
-    echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
+# Batch 27F: the swipe coordinates are (re)derived from BOARD_LINE inside a
+# function because the focus cycle below can recreate the activity, which
+# re-publishes the rect with fresh screen coordinates; a stale BOARD_LINE
+# from the pre-cycle window would make the swipe miss the cells again.
+apply_board_geometry() {
+  SWIPE_X0=""; SWIPE_Y=""; SWIPE_X1=""
+  if [ -n "$BOARD_LINE" ]; then
+    BX0=$(rect_field "$BOARD_LINE" x0); BY0=$(rect_field "$BOARD_LINE" y0)
+    BX1=$(rect_field "$BOARD_LINE" x1); BY1=$(rect_field "$BOARD_LINE" y1)
+    BCELLS=$(rect_field "$BOARD_LINE" cells); BPERM=$(rect_field "$BOARD_LINE" scale_permille)
+    SX0=$(rect_field "$BOARD_LINE" sx0); SY0=$(rect_field "$BOARD_LINE" sy0)
+    SX1=$(rect_field "$BOARD_LINE" sx1); SY1=$(rect_field "$BOARD_LINE" sy1)
+    if [ -n "$SX0" ] && [ -n "$SY0" ] && [ -n "$SX1" ] && [ -n "$SY1" ] \
+       && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ "$SX1" -gt "$SX0" ] && [ "$SY1" -gt "$SY0" ]; then
+      # Batch 27A: screen pixels straight from the client - the coordinate
+      # space `adb input` operates in. The board area starts at (40,40) on
+      # screen, so using the legacy local rect (x0=0) made the swipe start
+      # at x=12, LEFT of the board's real left edge x=40: the MouseDown hit
+      # no cell, the drag never armed, and no WORDS_SWIPE was logged
+      # (measured on scheduled runs 34709145871 and 34747246880, both legs).
+      # The green run 34683472147 only passed because its fallback start
+      # x=100 happened to land inside the board.
+      ROWS=$(( (BCELLS + 3) / 4 ))
+      ROW_H=$(( (SY1 - SY0) / ROWS ))
+      BSX0=$SX0; BSY0=$SY0; BSX1=$SX1; BSY1=$SY1
+      SWIPE_X0=$(( SX0 + 12 ))
+      SWIPE_X1=$(( SX1 - 12 ))
+      SWIPE_Y=$(( SY0 + ROW_H / 2 ))
+      echo "board rect from the client (screen px): x=$SX0..$SX1 y=$SY0..$SY1 cells=$BCELLS"
+      echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
+    elif [ -n "$BX0" ] && [ -n "$BY0" ] && [ -n "$BX1" ] && [ -n "$BY1" ] \
+       && [ -n "$BCELLS" ] && [ "$BCELLS" -gt 0 ] && [ -n "$BPERM" ] && [ "$BPERM" -gt 0 ]; then
+      # Pre-27A client: only the local (area) rect is published. Convert it
+      # the way the client's own hit test does - screen = (local + 40) *
+      # scale - the 40 px area inset that the old formula dropped.
+      ROWS=$(( (BCELLS + 3) / 4 ))
+      ROW_H=$(( (BY1 - BY0) / ROWS ))
+      BSX0=$(( (BX0 + 40) * BPERM / 1000 ))
+      BSY0=$(( (BY0 + 40) * BPERM / 1000 ))
+      BSX1=$(( (BX1 + 40) * BPERM / 1000 ))
+      BSY1=$(( (BY1 + 40) * BPERM / 1000 ))
+      SWIPE_X0=$(( BSX0 + 12 ))
+      SWIPE_X1=$(( BSX1 - 12 ))
+      SWIPE_Y=$(( BSY0 + ROW_H / 2 ))
+      echo "board rect from the client (local, +40 inset): x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
+      echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
+    else
+      echo "note: WORDS_BOARD_RECT present but unparsable ('$BOARD_LINE'); using the fallback row"
+    fi
   else
-    echo "note: WORDS_BOARD_RECT present but unparsable ('$BOARD_LINE'); using the fallback row"
+    echo "note: the client logged no WORDS_BOARD_RECT; using the fallback row"
   fi
-else
-  echo "note: the client logged no WORDS_BOARD_RECT; using the fallback row"
-fi
 
-if [ -z "$SWIPE_Y" ]; then
-  # Fallback for a client built before batch 26D: pixel_2 is 1080x1920 and the
-  # board grid used to render around y=660..1150.
-  SWIPE_X0=100; SWIPE_Y=880; SWIPE_X1=950
-  # Measured screen rect of the same board (batch 26D/26F runs): local
-  # 0..964 x 622..1108 with the 40 px inset, scale 1.0.
-  BSX0=40; BSY0=662; BSX1=1004; BSY1=1148
-  echo "fallback swipe: y=$SWIPE_Y x=$SWIPE_X0..$SWIPE_X1"
-fi
+  if [ -z "$SWIPE_Y" ]; then
+    # Fallback for a client built before batch 26D: pixel_2 is 1080x1920 and
+    # the board grid used to render around y=660..1150.
+    SWIPE_X0=100; SWIPE_Y=880; SWIPE_X1=950
+    # Measured screen rect of the same board (batch 26D/26F runs): local
+    # 0..964 x 622..1108 with the 40 px inset, scale 1.0.
+    BSX0=40; BSY0=662; BSX1=1004; BSY1=1148
+    echo "fallback swipe: y=$SWIPE_Y x=$SWIPE_X0..$SWIPE_X1"
+  fi
+}
+apply_board_geometry
 
 # Batch 27D: re-verify focus RIGHT BEFORE the swipe. The launch gate and
 # the swipe are separated by the readiness wait plus the board-rect poll
@@ -271,8 +270,14 @@ fi
 # under a top-anchored card (it lands under the card on this layout), but a
 # full-screen system window eats it, so recover once more here and fail as
 # INFRA if recovery fails instead of misreporting a product regression.
-window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
-if ! printf '%s\n' "$window" | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+# Batch 27F: made a function - the focus cycle below re-runs it after the
+# relaunch, because the emulator can re-trigger the first-run sheet.
+pre_swipe_focus_gate() {
+  local window
+  window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
+  if printf '%s\n' "$window" | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+    return 0
+  fi
   echo "  focus lost before the swipe; current focus:"
   printf '%s\n' "$window" | head -2 || true
   adb shell input tap 540 1600 >/dev/null 2>&1 || true
@@ -288,7 +293,56 @@ if ! printf '%s\n' "$window" | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; the
     exit 8
   fi
   echo "  focus recovered before the swipe"
+  return 0
+}
+pre_swipe_focus_gate
+
+# Batch 27F: force one clean window-focus cycle (lost -> gained) so Unity's
+# input pipeline is PROVEN live before any swipe. Measured on run 07aa6e6
+# (leg 35, logcat-full.txt): Unity logged windowFocusChanged 'true' at launch
+# and 'false' 0.5 s later (a focus flap while first boot was still settling),
+# then never 'true' again - the app kept rendering (the board rect published,
+# the UI fully drawn in the screenshot) but the swipe produced no
+# WORDS_SWIPE, while dumpsys reported our window focused the whole time.
+# Android delivers input to the focused window, but Unity's own input gate is
+# its windowFocusChanged flag; stuck at 'false' it silently drops every
+# synthetic gesture. HOME (lost) + explicit relaunch (gained) forces the flag
+# through a full cycle, and the client's [WORDS_FOCUS] marker proves the
+# 'gained' half actually happened - no more trusting dumpsys alone.
+echo "--- focus cycle (batch 27F) ---"
+adb logcat -c >/dev/null 2>&1 || true
+adb shell input keyevent KEYCODE_HOME >/dev/null 2>&1 || true
+sleep 1
+retry 2 3 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || true
+sleep 3
+# If the relaunch recreated the activity, the client re-published the board
+# rect with fresh screen coordinates; re-read it so the swipe matches the
+# CURRENT window (a same-instance onNewIntent re-publishes nothing, in which
+# case the previous BOARD_LINE is still valid).
+NEW_LINE=""
+for _ in $(seq 1 15); do
+  NEW_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
+  [ -n "$NEW_LINE" ] && break
+  sleep 1
+done
+if [ -n "$NEW_LINE" ] && [ "$NEW_LINE" != "$BOARD_LINE" ]; then
+  BOARD_LINE="$NEW_LINE"
+  apply_board_geometry
 fi
+# The relaunch can re-trigger the first-run sheet on this emulator image.
+pre_swipe_focus_gate
+focus_live=0
+for _ in $(seq 1 10); do
+  if adb logcat -d 2>/dev/null | grep -q "WORDS_FOCUS] gained"; then focus_live=1; break; fi
+  sleep 1
+done
+if [ "$focus_live" != 1 ]; then
+  echo "INFRA_FAIL: no [WORDS_FOCUS] gained after the forced focus cycle on $BACKEND (Unity input pipeline still dead)"
+  adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+  adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+  exit 8
+fi
+echo "  Unity input live: [WORDS_FOCUS] gained after the focus cycle"
 
 # Clear after readiness so the assertion below can only see the swipe's output.
 adb logcat -c >/dev/null 2>&1 || true
@@ -315,10 +369,62 @@ fi
 if grep -q WORDS_SWIPE "$DIAG/logcat.txt"; then
   grep -m 8 "WORDS_" "$DIAG/logcat.txt" || true
 else
-  echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe"
-  echo "--- unity/app lines ---"
-  grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat.txt" | tail -40 || true
-  exit 1
+  # Batch 27F: one retry from a full cold restart - the exact sequence the
+  # green run 34683472147 used. If the focus cycle above left Unity's input
+  # dead for a reason the [WORDS_FOCUS] marker could not catch, a fresh
+  # process starts with a clean focus flag and a fresh first-frame window.
+  echo "  no WORDS_SWIPE - retrying once after a full app restart"
+  adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+  sleep 2
+  retry 2 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || {
+    echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe (and the retry relaunch never came up)"
+    adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+    adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+    exit 1
+  }
+  retry_ready=0
+  for _ in $(seq 1 45); do
+    if adb logcat -d 2>/dev/null | grep -q "SetGameState: isLoading: false"; then retry_ready=1; break; fi
+    sleep 2
+  done
+  if [ "$retry_ready" != 1 ]; then
+    echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe (retry app never finished loading)"
+    adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+    adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+    exit 1
+  fi
+  NEW_LINE=""
+  for _ in $(seq 1 15); do
+    NEW_LINE=$(adb logcat -d 2>/dev/null | grep -m1 "WORDS_BOARD_RECT" || true)
+    [ -n "$NEW_LINE" ] && break
+    sleep 1
+  done
+  if [ -n "$NEW_LINE" ] && [ "$NEW_LINE" != "$BOARD_LINE" ]; then
+    BOARD_LINE="$NEW_LINE"
+    apply_board_geometry
+  fi
+  pre_swipe_focus_gate
+  adb logcat -c >/dev/null 2>&1 || true
+  swipe_ok=0
+  for i in 1 2 3; do
+    if adb shell input swipe "$SWIPE_X0" "$SWIPE_Y" "$SWIPE_X1" "$SWIPE_Y" 800; then swipe_ok=1; break; fi
+    echo "  swipe attempt $i failed; retrying"; sleep 3
+  done
+  if [ "$swipe_ok" != 1 ]; then
+    echo "INFRA_FAIL: adb input swipe never succeeded on $BACKEND (retry pass)"
+    exit 1
+  fi
+  sleep 3
+  adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+  if grep -q WORDS_SWIPE "$DIAG/logcat.txt"; then
+    echo "  WORDS_SWIPE present on the retry pass"
+    grep -m 8 "WORDS_" "$DIAG/logcat.txt" || true
+  else
+    echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe (and after a full-restart retry)"
+    echo "--- unity/app lines ---"
+    grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat.txt" | tail -40 || true
+    exit 1
+  fi
 fi
 
 # Batch 28c: a second, DIAGONAL swipe proves the eight-way adjacency rule on
