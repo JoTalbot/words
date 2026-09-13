@@ -239,8 +239,10 @@ func (r *Room) Submit(seat match.Seat, cellIDs []int) (EventFrame, error) {
 func (r *Room) SubmitWithSeq(seat match.Seat, clientSeq uint32, cellIDs []int) (EventFrame, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if seat < 0 || int(seat) > 1 {
-		return EventFrame{}, fmt.Errorf("matchroom: invalid seat %d", seat)
+	// Batch 30D: the bound is the roster, not the 1v1 pair. Hard-coding seat
+	// <= 1 here silently swallowed every intent from seats 2..N.
+	if seat < 0 || int(seat) >= r.match.Seats() {
+		return EventFrame{}, fmt.Errorf("matchroom: seat %d outside the %d-seat roster", seat, r.match.Seats())
 	}
 	if r.stopped {
 		return EventFrame{}, fmt.Errorf("matchroom: room stopped")
