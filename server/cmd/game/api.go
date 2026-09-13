@@ -836,7 +836,7 @@ func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dsnap := room.Match().Snapshot()
-	snap := protocol.SnapshotToProto(dsnap, [2]uint64{room.UserID(0), room.UserID(1)})
+	snap := protocol.SnapshotToProto(dsnap, room.UserIDs())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"server_tick":   snap.ServerTick,
 		"wave":          snap.CurrentWave,
@@ -1332,7 +1332,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Immediate canonical snapshot anchors the client (resume semantics:
 	// the client reconciles against this snapshot regardless of prior state).
 	sendSnapshot := func() {
-		userIDs := [2]uint64{room.UserID(0), room.UserID(1)}
+		userIDs := room.UserIDs()
 		snap := protocol.SnapshotToProto(room.Snapshot(), userIDs)
 		env := protocol.SnapshotEnvelope(id, snap)
 		_ = wsWriteProto(ctx, conn, env)
@@ -1355,7 +1355,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case sf := <-sub.Snapshots:
-				userIDs := [2]uint64{room.UserID(0), room.UserID(1)}
+				userIDs := room.UserIDs()
 				env := protocol.SnapshotEnvelope(id, protocol.SnapshotToProto(sf.Snapshot, userIDs))
 				if err := wsWriteProto(ctx, conn, env); err != nil {
 					return

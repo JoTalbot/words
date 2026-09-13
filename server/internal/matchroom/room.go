@@ -20,9 +20,17 @@ type Config struct {
 	MatchID  uint64
 	Seed     uint64
 	Language string
-	UserIDs  [2]uint64
-	Token0   string
-	Token1   string
+	// UserIDs is the 1v1 convenience form kept for every existing caller.
+	// Batch 30B: Seats/SeatUserIDs/SeatTokens are the roster-shaped form; a
+	// non-empty SeatUserIDs wins and sets the roster size.
+	UserIDs [2]uint64
+	Token0  string
+	Token1  string
+	// SeatUserIDs and SeatTokens describe a roster of any size (M2 Royale
+	// path). len(SeatUserIDs) is the seat count; SeatTokens may be shorter
+	// (seats without a token are joined later via SetToken).
+	SeatUserIDs []uint64
+	SeatTokens  []string
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
 	// TokenTTL bounds seat-token lifetime. Zero (default) disables expiry
@@ -44,7 +52,7 @@ type Room struct {
 	match *match.Match
 	mu    sync.Mutex
 
-	userIDs  [2]uint64
+	userIDs  []uint64
 	tokenTTL time.Duration
 	tokens   map[string]tokenGrant
 
@@ -89,11 +97,21 @@ type SnapshotFrame struct {
 
 // New creates a room around a fresh deterministic match.
 func New(cfg Config) (*Room, error) {
+	// Batch 30B: one construction path for both shapes. The 1v1 fields are
+	// simply the two-seat spelling of the roster fields, so no existing
+	// caller changes and no second room implementation appears.
+	userIDs := cfg.SeatUserIDs
+	tokens := cfg.SeatTokens
+	if len(userIDs) == 0 {
+		userIDs = []uint64{cfg.UserIDs[0], cfg.UserIDs[1]}
+		tokens = []string{cfg.Token0, cfg.Token1}
+	}
 	m, err := match.New(match.Config{
 		MatchID:     cfg.MatchID,
 		Seed:        cfg.Seed,
 		Lang:        cfg.Language,
 		SuddenDeath: cfg.SuddenDeath,
+		Seats:       len(userIDs),
 	})
 	if err != nil {
 		return nil, err
@@ -101,19 +119,24 @@ func New(cfg Config) (*Room, error) {
 	r := &Room{
 		id:       cfg.MatchID,
 		match:    m,
-		userIDs:  cfg.UserIDs,
+		userIDs:  append([]uint64(nil), userIDs...),
 		tokenTTL: cfg.TokenTTL,
 		tokens:   map[string]tokenGrant{},
 		subs:     map[match.Seat]*Subscription{},
 	}
-	if cfg.Token0 != "" {
-		r.tokens[cfg.Token0] = r.grant(0)
-	}
-	if cfg.Token1 != "" {
-		r.tokens[cfg.Token1] = r.grant(1)
+	for seat, tok := range tokens {
+		if seat >= len(userIDs) {
+			return nil, fmt.Errorf("matchroom: token for seat %d outside the %d-seat roster", seat, len(userIDs))
+		}
+		if tok != "" {
+			r.tokens[tok] = r.grant(match.Seat(seat))
+		}
 	}
 	return r, nil
 }
+
+// Seats returns the roster size of the hosted match.
+func (r *Room) Seats() int { return r.match.Seats() }
 
 // grant builds a tokenGrant for a seat with the configured TTL applied.
 func (r *Room) grant(seat match.Seat) tokenGrant {
@@ -143,7 +166,15 @@ func (r *Room) IsOver() bool {
 }
 
 // UserID returns the account id for a seat.
-func (r *Room) UserID(s match.Seat) uint64 { return r.userIDs[s] }
+func (r *Room) UserID(s match.Seat) uint64 {
+	if int(s) < 0 || int(s) >= len(r.userIDs) {
+		return 0
+	}
+	return r.userIDs[s]
+}
+
+// UserIDs returns the roster's user ids in seat order (read-only copy).
+func (r *Room) UserIDs() []uint64 { return append([]uint64(nil), r.userIDs...) }
 
 // SeatForToken resolves a token to its seat, honouring token expiry.
 func (r *Room) SeatForToken(tok string) (match.Seat, bool) {
