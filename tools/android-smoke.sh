@@ -622,12 +622,31 @@ printf '%s' "$WORDS_SERVER_URL" >/tmp/server_url.txt
 printf '1' >/tmp/autoplay.txt
 adb push /tmp/server_url.txt /data/local/tmp/server_url.txt >/dev/null 2>&1 || true
 adb push /tmp/autoplay.txt /data/local/tmp/autoplay.txt >/dev/null 2>&1 || true
-APP_FILES="/data/data/$PKG/files"
-adb shell "run-as $PKG sh -c 'mkdir -p $APP_FILES && cp /data/local/tmp/server_url.txt $APP_FILES/server_url.txt && cp /data/local/tmp/autoplay.txt $APP_FILES/autoplay.txt'" >/dev/null 2>&1 || {
-  echo "INFRA_FAIL: run-as could not write the endpoint/autoplay files (is this a debug build?)"
+# Batch 28D: write BOTH candidate locations. Unity's
+# Application.persistentDataPath on Android is the EXTERNAL app directory
+# (/sdcard/Android/data/<pkg>/files) unless the project is built with
+# "Write Permission: Internal"; run 34780793795 wrote only the internal
+# path and the client still reported source=default, i.e. it was looking at
+# the external one. The client itself now echoes the path it reads
+# ([WORDS_SERVER] ... path=), so a future mismatch is one grep away.
+APP_FILES_INT="/data/data/$PKG/files"
+APP_FILES_EXT="/sdcard/Android/data/$PKG/files"
+wrote=0
+if adb shell "run-as $PKG sh -c 'mkdir -p $APP_FILES_INT && cp /data/local/tmp/server_url.txt $APP_FILES_INT/server_url.txt && cp /data/local/tmp/autoplay.txt $APP_FILES_INT/autoplay.txt'" >/dev/null 2>&1; then
+  echo "endpoint + autoplay written to $APP_FILES_INT (run-as)"
+  wrote=1
+fi
+adb shell "mkdir -p $APP_FILES_EXT" >/dev/null 2>&1 || true
+if adb push /tmp/server_url.txt "$APP_FILES_EXT/server_url.txt" >/dev/null 2>&1 \
+   && adb push /tmp/autoplay.txt "$APP_FILES_EXT/autoplay.txt" >/dev/null 2>&1; then
+  echo "endpoint + autoplay written to $APP_FILES_EXT (external)"
+  wrote=1
+fi
+if [ "$wrote" != 1 ]; then
+  echo "INFRA_FAIL: neither the internal (run-as) nor the external app directory was writable"
   exit 9
-}
-echo "endpoint + autoplay pushed into $APP_FILES"
+fi
+adb shell "ls -l $APP_FILES_EXT" 2>/dev/null | head -5 || true
 
 adb logcat -c >/dev/null 2>&1 || true
 retry 3 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || {

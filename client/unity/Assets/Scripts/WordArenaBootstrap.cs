@@ -240,24 +240,36 @@ namespace Words.Client
             }
 #endif
 
-            try
+            // Batch 28D: read every automation directory, not just
+            // persistentDataPath. Measured on device run 34780793795: the
+            // smoke wrote /data/data/<pkg>/files via run-as (the only path a
+            // non-root shell can write for an internal-storage app) while
+            // this build's persistentDataPath is the EXTERNAL
+            // /sdcard/Android/data/<pkg>/files, so the file channel silently
+            // fell through to the loopback default and the whole full-match
+            // leg ran against an unreachable server.
+            foreach (var candidate in AutomationFilePaths("server_url.txt"))
             {
-                var filePath = System.IO.Path.Combine(Application.persistentDataPath, "server_url.txt");
-                if (System.IO.File.Exists(filePath))
+                try
                 {
-                    var fromFile = System.IO.File.ReadAllText(filePath).Trim();
+                    if (!System.IO.File.Exists(candidate))
+                    {
+                        continue;
+                    }
+
+                    var fromFile = System.IO.File.ReadAllText(candidate).Trim();
                     if (fromFile.Length > 0)
                     {
                         url = fromFile;
-                        source = "file";
+                        source = "file:" + candidate;
                         return;
                     }
                 }
-            }
-            catch
-            {
-                // The file channel is best effort; a broken file must not
-                // prevent the app from starting with the next candidate.
+                catch
+                {
+                    // The file channel is best effort; a broken or
+                    // unreadable candidate must never stop startup.
+                }
             }
 
             var fromPrefs = PlayerPrefs.GetString("words.server_url", string.Empty).Trim();
@@ -272,22 +284,60 @@ namespace Words.Client
             source = "default";
         }
 
+        // Batch 28D: every directory an automated device run can write a
+        // control file into, in priority order. persistentDataPath is
+        // whichever one Unity chose for this build; the other two are the
+        // fixed Android locations the smoke can reach with `adb push` (the
+        // external app dir) and `run-as` (the internal app dir).
+        private static string[] AutomationFilePaths(string fileName)
+        {
+            var paths = new List<string>();
+            try
+            {
+                paths.Add(System.IO.Path.Combine(Application.persistentDataPath, fileName));
+            }
+            catch
+            {
+                // Application.persistentDataPath is always available on the
+                // player; the guard exists so a hostile environment cannot
+                // abort startup here.
+            }
+
+#if UNITY_ANDROID
+            var pkg = Application.identifier;
+            if (!string.IsNullOrEmpty(pkg))
+            {
+                paths.Add("/sdcard/Android/data/" + pkg + "/files/" + fileName);
+                paths.Add("/storage/emulated/0/Android/data/" + pkg + "/files/" + fileName);
+                paths.Add("/data/data/" + pkg + "/files/" + fileName);
+            }
+#endif
+            paths.Add("/data/local/tmp/" + fileName);
+            return paths.ToArray();
+        }
+
         // Batch 28b: automation switch, resolved exactly like the endpoint
         // (file channel first, then PlayerPrefs). "1"/"true"/"yes" enable it.
         private static bool ResolveAutoPlay()
         {
             var value = string.Empty;
-            try
+            foreach (var candidate in AutomationFilePaths("autoplay.txt"))
             {
-                var filePath = System.IO.Path.Combine(Application.persistentDataPath, "autoplay.txt");
-                if (System.IO.File.Exists(filePath))
+                try
                 {
-                    value = System.IO.File.ReadAllText(filePath).Trim();
+                    if (System.IO.File.Exists(candidate))
+                    {
+                        value = System.IO.File.ReadAllText(candidate).Trim();
+                        if (value.Length > 0)
+                        {
+                            break;
+                        }
+                    }
                 }
-            }
-            catch
-            {
-                value = string.Empty;
+                catch
+                {
+                    value = string.Empty;
+                }
             }
 
             if (value.Length == 0)
