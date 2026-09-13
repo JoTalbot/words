@@ -86,7 +86,10 @@ Exit gate: two remote clients can complete repeated matches with identical final
   batch 30B (roster-shaped room via `SeatUserIDs`/`SeatTokens`, seat-indexed
   `SnapshotToProto`) and batch 30C (`createRoomN` mints a token and a non-zero
   user id per seat, `newMatchmakerWithSeats(n)` forms an N-player lobby in FIFO
-  seat order; the 1v1 path stays byte-identical). The server stack is now
+  seat order; the 1v1 path stays byte-identical) and batch 30D (an 8-seat
+  end-to-end run over the real HTTP + WebSocket surface, which caught a
+  leftover 1v1 bound in `Room.SubmitWithSeq` that would have left every player
+  except the first two unable to play a word). The server stack is now
   seat-count agnostic from the simulation up to queue admission, and no HTTP
   endpoint exposes a seats knob yet, because Royale gameplay itself is
   BLOCKED ON TWO PRODUCT DECISIONS: the elimination rule (`IsEliminated` is still always false)

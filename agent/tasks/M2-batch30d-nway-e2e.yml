@@ -3,7 +3,7 @@ title: N-way end-to-end proof over the live transport (and the seat>1 submit bug
 owner: gameplay-core
 priority: high
 complexity: medium
-status: in_review
+status: merged_green
 risk: high
 escalation: none
 
