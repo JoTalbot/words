@@ -1,0 +1,42 @@
+id: M1-batch28c-diagonal-swipe
+title: Multi-row diagonal swipe gesture verified by the device smoke
+owner: unity-client
+priority: low
+complexity: small
+status: queued
+risk: low
+escalation: none
+
+inputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (ExtendDragPath eight-way adjacency + bridge rules)
+  - tools/android-smoke.sh (gesture smoke, batch 27A screen coordinates)
+  - docs/ROADMAP.md Claim / Lock / Cross-Steal exit criterion
+
+dependencies:
+  - M1-batch27a-device-leg-coords
+
+outputs:
+  - tools/android-smoke.sh (second scripted diagonal swipe)
+  - agent/tasks/M1-batch28c-diagonal-swipe.yml
+
+acceptance:
+  - >-
+    After the existing row swipe passes, the smoke performs a second scripted
+    diagonal swipe that crosses cells from at least two board rows, and logcat
+    shows a second [WORDS_SWIPE] marker with cells >= 5.
+  - "The assertion proves the eight-way adjacency rule on a real device, not just in unit-reasoned code."
+
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - "Pending: one green Unity Android run with both swipe markers"
+
+file_ownership:
+  - tools/android-smoke.sh
+  - agent/tasks/M1-batch28c-diagonal-swipe.yml
+
+notes: >-
+  The gesture code already implements eight-way adjacency and single-cell
+  bridging (batch 17E); this task gives it device-level evidence. With the
+  static demo board (T A A N / D S V T / G C O D) a diagonal from cell (0,0)
+  to (1,1) to (2,2) must extend the path across rows, which a row-only swipe
+  cannot do.

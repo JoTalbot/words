@@ -36,20 +36,24 @@ Exit gate: two remote clients can complete repeated matches with identical final
   statically (batch 20); transport abuse hardening — snapshot seat
   credential, origin policy, body caps, per-caller mutation budget, explicit-seed
   fairness gate, HTTP timeouts — plus docs/SECURITY-REVIEW-M1.md (batch 21A);
-  repo-hygiene guard in CI (batch 21C); loopback-only exposure pending the
-  edge/TLS decision, and the live systemd binary still waits for promotion to
-  main)
-- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; pending-intent reconciliation shell added 2026-09-10; drag/swipe multi-cell selection gesture path and MATCH OVER result overlay added 2026-09-10; richer production UX pending)
-- [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server, displays pending claims, and reconciles canonical ownership/lock snapshots; swipe gesture path with ordered selection added 2026-09-10; eight-way adjacency + bridge gesture rules and device-level swipe smoke added 2026-09-10 — batch 17E; further gesture polish pending)
-- [~] combo and Sudden Death (server: combo engine golden since M0; Sudden
+  repo-hygiene guard in CI (batch 21C); unguessable match codes + stored read
+  capability with the gate enabled live (batch 21g); live systemd service
+  promoted to main 97a2414 and verified live — batch 26G, 2026-09-12.
+  REMAINING (explicit exit criterion): expose the service beyond loopback
+  once the Q8 edge/TLS decision lands — TLS termination, origin allowlist and
+  abuse review are the three measurable gates, all recorded in
+  docs/PRODUCT-DECISIONS.md. Q8 is a human decision.)
+- [~] shared board UX (Unity runtime bootstrap demo added 2026-09-10; server-bound REST create + binary protobuf WebSocket snapshot/event adapter added 2026-09-10; lifecycle ready/result/token controls added 2026-09-10; pending-intent reconciliation shell added 2026-09-10; drag/swipe multi-cell selection gesture path and MATCH OVER result overlay added 2026-09-10). REMAINING, each with one measurable exit criterion: (a) richer rollback animation — a rejected pending intent flashes the affected cells red and logs a [WORDS_ROLLBACK] marker verifiable on a device (M1-batch28a-rollback-flash); (b) production shared-board UX — the device smoke runs an unattended full match loop from queue through swipe, send and the authoritative MATCH OVER overlay, verified by a [WORDS_MATCH_COMPLETE] marker (M1-batch28b-device-full-match-loop)
+- [~] Claim / Lock / Cross-Steal (Unity visual demo added 2026-09-10; Unity now sends SubmitWordIntent to the authoritative server, displays pending claims, and reconciles canonical ownership/lock snapshots; swipe gesture path with ordered selection added 2026-09-10; eight-way adjacency + bridge gesture rules and device-level swipe smoke added 2026-09-10 — batch 17E; device leg green on run 34683472147 after the 26E KVM fix). REMAINING (explicit exit criterion): multi-row gesture polish — a second scripted diagonal swipe in the device smoke selects cells spanning more than one row and logs [WORDS_SWIPE] with cells >= 5 (M1-batch28c-diagonal-swipe)
+- [x] combo and Sudden Death (server: combo engine golden since M0; Sudden
   Death opt-in tiebreak done 2026-09-10 — docs/M1-SUDDEN-DEATH.md; Unity demo
-  presentation added 2026-09-10; server event/snapshot binding added 2026-09-10; MATCH OVER result overlay with authoritative REST record added 2026-09-10; Sudden Death tiebreak headline + client-observed decisive word added 2026-09-10 — batch 17C)
+  presentation added 2026-09-10; server event/snapshot binding added 2026-09-10; MATCH OVER result overlay with authoritative REST record added 2026-09-10; Sudden Death tiebreak headline + client-observed decisive word added 2026-09-10 — batch 17C; M1 scope closed 2026-09-13: nothing server-side open, presentation delivered)
 - [x] basic matchmaking (stub: poll-based FIFO pairing per language, 2026-09-09;
   Unity client Find match (queue) flow with enqueue/poll/seat-token connect
   added 2026-09-10 — batch 17A)
-- [~] player profile (in-memory profiles + stats folding via player_ids done;
+- [x] player profile (in-memory profiles + stats folding via player_ids done;
   durable PostgreSQL storage done 2026-09-10 — docs/M1-PERSISTENCE.md,
-  WORDARENA_POSTGRES_DSN)
+  WORDARENA_POSTGRES_DSN; identity/auth layer is M2 scope)
 - [x] telemetry baseline (JSON /metrics, Prometheus text export, optional
   non-blocking JSONL lifecycle/action event sink — 2026-09-10)
 
@@ -96,15 +100,15 @@ Counts below are task-level evidence from `agent/state/current.yml` and
 
 | M1 row | State | What is still open |
 |---|---|---|
-| production-shaped match service | verified live | promoted to current main on 2026-09-10 and re-verified live; Q8 edge/TLS decision |
+| production-shaped match service | verified live | live systemd service promoted to main 97a2414 and re-verified live on 2026-09-12 (batch 26G: smoke 27/0, exit gate 3/3 with baseline scores). Only Q8 edge/TLS exposure remains — a human decision |
 | basic matchmaking | done | — |
 | telemetry baseline | done | — |
 | player profile + durable storage | done | identity/auth layer is M2 scope |
-| shared board UX | in progress | richer rollback animation, production UI |
-| Claim / Lock / Cross-Steal | in progress | gesture polish. The device-level swipe smoke is **green** as of run 34683472147: a real `adb input swipe` resolved to `[WORDS_SWIPE] cells=4 word=DSVT` |
-| combo and Sudden Death | in presentation polish | nothing server-side |
+| shared board UX | in progress | explicit exit criteria recorded 2026-09-13 (batch 27C): (a) rejected-intent rollback flash + `[WORDS_ROLLBACK]` device marker (M1-batch28a); (b) unattended full-match device loop queue → swipe → send → authoritative MATCH OVER + `[WORDS_MATCH_COMPLETE]` marker (M1-batch28b) |
+| Claim / Lock / Cross-Steal | in progress | gesture polish. Device-level swipe smoke **green** on run 34683472147: a real `adb input swipe` resolved to `[WORDS_SWIPE] cells=4 word=DSVT`. The two following scheduled runs (34709145871, 34747246880) failed on both legs; root cause is a coordinate defect, not the emulator — the smoke converted the board's local rect without the 40 px screen inset, so the swipe started left of the board and the drag never armed (batch 27A, fix in CI). Remaining: diagonal multi-row swipe with cells >= 5 (M1-batch28c) |
+| combo and Sudden Death | done for M1 scope | nothing server-side; presentation delivered (17C) |
 | security / protocol robustness | done for M1 scope | — (finding S-2 closed 2026-09-11 by `M1-batch21g-match-codes`, verified live with the gate enabled; profile-id boundary validation closed 2026-09-12 by `M1-batch26a-profile-id-range`) |
-| build + CI reliability | **device leg green** | Unity Android run 34683472147 is fully green. Root cause found 2026-09-12 (batch 26E): the runner's `kvm` group has no members, so the emulator booted `-accel off` and cold-booted in software emulation for 368–588 s until `com.android.systemui` ANR'd — the very window the focus gate reported. Opening `/dev/kvm` cut boot to 31.6 s. `gofmt` is now a merge precondition (26B). Remaining: confirm the green leg repeats on the schedule |
+| build + CI reliability | device leg repaired, pending CI | Unity Android run 34683472147 was fully green (batch 26E KVM fix: boot 31.6 s vs 368–588 s software emulation). The next two scheduled runs regressed on a coordinate defect in the smoke's board-rect conversion (27A: client now publishes screen-space `sx*/sy*`, script and focus recovery fixed). `gofmt` is a merge precondition (26B). Remaining: a green scheduled run on the merged 27A |
 
 Verified live on 2026-09-10 against an isolated build of `c2079e8`: queue
 exit gate 6/6 PASS, direct control 3/3 PASS with baseline scores

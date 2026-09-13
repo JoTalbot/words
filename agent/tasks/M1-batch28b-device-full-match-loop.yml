@@ -1,0 +1,48 @@
+id: M1-batch28b-device-full-match-loop
+title: Unattended full-match device loop from queue to authoritative MATCH OVER
+owner: qa-infra
+priority: normal
+complexity: medium
+status: queued
+risk: medium
+escalation: none
+
+inputs:
+  - tools/android-smoke.sh (device assertion, board rect handling from batch 27A)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (queue flow 17A, send path, result overlay)
+  - docs/ROADMAP.md shared board UX exit criterion (b)
+
+dependencies:
+  - M1-batch27a-device-leg-coords
+  - M1-batch27b-endpoint-persistence
+
+outputs:
+  - tools/android-smoke.sh (full-match leg)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (auto-send + [WORDS_MATCH_COMPLETE] marker)
+  - agent/tasks/M1-batch28b-device-full-match-loop.yml
+
+acceptance:
+  - >-
+    On a device with the server reachable (27B override), the smoke enqueues a
+    seat, plays a scripted word on each wave, and the match reaches its
+    terminal state with the authoritative MATCH OVER overlay visible.
+  - "The client logs [WORDS_MATCH_COMPLETE] final=... source=result-endpoint so the leg asserts the authoritative record, not local score."
+  - "The loop is bounded: a hard tick budget turns a stuck match into PRODUCT_FAIL with artifacts instead of hanging the runner."
+
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - "python static sanity: braces balanced, marker present, no forbidden deps"
+  - "Pending: one green Unity Android run with the full-match leg"
+
+file_ownership:
+  - tools/android-smoke.sh
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch28b-device-full-match-loop.yml
+
+notes: >-
+  Today the device smoke proves selection only (WORDS_SWIPE) and stops. The
+  full loop is the exit criterion that lets the shared board UX row flip to
+  [x] without leaving "production UI" as an unmeasured claim. It depends on
+  27B so the emulator can point at a real server; until Q8 exposes the
+  service, the leg runs against an authorized tunnel or is marked BLOCKED on
+  Q8 - it must not weaken the assertion either way.

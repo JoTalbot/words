@@ -1,0 +1,39 @@
+id: M1-batch28a-rollback-flash
+title: Richer rollback animation - flash rejected pending intents red with a device-verifiable marker
+owner: unity-client
+priority: normal
+complexity: small
+status: queued
+risk: low
+escalation: none
+
+inputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (pending-intent reconciliation shell, Batch 15/16 markers)
+  - docs/ROADMAP.md shared board UX exit criterion (a)
+
+dependencies:
+  - M1-batch15-unity-prediction-reconciliation
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (flash state + [WORDS_ROLLBACK] marker)
+  - agent/tasks/M1-batch28a-rollback-flash.yml
+
+acceptance:
+  - "When a pending intent is rejected by a server event, the cells it claimed flash red for a bounded time (<= 2 s) without changing authoritative ownership rendering."
+  - "Each rollback logs [WORDS_ROLLBACK] word=<path> cells=<n> so a device smoke can verify the animation path end to end."
+  - "An accepted pending intent does NOT produce the marker."
+
+validation:
+  - "python static sanity: braces balanced, marker present, no forbidden deps"
+  - "Pending: Unity Android workflow green on the merged commit"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch28a-rollback-flash.yml
+
+notes: >-
+  This is the "richer rollback animation" the M0 prediction row deferred to
+  M1 polish. The reconciliation shell already correlates accept/rollback by
+  client_sequence, so the flash is presentation state only - the authoritative
+  ownership always comes from the canonical snapshot, per the correctness
+  principles.
