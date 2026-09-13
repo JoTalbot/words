@@ -44,6 +44,8 @@ namespace Words.Client
         private readonly List<Rect> boardCellRects = new List<Rect>();
         private readonly List<int> dragPath = new List<int>();
         private bool dragActive;
+        // Batch 27G: drag event counter for the [WORDS_INPUT] probe.
+        private int dragEventCount;
         private bool boardRectsValid;
         private bool boardRectLogged;
         private float boardScale = 1f;
@@ -522,7 +524,28 @@ namespace Words.Client
         private void HandleBoardGesture()
         {
             var evt = Event.current;
-            if (evt == null || cells.Count == 0 || !boardRectsValid)
+            if (evt == null || cells.Count == 0)
+            {
+                return;
+            }
+
+            if (evt.type == EventType.MouseDown && evt.button == 0)
+            {
+                // Batch 27G: arrival probe - logged even when the cell rects
+                // are not (yet) valid, so a dead input path is distinguishable
+                // from a hit-test miss. Runs 07aa6e6 and 34769405396 swiped a
+                // measured, rendered, focused board with no marker at all;
+                // this line splits "event never arrived" from "arrived with
+                // wrong coordinates" from "arrived, hit test failed".
+                var probeLocal = BoardLocalPoint(evt.mousePosition);
+                var probeHit = boardRectsValid ? HitTestBoardCell(probeLocal) : -1;
+                Debug.Log("[WORDS_INPUT] down screen=" + Mathf.RoundToInt(evt.mousePosition.x) + "," + Mathf.RoundToInt(evt.mousePosition.y)
+                    + " local=" + Mathf.RoundToInt(probeLocal.x) + "," + Mathf.RoundToInt(probeLocal.y)
+                    + " hit=" + (probeHit < 0 ? "none" : probeHit.ToString())
+                    + " rects=" + (boardRectsValid ? boardCellRects.Count.ToString() : "invalid"));
+            }
+
+            if (!boardRectsValid)
             {
                 return;
             }
@@ -541,17 +564,27 @@ namespace Words.Client
                 }
 
                 dragActive = true;
+                dragEventCount = 0;
                 dragPath.Clear();
                 dragPath.Add(startCell);
                 evt.Use();
             }
             else if (evt.type == EventType.MouseDrag && dragActive)
             {
+                dragEventCount++;
+                if (dragEventCount <= 2 || dragEventCount % 10 == 0)
+                {
+                    Debug.Log("[WORDS_INPUT] drag n=" + dragEventCount
+                        + " screen=" + Mathf.RoundToInt(evt.mousePosition.x) + "," + Mathf.RoundToInt(evt.mousePosition.y));
+                }
+
                 ExtendDragPath(evt.mousePosition);
                 evt.Use();
             }
             else if (evt.type == EventType.MouseUp && dragActive)
             {
+                Debug.Log("[WORDS_INPUT] up screen=" + Mathf.RoundToInt(evt.mousePosition.x) + "," + Mathf.RoundToInt(evt.mousePosition.y)
+                    + " dragEvents=" + dragEventCount);
                 dragActive = false;
                 ExtendDragPath(evt.mousePosition);
                 CommitDragPath();
@@ -891,6 +924,10 @@ namespace Words.Client
 
         private void OnCellTapped(int cellId)
         {
+            // Batch 27G: the button-callback path (a tap the drag path did
+            // not consume) - proves an input event reached the board cells
+            // even when the gesture code itself stayed silent.
+            Debug.Log("[WORDS_INPUT] tap cell=" + cellId);
             if (selected.Contains(cellId))
             {
                 selected.Remove(cellId);

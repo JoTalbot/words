@@ -1,0 +1,52 @@
+id: M1-batch27g-input-probe
+title: Probe board input arrival end-to-end and give the swipe a discrete multi-point fallback
+owner: device-automation
+priority: high
+complexity: small
+status: validated_local_pending_unity_build
+risk: low
+escalation: none
+
+inputs:
+  - "Run 34769405396 leg 35 (API 35) - focus cycle + [WORDS_FOCUS] gained assertion passed, gate passed, screenshot showed a clean rendered board with no sheet, yet the swipe (measured inside row 0) produced no WORDS_SWIPE, and the full-cold-restart retry (fresh process) also produced nothing"
+  - "Run 34769405396 leg 33 (API 33) - sheet-recovery taps measured at 1080x1920 missed on the different screen size; INFRA_FAIL before the swipe"
+  - "logcat-full.txt - [WORDS_FOCUS] gained logged 2.3 s after the launch flap - the stuck-flag theory alone does not explain the dead swipes"
+  - tools/android-smoke.sh, client/unity/Assets/Scripts/WordArenaBootstrap.cs (HandleBoardGesture, OnCellTapped)
+
+dependencies:
+  - M1-batch27f-focus-cycle
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs ([WORDS_INPUT] down/drag/up/tap markers with raw screen + converted local coordinates and the hit-test result)
+  - tools/android-smoke.sh (sheet taps scaled to the real wm size; ensure_input_live; try_swipe_pass with warm-up tap probe + input-swipe + motionevent multi-point fallback; retry runs the same focus cycle; diagonal gets the motionevent fallback; primary-pass logcat preserved as logcat-primary.txt)
+  - agent/tasks/M1-batch27g-input-probe.yml
+
+acceptance:
+  - "Every board-relevant input event logs [WORDS_INPUT] with screen + local coordinates, the hit-test result, and drag event counts; a tap the drag path does not consume logs [WORDS_INPUT] tap cell=N. A dead input path is now distinguishable from a hit-test miss or a coordinate-space drift in one run."
+  - "The sheet dismissal taps (scrim + Got-it button) are scaled to the device's real wm size instead of fixed 1080x1920 coordinates, so the API 33 retry leg can recover from the sheet."
+  - "Each swipe pass warms up with a tap on cell 0's center and reports the first [WORDS_INPUT] line (or an explicit NO INPUT EVENT REACHED THE CLIENT) before swiping; if input swipe yields no marker, a discrete input motionevent DOWN/MOVE.../UP drag is attempted before the pass fails."
+  - "The full-restart retry runs the same ensure_input_live focus cycle + gained assertion as the primary pass, and the primary pass's logcat is preserved as logcat-primary.txt for post-mortem."
+
+validation:
+  - "bash -n tools/android-smoke.sh"
+  - "python static sanity: C# braces balanced (313/313), task graph 42 files 0 problems"
+  - "Pending: Unity Android workflow green on the merged commit (or, on red, the [WORDS_INPUT] markers split delivery from hit-test)"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - tools/android-smoke.sh
+  - agent/tasks/M1-batch27g-input-probe.yml
+
+notes: >-
+  Run 34769405396 closed the last known confounders: healthy client, measured
+  coordinates inside a rendered cell, no sheet at swipe time, client-side
+  focus marker present - and both the primary swipe and the full-restart
+  retry swipe still produced nothing. Either the synthetic events do not
+  reach Unity's IMGUI at all (emulator/Unity input-pipeline level) or they
+  arrive in a form the gesture code rejects. The [WORDS_INPUT] markers
+  answer that question directly in the next run: down-with-hit means the
+  gesture path itself regressed; down-with-none means a coordinate-space
+  drift; no marker at all (not even the warm-up tap) means input delivery
+  is broken and the motionevent fallback (plus the evidence) is the escape
+  hatch. The API 33 leg's fixed-tap sheet recovery is a known-bad constant
+  on that image's screen size and is replaced with wm-size-scaled taps.
