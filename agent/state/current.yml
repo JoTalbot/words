@@ -1,8 +1,26 @@
 project: words
 milestone: M2
 status: >-
-  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13 (shared board UX closed by device run 34782169182: full unattended match, [WORDS_MATCH_COMPLETE] source=result-endpoint, WORDS_ROLLBACK device markers, PARTNER-GATE PASS); M2_OPENED: batch_30a_variable_roster_merged_3817a89; batch_30b_roster_room_merged_65fe595; NEXT_30C_matchmaker_and_room_creation_N_way; HUMAN_DECISION_NEEDED_elimination_rule_and_royale_board_sizing
+  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13 (shared board UX closed by device run 34782169182: full unattended match, [WORDS_MATCH_COMPLETE] source=result-endpoint, WORDS_ROLLBACK device markers, PARTNER-GATE PASS); M2_OPENED: batch_30a_variable_roster_merged_3817a89; batch_30b_roster_room_merged_65fe595; batch_30c_nway_room_and_matchmaker_merged_e164bd2; SERVER_STACK_SEAT_COUNT_AGNOSTIC_SIMULATION_TO_ADMISSION; HUMAN_DECISION_NEEDED_elimination_rule_and_royale_board_sizing
 completed_tasks:
+  - >-
+    Batch 30C (M2, PR #35, merged e164bd2): room PROVISIONING and queue
+    ADMISSION are roster-shaped, which completes the seat-count-agnostic
+    server stack begun in 30A/30B. createRoomN(lang, seed, playerIDs, seats,
+    suddenDeath) validates seats against match.MinSeats/MaxSeats before
+    allocating anything and refuses more player_ids than seats rather than
+    truncating a roster; it mints one token and one non-zero synthetic user
+    id per seat using matchID*seats+seatIndex+1, which reduces exactly to the
+    old 1v1 id*2+1 / id*2+2 so no stored result or connected client changes
+    meaning. createRoom survives as a two-seat wrapper, so no caller moved.
+    createRoomFn now takes a []uint64 whose length IS the roster size;
+    matchmaker gained seats (newMatchmakerWithSeats, clamped to >=2, default
+    still 2) and pairLocked forms groups of that size in FIFO order, sharing
+    the match code and read capability across seats. A factory returning
+    fewer credentials than requested leaves everyone queued instead of
+    seating players on credentials that do not exist. 7 new tests in
+    server/cmd/game/roster_admission_test.go; suite 12/12 plus -race on
+    cmd/game and matchroom; CI + Container smoke green on the PR.
   - >-
     Batch 30B (M2, PR #34, merged 65fe595): the match ROOM is roster-shaped.
     matchroom.Config grows SeatUserIDs/SeatTokens and the existing 1v1 fields
@@ -1470,9 +1488,9 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "65fe595"
+last_commit: e164bd2
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
-resume_from: "M1 IS COMPLETE (all eight roadmap rows [x], closed 2026-09-13 by device run 34782169182 - full unattended match on a hosted emulator against the Q8 tunnel: [WORDS_MATCH_COMPLETE] final=33:16 source=result-endpoint, WORDS_ROLLBACK device markers, PARTNER-GATE PASS; live smoke 27/0; CI+Container smoke green on main). M2 IS OPEN and two foundation batches are merged: 30A (seat-count-agnostic simulation, bounds 2..60) and 30B (roster-shaped room + seat-indexed SnapshotToProto). NEXT BATCH 30C, fully scoped: cmd/game createRoom still mints exactly two synthetic user ids and two tokens ([2] tuples at api.go createRoom/createMatchResponse) and matchmaking.go still pairs exactly two queue entries - generalize both to N, keeping the 1v1 request shape as the default so no client changes. HUMAN DECISION REQUIRED BEFORE ROYALE GAMEPLAY (not before 30C): (1) the elimination rule - Royale needs one (score floor? last-place cull per wave? no elimination, pure scoring?) and PlayerView.IsEliminated is still always false; (2) board sizing for a large roster - CellsPerWave is 12, sized for two players, and generateWave must stay deterministic per (seed, lang, wave). Both belong in docs/PRODUCT-DECISIONS.md as PD entries before code; anti-snowball and bot disclosure (the other M2 rows) depend on them. OPS: the Q8 quick-tunnel URL is EPHEMERAL - the repository variable WORDS_SERVER_URL was set 2026-09-13 to https://ireland-placement-dot-inner.trycloudflare.com and must be refreshed after any tunnel restart, otherwise the scheduled device run skips the 28b full-match leg with an explicit notice (it never weakens the smoke). Q8 stage 2 (stable domain) and B2 (uk dictionary licence) remain owner items. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; Unity dispatch needs ref=main AND explicit inputs (run_smoke_tests plus server_url for the full-match leg); git commit -F for backticks; sandbox has Go at /home/user/go, no docker/adb/browser."
+resume_from: "M1 IS COMPLETE (all eight roadmap rows [x], device run 34782169182). M2 OPEN with THREE foundation batches merged: 30A (seat-count-agnostic simulation, bounds 2..60), 30B (roster-shaped room + seat-indexed SnapshotToProto), 30C (createRoomN + newMatchmakerWithSeats; PR #35, e164bd2). The server is now seat-count agnostic END TO END from simulation through room provisioning to queue admission, and the 1v1 path is byte-identical (synthetic ids matchID*seats+seat+1 reduce to id*2+1/id*2+2). DELIBERATELY NOT DONE: no HTTP endpoint exposes a seats parameter, because a public knob would ship an unplayable mode before the two product decisions. HUMAN DECISION REQUIRED BEFORE ROYALE GAMEPLAY: (1) the elimination rule - PlayerView.IsEliminated is always false; candidate shapes are a score floor per wave, a last-place cull per wave, or no elimination at all (pure scoring); (2) board sizing for a large roster - CellsPerWave is 12, sized for two players, and generateWave must stay deterministic per (seed, lang, wave). Both are tracked as OPEN entries in docs/PRODUCT-DECISIONS.md; anti-snowball and bot disclosure (the remaining M2 rows) depend on them. NEXT UNBLOCKED WORK (batch 30D candidates, none needs a product answer): an N-way end-to-end test through the real HTTP surface using createRoomN plus several headless bots; a determinism/fingerprint replay check at a large roster; matchmaker fairness/starvation behaviour when a partial lobby never fills (currently players wait forever - a lobby timeout with bot backfill is engineering, but WHO backfills is product). OPS: the Q8 quick-tunnel URL is EPHEMERAL - repo variable WORDS_SERVER_URL was set 2026-09-13 to https://ireland-placement-dot-inner.trycloudflare.com and must be refreshed after a tunnel restart, or the scheduled device run skips the 28b full-match leg (it never weakens the smoke). Q8 stage 2 (stable domain) and B2 (uk dictionary licence) remain owner items. Housekeeping: git identity Word Arena Agent agent@jotalbot.local; Unity dispatch needs ref=main AND explicit inputs (run_smoke_tests + server_url); git commit -F for backticks; THE SANDBOX HOME CAN BE WIPED BETWEEN TURNS - recover with git init + remote add + fetch + reset --hard origin/main inside the leftover dir (clone refuses a non-empty dir), re-set git identity, re-download Go to /home/user/go, chmod 600 the OCI key."
 
 
 
@@ -1480,4 +1498,4 @@ resume_from: "M1 IS COMPLETE (all eight roadmap rows [x], closed 2026-09-13 by d
 
 
 
-updated_at: "2026-09-13 (M1 closed on device run 34782169182; M2 opened with batches 30A and 30B merged; next 30C, then the elimination/board-sizing product decisions)"
+updated_at: "2026-09-14 (M2 batch 30C merged e164bd2: N-way room provisioning and lobby admission; server stack seat-count agnostic end to end; next 30D N-way e2e/determinism, Royale gameplay still awaiting the elimination and board-sizing decisions)"

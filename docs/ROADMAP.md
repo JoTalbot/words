@@ -84,9 +84,12 @@ Exit gate: two remote clients can complete repeated matches with identical final
   (the simulation is seat-count agnostic, `Config.Seats`, bounds 2..60, rank /
   tie / result / fingerprint expressed over the roster, 1v1 bit-identical) and
   batch 30B (roster-shaped room via `SeatUserIDs`/`SeatTokens`, seat-indexed
-  `SnapshotToProto`). Next: 30C generalizes room creation and the matchmaker
-  from exactly two seats to N. BLOCKED ON TWO PRODUCT DECISIONS before Royale
-  gameplay itself: the elimination rule (`IsEliminated` is still always false)
+  `SnapshotToProto`) and batch 30C (`createRoomN` mints a token and a non-zero
+  user id per seat, `newMatchmakerWithSeats(n)` forms an N-player lobby in FIFO
+  seat order; the 1v1 path stays byte-identical). The server stack is now
+  seat-count agnostic from the simulation up to queue admission, and no HTTP
+  endpoint exposes a seats knob yet, because Royale gameplay itself is
+  BLOCKED ON TWO PRODUCT DECISIONS: the elimination rule (`IsEliminated` is still always false)
   and board sizing for a large roster (`CellsPerWave` is 12, sized for two);
   anti-snowball and bot disclosure depend on both.
 - [ ] bot strategy and disclosure policy
