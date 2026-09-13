@@ -1,0 +1,47 @@
+id: M1-batch27h-board-local-identity
+title: Stop double-subtracting the 40 px area inset in the board hit test (BoardLocalPoint)
+owner: unity-client
+priority: critical
+complexity: small
+status: validated_local_pending_unity_build
+risk: low
+escalation: none
+
+inputs:
+  - "Run 34770332786 (27G probe, head 918948a) leg 35: [WORDS_INPUT] down gui=120,703 test=80,663 hit=0 for an adb tap at screen (160,743) - the event arrives already area-local, exactly the (40,40) BeginArea origin subtracted"
+  - "Same run: [WORDS_INPUT] down gui=12,703 test=-28,663 hit=none for the swipe start at screen x=52 - the double-subtracted local x=-28 missed every cell, the drag never armed, no WORDS_SWIPE; identical on the full-restart retry and on both emulator legs"
+  - "History explained by the same defect: the green run 34683472147 (fallback x=100..950 y=880) survived the double subtraction by margin (100->60->20 >= 0), the 27A coordinate fix moved the swipe to the board's real left edge (x=52) where the double-subtracted coordinate goes negative, and the 26D-era scheduled failures (swipe from x=12) missed for the same class of reason"
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (BoardLocalPoint, HandleBoardGesture, OnGUI GUI.matrix + BeginArea)
+
+dependencies:
+  - M1-batch27g-input-probe
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (BoardLocalPoint is now the identity transform with the measured evidence in the comment; [WORDS_INPUT] labels gui=/test=)
+  - agent/tasks/M1-batch27h-board-local-identity.yml
+
+acceptance:
+  - "BoardLocalPoint returns its input unchanged: under the active GUI.matrix + BeginArea, IMGUI delivers Event.current.mousePosition already in the area-local space shared by the GetLastRect cell captures, so no inset subtraction and no scale division may be applied again."
+  - "The device-side screen<->local math is unchanged and stays in LogBoardRectOnce (sx*/sy*: screen = (local + 40) * scale) - the smoke keeps swiping at measured screen coordinates."
+  - "A Unity Android run on the merged commit passes both legs: row swipe [WORDS_SWIPE] cells=4 word=TAAN, diagonal cells>=3 word != TAAN."
+
+validation:
+  - "python static sanity: C# braces balanced, task graph clean"
+  - "Pending: Unity Android workflow green on the merged commit"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - agent/tasks/M1-batch27h-board-local-identity.yml
+
+notes: >-
+  The 27G probe closed the eight-run mystery: input delivery was healthy the
+  whole time (taps and swipes reached Unity with a constant (40,40) offset
+  that is the BeginArea origin, not an emulator bug), the board rects were
+  right, the focus gates were right - the hit test itself double-converted
+  the event. BoardLocalPoint was written against the assumption that
+  Event.current.mousePosition is in raw screen pixels; IMGUI converts it
+  into the current GUI space while the matrix + area are active, which is
+  why the 26D-era green (fallback x=100 with fat margins) worked and every
+  measured-coordinate run since 27A died at local x=-28. The fix is the
+  identity transform; the screen-space math the device smoke relies on is
+  untouched and remains measured from the client.
