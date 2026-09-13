@@ -539,8 +539,8 @@ namespace Words.Client
                 // wrong coordinates" from "arrived, hit test failed".
                 var probeLocal = BoardLocalPoint(evt.mousePosition);
                 var probeHit = boardRectsValid ? HitTestBoardCell(probeLocal) : -1;
-                Debug.Log("[WORDS_INPUT] down screen=" + Mathf.RoundToInt(evt.mousePosition.x) + "," + Mathf.RoundToInt(evt.mousePosition.y)
-                    + " local=" + Mathf.RoundToInt(probeLocal.x) + "," + Mathf.RoundToInt(probeLocal.y)
+                Debug.Log("[WORDS_INPUT] down gui=" + Mathf.RoundToInt(evt.mousePosition.x) + "," + Mathf.RoundToInt(evt.mousePosition.y)
+                    + " test=" + Mathf.RoundToInt(probeLocal.x) + "," + Mathf.RoundToInt(probeLocal.y)
                     + " hit=" + (probeHit < 0 ? "none" : probeHit.ToString())
                     + " rects=" + (boardRectsValid ? boardCellRects.Count.ToString() : "invalid"));
             }
@@ -598,10 +598,24 @@ namespace Words.Client
         // screen conversion cannot drift apart.
         private const float AreaInset = 40f;
 
-        private Vector2 BoardLocalPoint(Vector2 screenPoint)
+        // Batch 27H: identity transform - the input point is ALREADY in
+        // board-local space. Measured on run 34770332786 (27G probe): under
+        // the active GUI.matrix + BeginArea, IMGUI delivers
+        // Event.current.mousePosition already converted into the area-local
+        // space in which GUILayoutUtility.GetLastRect() captures the cell
+        // rects - an adb tap at screen (160,743) arrived as (120,703),
+        // exactly the (40,40) area origin subtracted, and hit cell 0. The
+        // previous version subtracted AreaInset a second time (and divided
+        // by the matrix scale a second time), so a swipe starting at the
+        // board's real left edge (screen x=52, the 27A coordinate fix)
+        // tested at local x=-28 and hit NO cell while the old fallback
+        // x=100 survived the double subtraction by luck (the green run
+        // 34683472147). The screen<->local math for the DEVICE side stays
+        // in LogBoardRectOnce (sx*/sy* fields): screen = (local + AreaInset)
+        // * scale.
+        private Vector2 BoardLocalPoint(Vector2 boardLocalPoint)
         {
-            var scale = boardScale > 0f ? boardScale : 1f;
-            return new Vector2(screenPoint.x / scale - AreaInset, screenPoint.y / scale - AreaInset);
+            return boardLocalPoint;
         }
 
         private int HitTestBoardCell(Vector2 localPoint)
