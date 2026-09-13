@@ -1,0 +1,63 @@
+id: M1-batch27d-device-diagnostics-focus
+title: Capture startup logcat + exception stacks and re-gate focus before the swipe
+owner: qa-infra
+priority: critical
+complexity: small
+status: validated_static_pending_ci
+risk: low
+escalation: none
+
+inputs:
+  - Unity Android run 34764775012 (both legs: client ready, then no WORDS_BOARD_RECT for 122-143 s, no WORDS_SWIPE after the fallback swipe; leg 35 screenshot shows a NullReferenceException in the development console over a black app area, and the ImmersiveModeConfirmation sheet in front)
+  - tools/android-smoke.sh (focus gate, board-rect poll, swipe)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (Bootstrap)
+
+dependencies:
+  - M1-batch27a-device-leg-coords
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (Application.logMessageReceived hook logging [WORDS_DIAG] with stack for Error/Exception)
+  - tools/android-smoke.sh (logcat-full.txt captured before the clear; pre-swipe focus re-gate with recovery; ImmersiveModeConfirmation tap positions corrected to scrim 540,1600 then button ~870,449)
+  - .github/workflows/unity-android.yml (logcat-full.txt in both artifact blocks)
+  - agent/tasks/M1-batch27d-device-diagnostics-focus.yml
+
+acceptance:
+  - "logcat-full.txt in the artifact contains the client log from launch (including [WORDS_SERVER] and any [WORDS_DIAG] exception stack) even when the swipe leg fails."
+  - "Focus is verified again immediately before the swipe; a stolen focus is recovered (scrim tap, then button tap) and only then does the swipe run; unrecoverable focus loss is reported as INFRA_FAIL (exit 8), not as a missing-marker product failure."
+  - "The ImmersiveModeConfirmation recovery taps use the measured positions (scrim 540,1600 below the card; button ~870,449 from the 34764775012 screenshot) instead of the old screen-center guesses."
+  - "If the NRE reproduces, its full stack is readable from the run artifacts, turning the next step from hypothesis into a targeted fix."
+
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - "unity-android.yml parses as YAML; both upload blocks carry logcat-full.txt"
+  - "python static sanity: braces balanced, [WORDS_DIAG] hook present, no forbidden deps"
+  - "Pending: one Unity Android run whose artifacts answer where the NRE is (if it reproduces) and whether the pre-swipe gate caught the sheet race"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - tools/android-smoke.sh
+  - .github/workflows/unity-android.yml
+  - agent/tasks/M1-batch27d-device-diagnostics-focus.yml
+
+findings: >-
+  Run 34764775012 (main c2add29, after all batch 27/28 code) built green
+  for the first time, then failed both device legs with a NEW signature:
+  the client logged SetGameState isLoading=false, then logged NOTHING for
+  122-143 s (no WORDS_BOARD_RECT, where the healthy 08:15Z run logged it
+  within 0.14 s), and the fallback swipe (y=880 - the exact configuration
+  that produced the green run 34683472147) yielded no WORDS_SWIPE. The leg
+  35 screenshot is decisive on two counts: (1) the Unity development
+  console shows "NullReferenceException: Object reference not set to an
+  instance of an object" over a black app area - an OnGUI exception that
+  stops the IMGUI loop, which explains both the missing rect marker and the
+  dead gesture path; (2) the ImmersiveModeConfirmation "Got it" sheet sat
+  in front of the app, which the launch focus gate had already passed
+  (it matched a window one instant earlier; the sheet landed within the
+  ~0.3 s between the gate and the first dumpsys print). The API 33 leg had
+  clean focus (mCurrentFocus=com.jotalbot.words) and the same missing
+  markers, so the sheet alone cannot explain the failure - the NRE is the
+  primary suspect, the sheet race a confirmed secondary hazard. The
+  static audit of the c72ce73..c2add29 client diff found no reference-
+  unsafe path in the per-frame code (CellColor/CellBaseColor, the
+  DrawConnectionPanel persistence block, ResolveServerUrl), so the next
+  run must bring the stack out of the console and into the artifacts.
