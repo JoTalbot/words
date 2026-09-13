@@ -118,6 +118,38 @@ sheet_tap_button() {
   echo "$(( 870 * w / 1080 )) $(( 449 * h / 1920 ))"
 }
 
+# Batch 27I: persistent sheet dismissal. The tap sequence is FLAKY on the
+# hosted pool - the identical measured taps (540,1600)/(870,449) dismissed
+# the sheet on runs 34769405396 and 34770332786 leg 35 but failed on both
+# legs of 34771146946 (the sheet window sometimes does not take the first
+# tap while it settles). So: up to 3 rounds of scrim+button taps, then the
+# last resort - the sheet is a SystemUI dialog, and SystemUI auto-restarts
+# on the emulator after force-stop.
+dismiss_immersive_sheet() {
+  local round tx ty bx by
+  read -r tx ty < <(sheet_tap_scrim)
+  read -r bx by < <(sheet_tap_button)
+  echo "  sheet dismissal taps: scrim=($tx,$ty) button=($bx,$by) size=$(adb shell wm size 2>/dev/null | tr -d '\r' | head -1)"
+  for round in 1 2 3; do
+    adb shell input tap "$tx" "$ty" >/dev/null 2>&1 || true
+    sleep 2
+    adb shell input tap "$bx" "$by" >/dev/null 2>&1 || true
+    sleep 2
+    if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+      echo "  sheet dismissed on tap round $round"
+      return 0
+    fi
+  done
+  echo "  sheet survived 3 tap rounds - killing SystemUI (last resort)"
+  adb shell am force-stop com.android.systemui >/dev/null 2>&1 || true
+  sleep 5
+  if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+    echo "  focus back after SystemUI restart"
+    return 0
+  fi
+  return 1
+}
+
 focused=0
 for attempt in 1 2 3 4 5 6; do
   window=$(adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" || true)
@@ -129,18 +161,10 @@ for attempt in 1 2 3 4 5 6; do
   printf '%s\n' "$window" | head -2 || true
   if printf '%s\n' "$window" | grep -q "ImmersiveModeConfirmation"; then
     # First-run full-screen sheet. BACK demonstrably does NOT dismiss it
-    # (measured, batch 26D note). Tap the scrim well below the card first
-    # (the card occupies roughly the top third of the 1080x1920 panel),
-    # then the "Got it" button measured from the run 34764775012 screenshot
-    # (1080x1920 device pixels: ~870,449) as the second attempt.
-    read -r _sx _sy < <(sheet_tap_scrim)
-    adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
-    sleep 2
-    if adb shell dumpsys window 2>/dev/null | grep -q "ImmersiveModeConfirmation"; then
-      read -r _sx _sy < <(sheet_tap_button)
-      adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
-      sleep 2
-    fi
+    # (measured, batch 26D note). Batch 27I: persistent rounds of
+    # scrim-below-card + "Got it" button taps (positions scaled to the
+    # real screen size), then a SystemUI force-stop as the last resort.
+    dismiss_immersive_sheet || true
   elif ! printf '%s\n' "$window" | grep -qE "mFocusedApp=.*$PKG"; then
     # Our own app is no longer front at all (launcher took over): relaunch
     # instead of pressing BACK at the launcher. Clear the log first so the
@@ -300,15 +324,7 @@ pre_swipe_focus_gate() {
   fi
   echo "  focus lost before the swipe; current focus:"
   printf '%s\n' "$window" | head -2 || true
-  read -r _sx _sy < <(sheet_tap_scrim)
-  adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
-  sleep 2
-  if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
-    read -r _sx _sy < <(sheet_tap_button)
-    adb shell input tap "$_sx" "$_sy" >/dev/null 2>&1 || true
-    sleep 2
-  fi
-  if ! adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+  if ! dismiss_immersive_sheet; then
     echo "INFRA_FAIL: $PKG lost input focus before the swipe and recovery failed on $BACKEND"
     adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
     adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
