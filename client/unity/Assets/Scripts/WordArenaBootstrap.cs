@@ -169,7 +169,8 @@ namespace Words.Client
 
         // Batch 27B: endpoint resolution with an explicit, documented
         // precedence so an automated run never has to type in the UI:
-        //   1. WORDARENA_SERVER_URL   (environment; desktop/editor)
+        //   1. WORDARENA_SERVER_URL   (environment; DESKTOP/EDITOR ONLY -
+        //      skipped in the Android player, see the guard below)
         //   2. <persistentDataPath>/server_url.txt (adb push + run-as on
         //      scoped-storage APIs; the file channel a debug-build device
         //      smoke can write without a root - the practical Android
@@ -177,21 +178,40 @@ namespace Words.Client
         //      environment variables from `am start`)
         //   3. PlayerPrefs "words.server_url" (what the UI field persists)
         //   4. the loopback default
-        // Unity 6 notes (measured on CI, run 34763722090): Unity's
-        // netstandard shim has no Application.arguments property, and
-        // Environment.GetEnvironmentVariable returns ReadOnlySpan<char>
-        // there - .ToString() is the one form that compiles against both
-        // the shim and the BCL.
+        // Unity 6 notes (measured on CI): Unity's netstandard reference
+        // assembly has no Application.arguments property (run
+        // 34763722090, CS0117), and it declares
+        // Environment.GetEnvironmentVariable as returning ReadOnlySpan<char>
+        // - which is why the .ToString() form compiled. At RUNTIME on the
+        // Android player the actual BCL method returns null when the
+        // variable is absent, and .ToString() on that null threw the
+        // NullReferenceException that killed the OnGUI loop in run
+        // 34766120301 ([WORDS_DIAG] stack: ResolveServerUrl line 188).
+        // Since Android app processes cannot receive custom environment
+        // variables from `am start` anyway, the env channel is compiled
+        // out of the player build entirely instead of being defensive
+        // around a call whose two worlds disagree.
         private static void ResolveServerUrl(out string url, out string source)
         {
             const string DefaultUrl = "http://127.0.0.1:18080";
-            var fromEnv = Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL").ToString();
+#if !UNITY_ANDROID
+            string fromEnv;
+            try
+            {
+                fromEnv = Environment.GetEnvironmentVariable("WORDARENA_SERVER_URL");
+            }
+            catch
+            {
+                fromEnv = string.Empty;
+            }
+
             if (!string.IsNullOrWhiteSpace(fromEnv))
             {
                 url = fromEnv.Trim();
                 source = "env";
                 return;
             }
+#endif
 
             try
             {
