@@ -1,0 +1,91 @@
+id: M1-batch27a-device-leg-coords
+title: Make the device-leg swipe use real screen coordinates and recover stolen focus
+owner: qa-infra
+priority: critical
+complexity: small
+status: validated_static_pending_ci
+risk: low
+escalation: none
+
+inputs:
+  - Unity Android scheduled runs 34709145871 and 34747246880 (both legs failed after the 26E/26F green run 34683472147)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (OnGUI area, BoardLocalPoint, LogBoardRectOnce)
+  - tools/android-smoke.sh
+
+dependencies:
+  - M1-batch26d-swipe-uses-real-board-rect
+  - M1-batch26e-kvm-acceleration
+
+outputs:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (AreaInset constant; WORDS_BOARD_RECT gains sx*/sy* screen-pixel fields)
+  - tools/android-smoke.sh (screen-rect parsing; legacy conversion carries the 40 px inset; focus recovery taps ImmersiveModeConfirmation and relaunches on launcher takeover)
+  - agent/tasks/M1-batch27a-device-leg-coords.yml
+
+acceptance:
+  - "WORDS_BOARD_RECT carries sx0/sy0/sx1/sy1 in the same screen space that `adb input` operates in, computed as (local + AreaInset) * scale."
+  - >-
+    The smoke script swipes from inside the board's real screen rect when the
+    screen fields are present, and the legacy path converts the local rect with
+    the area inset (screen = (local + 40) * scale) instead of dropping it.
+  - >-
+    A swipe MouseDown that lands left of the board can no longer be produced by
+    the rect math: for the measured rect (local x0=0, scale_permille=1000) the
+    swipe starts at x=52, inside cell 0's screen span 40..278.
+  - "The focus loop dismisses ImmersiveModeConfirmation by tap (BACK does not work on it) and relaunches the activity when the launcher has taken over."
+  - >-
+    A Unity Android run on the merged commit reports WORDS_SWIPE_SMOKE_OK; with
+    the deterministic demo board the expected marker is
+    "[WORDS_SWIPE] cells=4 word=TAAN" (row 0) or, on the fallback row, DSVT.
+
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - >-
+    Coordinate arithmetic checked against the measured run data: local rect
+    x0=0 y0=622 x1=964 y1=1108 cells=12 scale_permille=1000 yields screen rect
+    40..1004 x 662..1148 and swipe y=743 inside row 0 (screen 662..812).
+  - "python static sanity: braces balanced, sx*/sy* and AreaInset markers present, no forbidden UnityEngine.UI/EventSystems deps"
+  - "Pending: Unity Android workflow green with the device leg reporting WORDS_SWIPE_SMOKE_OK"
+
+file_ownership:
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - tools/android-smoke.sh
+  - agent/tasks/M1-batch27a-device-leg-coords.yml
+
+findings: >-
+  The green device leg of run 34683472147 (batch 26E) did not repeat: the next
+  two scheduled runs, 34709145871 (2026-09-12) and 34747246880 (2026-09-13),
+  failed on BOTH legs with the same signature - KVM on, fast boot, input focus
+  held by com.jotalbot.words, client ready (SetGameState isLoading=false),
+  screenshot captured, "FAIL: no WORDS_SWIPE marker in logcat after a real
+  swipe". This is a product-coordinate defect, not emulator instability.
+
+  Root cause, proven from the code and the run logs: WORDS_BOARD_RECT (batch
+  26D) is logged in the board area's local GUI space, where the board starts
+  at x0=0. The content area itself starts at (40,40) in screen space (OnGUI
+  BeginArea) and BoardLocalPoint inverts to local via screen/scale - 40. The
+  smoke script converted the local rect to screen pixels WITHOUT the 40 px
+  inset, so its swipe started at x=0*1+12=12 - left of the board's real screen
+  left edge x=40. The MouseDown hit no cell, HandleBoardGesture returned
+  before arming the drag, and no subsequent drag event was processed. Both
+  legs of both failed runs show exactly "swiping row 0 at screen y=703,
+  x=12..952" followed by the missing marker.
+
+  The green run only passed because it never saw WORDS_BOARD_RECT (logged a
+  few hundred ms after isLoading=false, before batch 26F's polling existed)
+  and used the hardcoded fallback x=100..950 y=880, whose start point
+  happened to fall inside cell 0 of row 1 - the same row whose letters D S V
+  T are exactly the word the marker reported.
+
+  Secondary: the focus loop pressed BACK when focus was lost, but BACK
+  demonstrably does not dismiss ImmersiveModeConfirmation (measured in the
+  batch 26D follow-up notes), and it never relaunches when the launcher has
+  taken the app over entirely. Both recovery paths are added as defence in
+  depth even though the 26E KVM fix already removed the pressure that
+  triggered them.
+
+notes: >-
+  The demo board is static (DemoLetters T A A N / D S V T / G C O D), so the
+  expected swipe outcome is deterministic: row 0 gives cells=4 word=TAAN,
+  the legacy fallback row gives DSVT. The smoke assertion stays
+  marker-presence (WORDS_SWIPE) to remain robust to future board changes; the
+  deterministic word is recorded here as the expected diagnostic value.
