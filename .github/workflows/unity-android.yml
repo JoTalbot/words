@@ -342,6 +342,8 @@ jobs:
           name: android-smoke-diagnostics
           path: |
             logcat.txt
+            logcat-diagonal.txt
+            logcat-swipe-fail.txt
             android-smoke.png
           if-no-files-found: ignore
           retention-days: 7
@@ -410,6 +412,8 @@ jobs:
           name: android-smoke-diagnostics-retry
           path: |
             logcat.txt
+            logcat-diagonal.txt
+            logcat-swipe-fail.txt
             android-smoke.png
           if-no-files-found: ignore
           retention-days: 7

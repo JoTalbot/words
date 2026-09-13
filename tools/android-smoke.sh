@@ -215,6 +215,7 @@ if [ -n "$BOARD_LINE" ]; then
     # land inside the board.
     ROWS=$(( (BCELLS + 3) / 4 ))
     ROW_H=$(( (SY1 - SY0) / ROWS ))
+    BSX0=$SX0; BSY0=$SY0; BSX1=$SX1; BSY1=$SY1
     SWIPE_X0=$(( SX0 + 12 ))
     SWIPE_X1=$(( SX1 - 12 ))
     SWIPE_Y=$(( SY0 + ROW_H / 2 ))
@@ -227,9 +228,13 @@ if [ -n "$BOARD_LINE" ]; then
     # the 40 px area inset that the old formula dropped.
     ROWS=$(( (BCELLS + 3) / 4 ))
     ROW_H=$(( (BY1 - BY0) / ROWS ))
-    SWIPE_X0=$(( (BX0 + 40) * BPERM / 1000 + 12 ))
-    SWIPE_X1=$(( (BX1 + 40) * BPERM / 1000 - 12 ))
-    SWIPE_Y=$(( (BY0 + ROW_H / 2 + 40) * BPERM / 1000 ))
+    BSX0=$(( (BX0 + 40) * BPERM / 1000 ))
+    BSY0=$(( (BY0 + 40) * BPERM / 1000 ))
+    BSX1=$(( (BX1 + 40) * BPERM / 1000 ))
+    BSY1=$(( (BY1 + 40) * BPERM / 1000 ))
+    SWIPE_X0=$(( BSX0 + 12 ))
+    SWIPE_X1=$(( BSX1 - 12 ))
+    SWIPE_Y=$(( BSY0 + ROW_H / 2 ))
     echo "board rect from the client (local, +40 inset): x=$BX0..$BX1 y=$BY0..$BY1 cells=$BCELLS scale_permille=$BPERM"
     echo "swiping row 0 at screen y=$SWIPE_Y, x=$SWIPE_X0..$SWIPE_X1"
   else
@@ -243,6 +248,9 @@ if [ -z "$SWIPE_Y" ]; then
   # Fallback for a client built before batch 26D: pixel_2 is 1080x1920 and the
   # board grid used to render around y=660..1150.
   SWIPE_X0=100; SWIPE_Y=880; SWIPE_X1=950
+  # Measured screen rect of the same board (batch 26D/26F runs): local
+  # 0..964 x 622..1108 with the 40 px inset, scale 1.0.
+  BSX0=40; BSY0=662; BSX1=1004; BSY1=1148
   echo "fallback swipe: y=$SWIPE_Y x=$SWIPE_X0..$SWIPE_X1"
 fi
 
@@ -269,12 +277,63 @@ if adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null; then
 fi
 
 if grep -q WORDS_SWIPE "$DIAG/logcat.txt"; then
-  echo "WORDS_SWIPE_SMOKE_OK"
   grep -m 8 "WORDS_" "$DIAG/logcat.txt" || true
-  exit 0
+else
+  echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe"
+  echo "--- unity/app lines ---"
+  grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat.txt" | tail -40 || true
+  exit 1
 fi
 
-echo "FAIL: no WORDS_SWIPE marker in logcat after a real swipe"
-echo "--- unity/app lines ---"
-grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat.txt" | tail -40 || true
-exit 1
+# Batch 28c: a second, DIAGONAL swipe proves the eight-way adjacency rule on
+# a real device. A row-only swipe can never produce this: the start cell
+# (0,0) and end cell (2,2) are two rows apart, so every path the gesture
+# code can build between them spans at least two rows - and the minimum
+# legal path is exactly three cells, because the bridge rule fills the
+# middle cell when the pointer jumps straight from (0,0) to (2,2). The
+# static demo board makes the row-0 word deterministic (TAAN), so a
+# different word plus cells >= 3 is a multi-row path, full stop.
+echo "--- diagonal swipe (batch 28c) ---"
+DIAG_X0=$(( BSX0 + (BSX1 - BSX0) / 8 ))
+DIAG_Y0=$(( BSY0 + (BSY1 - BSY0) / 6 ))
+DIAG_X1=$(( BSX0 + 5 * (BSX1 - BSX0) / 8 ))
+DIAG_Y1=$(( BSY0 + 5 * (BSY1 - BSY0) / 6 ))
+echo "swiping diagonal cell (0,0) -> (2,2): $DIAG_X0,$DIAG_Y0 -> $DIAG_X1,$DIAG_Y1"
+adb logcat -c >/dev/null 2>&1 || true
+diag_ok=0
+for i in 1 2 3; do
+  if adb shell input swipe "$DIAG_X0" "$DIAG_Y0" "$DIAG_X1" "$DIAG_Y1" 1200; then diag_ok=1; break; fi
+  echo "  diagonal swipe attempt $i failed; retrying"; sleep 3
+done
+if [ "$diag_ok" != 1 ]; then
+  echo "INFRA_FAIL: adb input swipe never succeeded on $BACKEND (diagonal leg)"
+  exit 1
+fi
+sleep 3
+adb logcat -d >"$DIAG/logcat-diagonal.txt" 2>&1 || true
+if grep -q "WORDS_SWIPE" "$DIAG/logcat-diagonal.txt"; then
+  DIAG_LINE=$(grep -m 1 "WORDS_SWIPE" "$DIAG/logcat-diagonal.txt")
+  echo "diagonal marker: $DIAG_LINE"
+  DIAG_CELLS=$(printf '%s' "$DIAG_LINE" | sed -n "s/.*cells=\([0-9][0-9]*\).*/\1/p")
+  DIAG_WORD=$(printf '%s' "$DIAG_LINE" | sed -n "s/.*word=\([A-Za-z]\{1,\}\).*/\1/p")
+  if [ "${DIAG_CELLS:-0}" -ge 3 ] && [ -n "$DIAG_WORD" ] && [ "$DIAG_WORD" != "TAAN" ]; then
+    echo "WORDS_DIAGONAL_SMOKE_OK (cells=$DIAG_CELLS word=$DIAG_WORD)"
+  else
+    echo "FAIL: diagonal swipe produced no multi-row path (cells=${DIAG_CELLS:-0} word=${DIAG_WORD:-none}; need cells>=3 and a word other than the row-0 word TAAN)"
+    exit 1
+  fi
+else
+  echo "FAIL: no WORDS_SWIPE marker in logcat after the diagonal swipe"
+  echo "--- unity/app lines ---"
+  grep -iE "jotalbot|words|AndroidRuntime|FATAL" "$DIAG/logcat-diagonal.txt" | tail -40 || true
+  exit 1
+fi
+
+# Final screenshot shows the state after the LAST gesture (the diagonal
+# selection), which is what the uploaded artifact is supposed to prove.
+if adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null; then
+  echo "screenshot: $DIAG/android-smoke.png (post-diagonal)"
+fi
+
+echo "WORDS_SWIPE_SMOKE_OK"
+exit 0

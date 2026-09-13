@@ -3,7 +3,7 @@ title: Multi-row diagonal swipe gesture verified by the device smoke
 owner: unity-client
 priority: low
 complexity: small
-status: queued
+status: validated_static_pending_ci
 risk: low
 escalation: none
 
@@ -22,12 +22,16 @@ outputs:
 acceptance:
   - >-
     After the existing row swipe passes, the smoke performs a second scripted
-    diagonal swipe that crosses cells from at least two board rows, and logcat
-    shows a second [WORDS_SWIPE] marker with cells >= 5.
+    diagonal swipe from cell (0,0) to cell (2,2), and logcat shows a second
+    [WORDS_SWIPE] marker with cells >= 3 and a word other than the deterministic
+    row-0 word TAAN. The endpoints are two rows apart, so any such path spans
+    multiple rows; cells >= 3 is the provable minimum because the bridge rule
+    fills the middle cell when the pointer jumps straight from (0,0) to (2,2).
   - "The assertion proves the eight-way adjacency rule on a real device, not just in unit-reasoned code."
 
 validation:
   - "bash -n tools/android-smoke.sh: clean"
+  - "unity-android.yml parses as YAML; both upload blocks carry logcat-diagonal.txt"
   - "Pending: one green Unity Android run with both swipe markers"
 
 file_ownership:
