@@ -76,6 +76,45 @@ docs/SECURITY-EXPOSURE.md (required by the "Rules for future changes":
 security changes document abuse cases, infrastructure changes carry
 capacity and rollback notes).
 
+### Q9 — Royale elimination rule
+**Status: OPEN — blocks M2 Royale gameplay. Engineering is ready and waiting.**
+As of 2026-09-14 the whole server stack (simulation, room, matchmaker,
+transport) is seat-count agnostic and verified at up to 60 seats, but
+`PlayerView.IsEliminated` is always false because nobody has decided what
+elimination means. The plausible shapes, with their consequences:
+1. **No elimination, pure scoring.** Simplest, already works today; every
+   player plays the full three waves and rank is by score. Risk: a player who
+   falls behind early has no reason to stay for 100 seconds.
+2. **Per-wave last-place cull.** Classic battle-royale tension; needs a rule
+   for ties at the cut line and a spectator mode for the culled, otherwise
+   most of the lobby is staring at a dead screen for two thirds of the match.
+3. **Score floor per wave.** Players below a threshold drop out; keeps
+   agency (you know the number you must hit) but the threshold has to be
+   tuned per language, because the dictionary changes how scoreable a board is.
+Whichever is chosen must stay deterministic and replayable: elimination has to
+be a function of logged state at a tick, since replay equality is an existing
+invariant (`Match.Fingerprint`, roster replay tests).
+
+### Q10 — Board sizing for a large roster
+**Status: OPEN — blocks M2 Royale gameplay.**
+`CellsPerWave` is 12 (a 4-column grid), sized for two players. Sixty players
+contesting twelve cells is not a game. The decision is what the board becomes
+as the roster grows: a fixed larger board, a board that scales with the
+roster, or per-player/regional sub-boards. Constraints from the code and from
+measurement (docs/LOAD-BASELINE.md, M2 batch 30F):
+- Wave generation must stay deterministic per `(seed, language, wave)` and
+  must NOT depend on the roster - a test now pins that boards are identical
+  at 2..60 seats, because a client renders the board before the lobby fills.
+- Tick cost does not scale with the roster (tens of ns, board-dominated), so
+  a larger board is affordable; snapshot cost does scale, ~3x from 2 to 60
+  seats, and per-subscriber fan-out is the real constraint: 60 subscribers
+  each receiving a 60-player snapshot is ~30x the bytes of a 1v1. A bigger
+  board multiplies that again, which is an argument for delta or
+  interest-scoped snapshots as part of whatever sizing is chosen.
+- `MaxPathCells` is 12 and adjacency is 8-way; both are board-shape
+  assumptions that a resize has to revisit.
+
+
 ## Rules for future changes
 
 - Gameplay changes require an explicit design note and deterministic test update.
