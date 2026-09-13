@@ -1,7 +1,59 @@
 project: words
 milestone: M1
-status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34769405396_RED_both_legs_swipes_dead_despite_all_gates_green; batch_27g_input_probe_paid_off_probe_found_double_inset_subtraction; batch_27h_board_local_identity_merged; run_34771146946_RED_on_flaky_sheet_gate_not_swipes; batch_27i_sheet_persist_merged; DEVICE_LEG_CLOSED_run_34772130697_GREEN + scheduled_run_34773815149_GREEN (main 7076468, two consecutive green device runs); Q8_DECIDED_OPEN_by_owner_2026_09_13; batch_29a_DEPLOYED_Q8_stage1_tunnel_live_ireland-placement-dot-inner_trycloudflare_com (verified from outside network 2026-09-13); 28b_IN_PROGRESS_full_match_loop
+status: m1_vertical_slice_advancing; batch_27_complete_27A_27B_27C_merged; device_leg_regression_ROOT_CAUSE_FOUND_coordinate_defect_40px_inset; batch_28a_28c_merged; unity6_compile_fix_merged; device_leg_NEW_NRE_signature_34764775012; batch_27d_instrumentation_merged_and_paid_off; AWAKE_NRE_ROOT_CAUSED_env_channel_null_at_runtime; batch_27e_env_desktop_only_merged; run_07aa6e6_RED_client_healthy_but_unity_input_gate_stuck_unfocused_after_first_boot_focus_flap; batch_27f_focus_cycle_merged; run_34769405396_RED_both_legs_swipes_dead_despite_all_gates_green; batch_27g_input_probe_paid_off_probe_found_double_inset_subtraction; batch_27h_board_local_identity_merged; run_34771146946_RED_on_flaky_sheet_gate_not_swipes; batch_27i_sheet_persist_merged; DEVICE_LEG_CLOSED_run_34772130697_GREEN + scheduled_run_34773815149_GREEN (main 7076468, two consecutive green device runs); Q8_DECIDED_OPEN_by_owner_2026_09_13; batch_29a_DEPLOYED_Q8_stage1_tunnel_live_ireland-placement-dot-inner_trycloudflare_com (verified from outside network 2026-09-13); 28b_IMPLEMENTED_AND_MERGED_4239614; partner_mode_VERIFIED_LIVE_via_tunnel; device_run_34780793795_RED_two_plumbing_defects_root_caused; batch_28d_merged_56d32cc; device_run_in_flight_on_28d
 completed_tasks:
+  - >-
+    Batch 28D (repair of the 28b device leg, PR #32, merged 56d32cc):
+    device run 34780793795 exercised the new full-match leg end to end and
+    produced two exact plumbing defects, neither in product code.
+    (1) The client logged [WORDS_SERVER] url=http://127.0.0.1:18080
+    source=default and [WORDS_AUTOPLAY] enabled=False although both control
+    files were written successfully: the smoke wrote /data/data/<pkg>/files
+    through run-as while THIS build's Application.persistentDataPath is the
+    EXTERNAL /sdcard/Android/data/<pkg>/files, so the leg talked to an
+    unreachable loopback server for its whole 9-minute budget. Fixed on both
+    sides - the client reads every automation directory in priority order
+    (persistentDataPath, external app dir, internal app dir,
+    /data/local/tmp) and now reports the file it used
+    (source=file:<path>), and the smoke writes both the internal (run-as)
+    and external (adb push) locations, failing only when neither is
+    writable. (2) PARTNER-GATE: FAIL: queue poll ...: HTTP 410 - the queue
+    entry TTL expired while the emulator booted, and 410 means the entry is
+    gone, so the partner exited and the client had no opponent. A 410 on
+    poll now re-enqueues, like the "expired" status already did.
+  - >-
+    Batch 28B (full-match device loop, PR #31, merged 4239614) - the last
+    unmeasured half of the M1 shared-board UX row. Three parts:
+    (a) server/cmd/headless-bot -partner (partner.go): be the OPPONENT of an
+    external client instead of driving both seats - one anonymous enqueue,
+    wait for the device client to pair, then play reactively (shortest legal
+    word over the currently free cells) with a per-wave grace delay and a
+    minimum interval so the client can claim cells of its own; bounded by
+    -partner-wait/-partner-budget so a stuck match fails with a log instead
+    of hanging a runner. VERIFIED LIVE 2026-09-13 from the Arena sandbox
+    against the Q8 stage-1 tunnel: two partners paired through the queue,
+    played a full match to its terminal state (42:24, 6 and 7 words) and
+    both printed PARTNER-GATE: PASS.
+    (b) Client automation mode, opt-in through the same 27B file channel
+    (autoplay.txt): one automatic enqueue, then adjacency-legal 3-4 cell
+    paths over free or stealable-unlocked cells, remembering every word the
+    server rejected so a rejection is never repeated (rejections are useful
+    here - they drive the 28a rollback flash and emit [WORDS_ROLLBACK] on a
+    real device). No dictionary ships with the client: validity stays a
+    server decision.
+    (c) [WORDS_MATCH_COMPLETE] final=... source=result-endpoint, logged once
+    and ONLY after the REST result endpoint confirms over=true, plus the
+    bounded android-smoke leg (partner bot on the runner, endpoint+autoplay
+    pushed, hard 9-minute budget -> PRODUCT_FAIL with artifacts) and the
+    workflow wiring (dispatch input server_url, repository variable
+    WORDS_SERVER_URL for scheduled runs; the leg skips explicitly when no
+    server is reachable instead of weakening the smoke).
+  - >-
+    Hygiene repair on main (1dfe1b7): Container smoke had been RED on every
+    commit since the 29A tunnel work (3950ba3, be8ad78, 88e9079, 2644d22) -
+    tools/check-repo-hygiene.py rejected infra/expose-quick.sh for carrying a
+    shebang without the executable bit. Marked executable; the gate is green
+    again and CI+Container smoke are green on the 28B and 28D merges.
   - >-
     Batch 29A (Q8 decision + exposure tooling): the owner decided Q8
     OPEN (2026-09-13). Stage 1 is a Cloudflare quick tunnel on the OCI
@@ -1376,7 +1428,7 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: "7968137"
+last_commit: "56d32cc"
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
 resume_from: "Main is the 29A merge (Q8 decision + exposure tooling). Q8 IS DECIDED: OPEN (owner, 2026-09-13). Stage 1 tooling is complete in the repo: infra/expose-quick.sh (one-command deploy on the OCI host: origin health gate -> cloudflared install -> systemd tunnel -> URL extraction -> public healthz/readyz verification -> prints URL + stop command), infra/words-tunnel.service (outbound-only, NoNewPrivileges), docs/SECURITY-EXPOSURE.md (abuse cases: match-creation spam, browser WS hijack via OriginPolicy, DoS, token theft; capacity baseline; rollback = expose-quick.sh --stop), Q8 recorded in docs/PRODUCT-DECISIONS.md. TOP HUMAN ITEM: the OCI SSH private key was lost in the 18:24Z sandbox re-provision and is unrecoverable from the workspace - reissue it, then run: bash infra/expose-quick.sh on the host -> public https://<tunnel> URL -> record it in state. STAGE 2 (stable name) waits on the owner providing a domain. AFTER THE URL EXISTS: 28b is unblocked and fully designed (see its task file: headless-bot -partner opponent, client auto-wave loop + [WORDS_MATCH_COMPLETE] source=result-endpoint marker, smoke leg via the 27B endpoint channel, hard tick budget) - implement, merge, dispatch a Unity Android run pointed at the tunnel URL; green = M1 'production-shaped match service' + 'shared board UX' rows close. The client needs NO origin allowlisting (native client sends no Origin; OriginPolicy admits it by default). The user can also play from their phone with the APK + the tunnel URL in the Server field. B2 (uk dictionary licence) stays open. Housekeeping: git identity Word Arena Agent agent@jotalbot.local (reconfigure after sandbox re-provisions, which also wipe .git/.github - restore with git init + fetch + reset --hard origin/main, then branch -m main); dispatch needs ref=main AND explicit inputs (run_smoke_tests); artifacts via archive_download_url; git commit -F for messages with backticks; --data @file for JSON with apostrophes. Sandbox: Go 1.27.1 at /home/user/go; no docker/adb/browser/C# compiler; python static sanity + bash -n are the local gates."
 
