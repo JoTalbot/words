@@ -635,23 +635,61 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 // It is shared by the direct-create endpoint and the matchmaker. playerIDs,
 // when non-nil, bind the seats to registered profiles. suddenDeath enables
 // the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
+// Batch 30C: createRoom is the 1v1 spelling of createRoomN, kept so every
+// existing caller and test is unchanged. All the logic lives in the
+// roster-shaped function below; there is no second provisioning path.
 func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, suddenDeath bool) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
+	var pids []uint64
+	if playerIDs != nil {
+		pids = []uint64{playerIDs[0], playerIDs[1]}
+	}
+	info, err := a.createRoomN(lang, seed, pids, 2, suddenDeath)
+	if err != nil {
+		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+	}
+	return info.ID, info.Seed,
+		[2]string{info.Tokens[0], info.Tokens[1]},
+		[2]uint64{info.UserIDs[0], info.UserIDs[1]},
+		info.Access, nil
+}
+
+// roomInfo is the join info of a freshly provisioned room, for any roster
+// size. Tokens and UserIDs are indexed by seat.
+type roomInfo struct {
+	ID      uint64
+	Seed    uint64
+	Tokens  []string
+	UserIDs []uint64
+	Access  matchAccess
+}
+
+// createRoomN provisions a room with `seats` seats. playerIDs, when
+// non-empty, binds seats to registered profiles positionally (a zero entry
+// leaves that seat synthetic). seats must be within the simulation's bounds;
+// anything else is rejected before allocating.
+func (a *API) createRoomN(lang string, seed *uint64, playerIDs []uint64, seats int, suddenDeath bool) (roomInfo, error) {
+	if seats < match.MinSeats || seats > match.MaxSeats {
+		return roomInfo{}, fmt.Errorf("seats %d out of range [%d,%d]", seats, match.MinSeats, match.MaxSeats)
+	}
+	if len(playerIDs) > seats {
+		return roomInfo{}, fmt.Errorf("player_ids has %d entries for %d seats", len(playerIDs), seats)
+	}
 	var s uint64
 	if seed != nil {
 		s = *seed
 	} else {
 		var err error
 		if s, err = randomSeed(); err != nil {
-			return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+			return roomInfo{}, err
 		}
 	}
-	tok0, err := randomHex(16)
-	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
-	}
-	tok1, err := randomHex(16)
-	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+	tokens := make([]string, seats)
+	for i := range tokens {
+		tok, err := randomHex(16)
+		if err != nil {
+			return roomInfo{}, err
+		}
+		tokens[i] = tok
 	}
 	// The match code and the read capability are 128 bits of crypto/rand each.
 	// They are issued here rather than at result time so a client can be given
@@ -659,11 +697,11 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 	// even for a match that never completes.
 	code, err := randomHex(16)
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+		return roomInfo{}, err
 	}
 	readCap, err := randomHex(16)
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+		return roomInfo{}, err
 	}
 	access := matchAccess{Code: code, ReadCap: readCap}
 
@@ -672,37 +710,40 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 	a.matchCaps[id] = access
 	a.resultCodes[code] = id
 	a.resultsMu.Unlock()
-	userIDs := [2]uint64{id*2 + 1, id*2 + 2} // deterministic synthetic ids
-	if playerIDs != nil {
-		// Bind seats that supplied a profile; seats without one (zero)
-		// keep their synthetic id so user ids stay non-zero on the wire.
-		for i := range userIDs {
-			if playerIDs[i] != 0 {
-				userIDs[i] = playerIDs[i]
-			}
+	// Deterministic synthetic ids. The 1v1 formula (id*2+1, id*2+2) is
+	// preserved exactly for two seats so existing fixtures and the live
+	// deployment keep the same user ids; a larger roster extends it.
+	userIDs := make([]uint64, seats)
+	for i := range userIDs {
+		userIDs[i] = id*uint64(seats) + uint64(i) + 1
+	}
+	// Bind seats that supplied a profile; seats without one (zero) keep
+	// their synthetic id so user ids stay non-zero on the wire.
+	for i := 0; i < len(playerIDs) && i < seats; i++ {
+		if playerIDs[i] != 0 {
+			userIDs[i] = playerIDs[i]
 		}
 	}
 	room, err := matchroom.New(matchroom.Config{
 		MatchID:     id,
 		Seed:        s,
 		Language:    lang,
-		UserIDs:     userIDs,
-		Token0:      tok0,
-		Token1:      tok1,
+		SeatUserIDs: userIDs,
+		SeatTokens:  tokens,
 		SuddenDeath: suddenDeath,
 		TokenTTL:    a.tokenTTL,
 	})
 	if err != nil {
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, err
+		return roomInfo{}, err
 	}
 	a.mu.Lock()
 	if a.maxRooms > 0 && len(a.rooms) >= a.maxRooms {
 		a.mu.Unlock()
-		return 0, 0, [2]string{}, [2]uint64{}, matchAccess{}, errRoomCapacity
+		return roomInfo{}, errRoomCapacity
 	}
 	a.rooms[id] = room
 	a.mu.Unlock()
-	if playerIDs != nil {
+	if len(playerIDs) > 0 {
 		a.profiledMu.Lock()
 		a.profiled[id] = true
 		a.profiledMu.Unlock()
@@ -716,7 +757,7 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		SuddenDeath: suddenDeath,
 	})
 	go a.runRoomTicker(id, room)
-	return id, s, [2]string{tok0, tok1}, userIDs, access, nil
+	return roomInfo{ID: id, Seed: s, Tokens: tokens, UserIDs: userIDs, Access: access}, nil
 }
 
 // runRoomTicker advances a room at 30 Hz until shortly after match end.
@@ -1054,8 +1095,8 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids *[2]uint64) (uint64, uint64, [2]string, [2]uint64, matchAccess, error) {
-		return a.createRoom(l, nil, pids, false)
+	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids []uint64) (roomInfo, error) {
+		return a.createRoomN(l, nil, pids, len(pids), false)
 	})
 	writeJSON(w, http.StatusAccepted, e)
 }
