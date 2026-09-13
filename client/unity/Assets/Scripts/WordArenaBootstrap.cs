@@ -172,6 +172,12 @@ namespace Words.Client
             ResolveServerUrl(out serverUrl, out serverUrlSource);
             lastPersistedServerUrl = serverUrl;
             Debug.Log("[WORDS_SERVER] url=" + serverUrl + " source=" + serverUrlSource);
+            // Batch 28b: automation mode is opt-in through the same file
+            // channel the endpoint uses (adb push autoplay.txt), or the
+            // PlayerPrefs mirror. A normal player build never sets it, so a
+            // human session is unaffected.
+            autoPlay = ResolveAutoPlay();
+            Debug.Log("[WORDS_AUTOPLAY] enabled=" + autoPlay);
             network = new WordArenaNetworkClient();
             network.StatusChanged += message => EnqueueOnMainThread(() => SetStatus(message));
             network.SnapshotReceived += snapshot => EnqueueOnMainThread(() => ApplyServerSnapshot(snapshot));
@@ -266,6 +272,34 @@ namespace Words.Client
             source = "default";
         }
 
+        // Batch 28b: automation switch, resolved exactly like the endpoint
+        // (file channel first, then PlayerPrefs). "1"/"true"/"yes" enable it.
+        private static bool ResolveAutoPlay()
+        {
+            var value = string.Empty;
+            try
+            {
+                var filePath = System.IO.Path.Combine(Application.persistentDataPath, "autoplay.txt");
+                if (System.IO.File.Exists(filePath))
+                {
+                    value = System.IO.File.ReadAllText(filePath).Trim();
+                }
+            }
+            catch
+            {
+                value = string.Empty;
+            }
+
+            if (value.Length == 0)
+            {
+                value = PlayerPrefs.GetString("words.autoplay", string.Empty).Trim();
+            }
+
+            return value == "1"
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void OnDestroy()
         {
             if (network != null)
@@ -281,6 +315,163 @@ namespace Words.Client
             TickVisibleLocks();
             TickPendingIntents();
             TickQueuePolling();
+            TickAutoPlay();
+        }
+
+        // ---- Batch 28b: bounded unattended full-match loop ----
+        //
+        // The device smoke's exit criterion is a whole match played from the
+        // queue to the authoritative MATCH OVER, not a single gesture. A
+        // synthetic adb swipe can prove the gesture path (batch 17E/27H) but
+        // cannot play a real match: each wave needs a legal word over the
+        // cells that are still free at that moment, and those change as the
+        // opponent claims them.
+        //
+        // So the client itself can drive a match when explicitly switched into
+        // automation mode (never in a normal player session - the mode is off
+        // unless the file/prefs channel turns it on). The loop is deliberately
+        // simple and fully server-validated: it enumerates adjacency-legal
+        // paths over the currently free cells, submits one candidate at a
+        // time, and remembers the words the server rejected so it never
+        // repeats a rejection. The client ships no dictionary, so validity is
+        // decided by exactly one authority - the server - which is also why a
+        // rejected candidate is a feature here: it exercises the batch 28a
+        // rollback flash and emits [WORDS_ROLLBACK] on a real device.
+        private bool autoPlay;
+        private float nextAutoSubmitAt;
+        private int autoSubmitCount;
+        private const int AutoSubmitCap = 400;
+        private const float AutoSubmitInterval = 0.45f;
+        private readonly HashSet<string> autoRejectedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool autoQueueRequested;
+        private bool matchCompleteLogged;
+
+        private void TickAutoPlay()
+        {
+            if (!autoPlay || matchOver)
+            {
+                return;
+            }
+
+            // One automatic enqueue: the smoke does not have to find and tap
+            // the queue button on an arbitrary screen size.
+            if (!serverMode && !queueInProgress && !queuePolling && !autoQueueRequested && network != null)
+            {
+                autoQueueRequested = true;
+                Debug.Log("[WORDS_AUTOPLAY] enqueue url=" + serverUrl);
+                OnFindMatchQueue();
+                return;
+            }
+
+            if (!serverMode || liveMatchId == 0 || network == null || !network.IsConnected)
+            {
+                return;
+            }
+
+            if (Time.time < nextAutoSubmitAt)
+            {
+                return;
+            }
+
+            if (autoSubmitCount >= AutoSubmitCap)
+            {
+                return;
+            }
+
+            int[] candidate;
+            string word;
+            if (!TryBuildAutoCandidate(out candidate, out word))
+            {
+                // Nothing legal to try right now (board fully owned or every
+                // path already rejected); wait for the next snapshot.
+                nextAutoSubmitAt = Time.time + AutoSubmitInterval;
+                return;
+            }
+
+            nextAutoSubmitAt = Time.time + AutoSubmitInterval;
+            autoSubmitCount++;
+            selected.Clear();
+            selected.AddRange(candidate);
+            Debug.Log("[WORDS_AUTOPLAY] submit n=" + autoSubmitCount + " word=" + word + " cells=" + candidate.Length);
+            SubmitSelectedToServer();
+        }
+
+        // TryBuildAutoCandidate walks free cells and returns the first
+        // adjacency-legal path of three or four cells whose letters have not
+        // already been rejected by the server in this match.
+        private bool TryBuildAutoCandidate(out int[] path, out string word)
+        {
+            path = null;
+            word = string.Empty;
+            for (var a = 0; a < cells.Count; a++)
+            {
+                if (!AutoCellUsable(a))
+                {
+                    continue;
+                }
+
+                for (var b = 0; b < cells.Count; b++)
+                {
+                    if (b == a || !AutoCellUsable(b) || !CellsAdjacent(a, b))
+                    {
+                        continue;
+                    }
+
+                    for (var c = 0; c < cells.Count; c++)
+                    {
+                        if (c == a || c == b || !AutoCellUsable(c) || !CellsAdjacent(b, c))
+                        {
+                            continue;
+                        }
+
+                        var three = new[] { cells[a].CellId, cells[b].CellId, cells[c].CellId };
+                        var threeWord = WordForCells(three);
+                        if (!autoRejectedWords.Contains(threeWord))
+                        {
+                            path = three;
+                            word = threeWord;
+                            return true;
+                        }
+
+                        for (var d = 0; d < cells.Count; d++)
+                        {
+                            if (d == a || d == b || d == c || !AutoCellUsable(d) || !CellsAdjacent(c, d))
+                            {
+                                continue;
+                            }
+
+                            var four = new[] { cells[a].CellId, cells[b].CellId, cells[c].CellId, cells[d].CellId };
+                            var fourWord = WordForCells(four);
+                            if (!autoRejectedWords.Contains(fourWord))
+                            {
+                                path = four;
+                                word = fourWord;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        // A cell is usable by the auto loop when it is free, or owned by the
+        // opponent and no longer locked (a legal cross-steal).
+        private bool AutoCellUsable(int index)
+        {
+            if (index < 0 || index >= cells.Count)
+            {
+                return false;
+            }
+
+            var cell = cells[index];
+            if (cell.OwnerSeat < 0)
+            {
+                return true;
+            }
+
+            return cell.OwnerSeat != activeSeat && !cell.Locked;
         }
 
         // Batch 17A: poll the matchmaking entry while searching for an
@@ -1349,6 +1540,23 @@ namespace Words.Client
                 lastResult = result;
                 matchOver = matchOver || result.Over;
                 resultOverlayDismissed = false;
+                // Batch 28b: the exit criterion of the shared-board UX row.
+                // The marker is emitted ONLY from the authoritative REST
+                // record (source=result-endpoint), never from local score
+                // bookkeeping, so a green device leg proves the match really
+                // reached its terminal state on the server. Logged once.
+                if (result.Over && !matchCompleteLogged)
+                {
+                    matchCompleteLogged = true;
+                    var finalText = result.Scores != null && result.Scores.Length >= 2
+                        ? result.Scores[0] + ":" + result.Scores[1]
+                        : "?:?";
+                    Debug.Log("[WORDS_MATCH_COMPLETE] final=" + finalText
+                        + " match=" + result.MatchId
+                        + " winner=" + (result.IsTie ? "tie" : "seat" + result.WinnerSeat)
+                        + " version=" + result.StateVersion
+                        + " source=result-endpoint");
+                }
             }
 
             SetStatus(resultSummary);
@@ -1569,6 +1777,13 @@ namespace Words.Client
                 rollbackFlashStart = Time.time;
                 Debug.Log("[WORDS_ROLLBACK] word=" + pending.Word + " cells=" + pending.CellIds.Length
                     + " seq=" + pending.Sequence + " result=" + ResultText(wordEvent.Result));
+                // Batch 28b: never retry a path the server already refused -
+                // otherwise the auto loop can spin on the same rejection for a
+                // whole wave.
+                if (!string.IsNullOrEmpty(pending.Word))
+                {
+                    autoRejectedWords.Add(pending.Word);
+                }
             }
         }
 
