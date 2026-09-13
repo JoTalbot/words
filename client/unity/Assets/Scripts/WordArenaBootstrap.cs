@@ -30,6 +30,15 @@ namespace Words.Client
         private readonly Queue<Action> mainThreadActions = new Queue<Action>();
         private readonly object mainThreadActionsLock = new object();
         private readonly List<PendingIntentViewModel> pendingIntents = new List<PendingIntentViewModel>();
+        // Batch 28a: presentation-only rollback flash. When the server
+        // rejects a pending intent, its cells fade from bright red back into
+        // the authoritative color over RollbackFlashSeconds so a rejected
+        // prediction is visible motion, not a static recolor. No gameplay
+        // state lives here - ownership always comes from the canonical
+        // snapshot.
+        private const float RollbackFlashSeconds = 1.5f;
+        private readonly List<int> rollbackFlashCells = new List<int>();
+        private float rollbackFlashStart = -999f;
 
         // Batch 16 gesture path: drag/swipe multi-cell selection state.
         private readonly List<Rect> boardCellRects = new List<Rect>();
@@ -1137,6 +1146,7 @@ namespace Words.Client
             profileStatsRequested = false;
             selected.Clear();
             pendingIntents.Clear();
+            ClearRollbackFlash();
             resultSummary = "Result: pending for match " + liveMatchId;
 
             network.Connect(serverUrl, liveMatchId, queueToken);
@@ -1448,9 +1458,21 @@ namespace Words.Client
             pending.Rejected = !wordEvent.Accepted;
             pending.ResolvedAt = Time.time;
             pending.StateVersion = wordEvent.StateVersion;
-            predictionSummary = wordEvent.Accepted
-                ? "Prediction reconciled: seq=" + pending.Sequence + " accepted by server"
-                : "Prediction rolled back: seq=" + pending.Sequence + " " + ResultText(wordEvent.Result);
+            if (wordEvent.Accepted)
+            {
+                predictionSummary = "Prediction reconciled: seq=" + pending.Sequence + " accepted by server";
+            }
+            else
+            {
+                predictionSummary = "Prediction rolled back: seq=" + pending.Sequence + " " + ResultText(wordEvent.Result);
+                // Batch 28a: flash the rejected path red (bounded, fading)
+                // and log a device-verifiable marker. Accepts never flash.
+                rollbackFlashCells.Clear();
+                rollbackFlashCells.AddRange(pending.CellIds);
+                rollbackFlashStart = Time.time;
+                Debug.Log("[WORDS_ROLLBACK] word=" + pending.Word + " cells=" + pending.CellIds.Length
+                    + " seq=" + pending.Sequence + " result=" + ResultText(wordEvent.Result));
+            }
         }
 
         private void ReconcilePendingWithSnapshot(uint snapshotVersion)
@@ -1629,6 +1651,33 @@ namespace Words.Client
 
         private Color32 CellColor(CellViewModel cell)
         {
+            var baseColor = CellBaseColor(cell);
+            // Batch 28a: a rejected pending intent flashes its cells bright
+            // red and fades back into the authoritative color. Bounded to
+            // RollbackFlashSeconds, presentational only - when it ends the
+            // cell renders exactly the canonical ownership/lock state.
+            var elapsed = Time.time - rollbackFlashStart;
+            if (elapsed >= 0f && elapsed < RollbackFlashSeconds && rollbackFlashCells.Contains(cell.CellId))
+            {
+                var t = elapsed / RollbackFlashSeconds;
+                return new Color32(
+                    Mathf.RoundToInt(255f + (baseColor.r - 255f) * t),
+                    Mathf.RoundToInt(64f + (baseColor.g - 64f) * t),
+                    Mathf.RoundToInt(64f + (baseColor.b - 64f) * t),
+                    255);
+            }
+
+            return baseColor;
+        }
+
+        private void ClearRollbackFlash()
+        {
+            rollbackFlashCells.Clear();
+            rollbackFlashStart = -999f;
+        }
+
+        private Color32 CellBaseColor(CellViewModel cell)
+        {
             if (selected.Contains(cell.CellId))
             {
                 return new Color32(248, 210, 88, 255);
@@ -1783,6 +1832,7 @@ namespace Words.Client
             activeSeat = 0;
             selected.Clear();
             pendingIntents.Clear();
+            ClearRollbackFlash();
             dragPath.Clear();
             dragActive = false;
             boardRectsValid = false;

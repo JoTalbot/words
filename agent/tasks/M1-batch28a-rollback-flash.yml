@@ -3,7 +3,7 @@ title: Richer rollback animation - flash rejected pending intents red with a dev
 owner: unity-client
 priority: normal
 complexity: small
-status: queued
+status: validated_static_pending_ci
 risk: low
 escalation: none
 
