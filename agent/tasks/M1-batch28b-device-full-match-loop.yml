@@ -3,7 +3,7 @@ title: Unattended full-match device loop from queue to authoritative MATCH OVER
 owner: qa-infra
 priority: normal
 complexity: medium
-status: implemented_merged_pending_device_run
+status: verified_on_device
 risk: medium
 escalation: none
 
@@ -74,3 +74,10 @@ notes: >-
   overlay and turns a stuck match into PRODUCT_FAIL via a hard tick
   budget instead of hanging the runner. Everything else already exists
   (queue flow, send path, overlay, endpoint channel, smoke scaffolding).
+
+device_verification: >-
+  Unity Android run 34782169182 (main 726f759, hosted API 35 emulator against
+  the Q8 stage-1 tunnel): [PARTNER] MATCH OVER match_id=9290 scores=33:16 with
+  PARTNER-GATE: PASS, 107 client auto-submitted paths, and
+  [WORDS_MATCH_COMPLETE] final=33:16 match=9290 winner=seat0 version=16
+  source=result-endpoint followed by WORDS_FULL_MATCH_SMOKE_OK.

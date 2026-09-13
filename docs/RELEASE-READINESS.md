@@ -1,9 +1,38 @@
 # Release Readiness — Word Arena
 
-## M1 Vertical Slice Readiness (assessment in progress, 2026-09-10)
+## M1 Vertical Slice — FEATURE-COMPLETE BY EXIT CRITERIA (2026-09-13)
 
-M1 scope per docs/ROADMAP.md; evidence trail in agent/state/current.yml and
-the batch task files under agent/tasks/.
+All eight M1 rows in docs/ROADMAP.md are `[x]`. The last one, shared board
+UX, closed on Unity Android run **34782169182** (main `726f759`, hosted API 35
+emulator pointed at the Q8 stage-1 tunnel): an unattended full match from the
+matchmaking queue to the authoritative terminal state, asserted by
+`[WORDS_MATCH_COMPLETE] final=33:16 match=9290 winner=seat0 version=16
+source=result-endpoint` and `WORDS_FULL_MATCH_SMOKE_OK`, with
+`PARTNER-GATE: PASS` from the `headless-bot -partner` opponent on the same
+match and repeated `[WORDS_ROLLBACK]` markers proving the batch 28a rejection
+flash on a real device.
+
+Same-day corroborating evidence:
+
+- live systemd service on OCI: `infra/smoke.sh` **27 passed / 0 failed** with
+  `SMOKE_EXPECT_STORAGE=postgres`;
+- server suite green locally: `go vet ./...` + `go test -count=1 ./...`,
+  12/12 packages;
+- GitHub CI and Container smoke green on `main` (the repository-hygiene gate
+  that had been red on every commit since the 29A tunnel work was repaired in
+  `1dfe1b7`);
+- device gesture legs still green: row swipe and the 28c diagonal.
+
+Remaining items are **not** M1 feature work:
+
+1. **Q8 stage 2** — stable domain, per-IP limits, `/metrics` deny, public
+   token decision. Waits on an owner-provided domain. The stage-1 quick
+   tunnel URL is ephemeral; the repository variable `WORDS_SERVER_URL` must be
+   refreshed after any tunnel restart or the scheduled device run skips the
+   full-match leg (explicitly, with a notice — it never weakens the smoke).
+2. **B2 uk dictionary licence** — distribution blocker, owner item.
+
+### Row-by-row evidence
 
 | M1 item | Status | Evidence |
 |---|---|---|
@@ -11,13 +40,13 @@ the batch task files under agent/tasks/.
 | Basic matchmaking | verified | server FIFO pairing (batch 3/7), live two-client pairing check, Unity queue flow (batch 17A CI+Unity green) |
 | Player profile + durable storage | verified live | batches 5/8; Postgres durability across restart on OCI; Unity profile-aware queueing + stats refresh (batch 17B CI+Unity green) |
 | Telemetry baseline | verified live | batch 10; JSON /metrics + Prometheus + JSONL on OCI |
-| Shared board UX | verified (CI + hosted emulator) | batches 11–17F: runtime board, server protocol binding, lifecycle controls, prediction shell, swipe gestures with eight-way adjacency + device swipe smoke (pending emulator stability), result overlay, Sudden Death polish, color legend |
+| Shared board UX | **verified on device (full match)** | batches 11–17F: runtime board, server protocol binding, lifecycle controls, prediction shell, swipe gestures with eight-way adjacency + device swipe smoke (pending emulator stability), result overlay, Sudden Death polish, color legend |
 | Claim / Lock / Cross-Steal | server verified; client presentation verified | M0 simulation + Unity intent flow + reconciliation |
 | Combo and Sudden Death | verified | server golden + opt-in tiebreak (docs/M1-SUDDEN-DEATH.md) + result presentation (batch 17C) |
 | Protocol robustness | verified | fuzz targets (batch 16D, ~800k execs 0 crashes), byte stability, compat tests |
 | Security / abuse resistance | verified for M1 scope | batch 21A: live-board read requires a seat credential, origin policy replaces `OriginPatterns: ["*"]`, 16 KiB body cap + unknown-field rejection, per-caller mutation budget with Retry-After, explicit-seed fairness gate, nickname policy, fixed 500 text, HTTP timeouts. 9 findings with dispositions in docs/SECURITY-REVIEW-M1.md; new gates covered by 15 tests (package + integration) |
 | Containers, migrations, monitoring | verified in CI | batches 18/19/20: compose stack + smoke script executed in CI, `001_init.sql` baseline with a schema-drift gate that fails the build, Prometheus scrape config and a 9-panel Grafana dashboard cross-checked against a live exposition |
-| Build/CI reliability | in progress | batch 21B: device smoke moved to `tools/android-smoke.sh` with retried device ops, a focus gate, ANR-dialog suppression, INFRA_FAIL vs PRODUCT_FAIL classes, a retry leg on another emulator image and a scheduled re-run; `agent/state/current.yml` is now parseable YAML (it had never been) |
+| Build/CI reliability | verified | batch 21B: device smoke moved to `tools/android-smoke.sh` with retried device ops, a focus gate, ANR-dialog suppression, INFRA_FAIL vs PRODUCT_FAIL classes, a retry leg on another emulator image and a scheduled re-run; `agent/state/current.yml` is now parseable YAML (it had never been) |
 
 Open items before the M1 gate can be declared:
 

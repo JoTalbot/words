@@ -3,7 +3,7 @@ title: Richer rollback animation - flash rejected pending intents red with a dev
 owner: unity-client
 priority: normal
 complexity: small
-status: merged_pending_device_28b
+status: verified_on_device
 risk: low
 escalation: none
 
@@ -37,3 +37,9 @@ notes: >-
   client_sequence, so the flash is presentation state only - the authoritative
   ownership always comes from the canonical snapshot, per the correctness
   principles.
+
+device_verification: >-
+  Unity Android run 34782169182: the 28b auto-play loop produced many
+  server-rejected candidates and the client logged [WORDS_ROLLBACK] for each
+  one (result=rejected: not in dictionary, and result=blocked by rule), which
+  is the device marker this batch was waiting on.
