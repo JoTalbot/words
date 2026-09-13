@@ -92,7 +92,11 @@ Exit gate: two remote clients can complete repeated matches with identical final
   except the first two unable to play a word) and batch 30E (replay
   determinism at 3/5/8/16 seats rebuilt from the event log alone, and an
   identical board at 2..60 seats so the roster cannot leak into wave
-  generation). The server stack is now
+  generation) and batch 30F (cost model measured at 2..60 seats: tick cost is
+  roster-independent, snapshot cost grows ~3x, and per-subscriber fan-out is
+  the real constraint). The ENGINEERING half of this row is done; what remains
+  is product, now formalized as Q9 (elimination rule) and Q10 (board sizing)
+  in docs/PRODUCT-DECISIONS.md. The server stack is now
   seat-count agnostic from the simulation up to queue admission, and no HTTP
   endpoint exposes a seats knob yet, because Royale gameplay itself is
   BLOCKED ON TWO PRODUCT DECISIONS: the elimination rule (`IsEliminated` is still always false)
