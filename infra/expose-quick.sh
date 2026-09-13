@@ -23,7 +23,14 @@ set -euo pipefail
 
 ORIGIN="${WORDARENA_ORIGIN:-http://127.0.0.1:18080}"
 CFD_BIN="/opt/words/bin/cloudflared"
-CFD_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+# Architecture-aware binary selection (the OCI host is aarch64; a dev box
+# or a stage-2 host may be x86_64).
+case "$(uname -m)" in
+  x86_64)  CFD_ARCH="amd64" ;;
+  aarch64) CFD_ARCH="arm64" ;;
+  *) echo "[expose] unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+CFD_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CFD_ARCH}"
 UNIT_SRC="$(cd "$(dirname "$0")" && pwd)/words-tunnel.service"
 UNIT_DST="/etc/systemd/system/words-tunnel.service"
 LOG="/var/log/words-tunnel.log"
