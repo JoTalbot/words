@@ -1652,10 +1652,14 @@ namespace Words.Client
             if (elapsed >= 0f && elapsed < RollbackFlashSeconds && rollbackFlashCells.Contains(cell.CellId))
             {
                 var t = elapsed / RollbackFlashSeconds;
+                // lerp of two 0..255 colors stays inside 0..255, so the
+                // explicit byte casts below cannot overflow; Color32 takes
+                // bytes and Mathf.RoundToInt returns int (measured CS1503
+                // on run 34764363334).
                 return new Color32(
-                    Mathf.RoundToInt(255f + (baseColor.r - 255f) * t),
-                    Mathf.RoundToInt(64f + (baseColor.g - 64f) * t),
-                    Mathf.RoundToInt(64f + (baseColor.b - 64f) * t),
+                    (byte) Mathf.RoundToInt(255f + (baseColor.r - 255f) * t),
+                    (byte) Mathf.RoundToInt(64f + (baseColor.g - 64f) * t),
+                    (byte) Mathf.RoundToInt(64f + (baseColor.b - 64f) * t),
                     255);
             }
 
