@@ -28,8 +28,40 @@ const (
 	WaveTicks = 1800
 	// WavesPerMatch is the number of waves in an M0 match.
 	WavesPerMatch = 3
-	// CellsPerWave is the shared board size.
+	// CellsPerWave is the shared board size for a 1v1 match, and the
+	// default everywhere a roster is not specified. Larger rosters use
+	// BoardCells (Q10); a two-seat match is exactly the M0 board.
 	CellsPerWave = 12
+	// BoardColumnsSmall is the 1v1 grid width (4x3 = CellsPerWave).
+	BoardColumnsSmall = 4
+	// BoardColumnsLarge is the grid width for every roster above two. A
+	// wider grid keeps a big board legible instead of a long ribbon.
+	BoardColumnsLarge = 6
+	// BoardCellsPerSeat is how much board each seat is worth above 1v1.
+	// One cell per player would mean a player who claims one cell has
+	// ended the wave; two keeps the board contested without making it
+	// unreadable.
+	BoardCellsPerSeat = 2
+	// MaxCellsPerWave caps the board no matter how large the roster is.
+	// 60 cells is a 6x10 grid: still readable on a phone, and at the
+	// 60-seat maximum it means one cell per player, which is the intended
+	// Royale contention (see Q10 in docs/PRODUCT-DECISIONS.md).
+	MaxCellsPerWave = 60
+
+	// --- Q9: Royale elimination (docs/PRODUCT-DECISIONS.md) ---
+
+	// EliminationMinSeats is the smallest roster that culls at all. Below
+	// it (1v1 and very small lobbies) every seat plays every wave, so M0
+	// and M1 behaviour is untouched.
+	EliminationMinSeats = 4
+	// SurvivorsNumerator/SurvivorsDenominator set the share of the roster
+	// that survives each wave boundary: two thirds, so a 60-seat lobby
+	// goes 60 -> 40 -> 26 across the three waves.
+	SurvivorsNumerator   = 2
+	SurvivorsDenominator = 3
+	// MinSurvivors is the floor: a cull never takes a match below a real
+	// contest.
+	MinSurvivors = 2
 	// MinWordLength is the minimum accepted word length.
 	MinWordLength = 3
 	// MinSeats and MaxSeats bound the roster. MaxSeats is the M2 Royale
@@ -83,6 +115,10 @@ type PlayerState struct {
 	Score          int64
 	Combo          int // consecutive accepted words (0 = none yet)
 	LastAcceptTick int // tick of last accepted word
+	// EliminatedAtWave is the wave index at whose boundary this seat was
+	// culled, or -1 while it is still playing (Q9). Elimination is a pure
+	// function of logged state at a wave boundary, so it replays exactly.
+	EliminatedAtWave int
 }
 
 // Event is one immutable log record (accepted or rejected intent).

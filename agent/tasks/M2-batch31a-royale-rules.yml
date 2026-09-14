@@ -1,0 +1,80 @@
+id: M2-batch31a-royale-rules
+title: Q9 and Q10 implemented - Royale elimination and roster-scaled board
+owner: gameplay-core
+priority: high
+complexity: large
+status: in_review
+risk: high
+escalation: none
+
+inputs:
+  - docs/PRODUCT-DECISIONS.md Q9 and Q10 (owner delegated both choices on 2026-09-14)
+  - M2-batch30a..30f (seat-count-agnostic stack, proven and cost-characterized)
+
+outputs:
+  - server/internal/match/types.go (board and elimination constants, PlayerState.EliminatedAtWave)
+  - server/internal/match/board.go (BoardCells, BoardColumns, size-parameterized generateWave)
+  - server/internal/match/match.go (cull rule, spectator intents, rival-agnostic steal, fingerprint)
+  - server/internal/match/elimination_test.go (new, 9 tests)
+  - server/internal/match/roster_test.go (+2 steal/own-cell tests)
+  - server/internal/match/roster_replay_test.go (replay now crosses wave boundaries; prefix-stability replaces the old fixed-board rule)
+  - server/cmd/game/nway_e2e_test.go (board assertion is now prefix-based)
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs (grid width derived from cell count)
+  - docs/M2-ROYALE-RULES.md (new design note), docs/PRODUCT-DECISIONS.md (Q9/Q10 marked DECIDED)
+
+acceptance:
+  - >-
+    SECOND HIDDEN 1v1 BUG FOUND AND FIXED: the rules engine computed the
+    opponent as Seat(1-seat), so in any roster above two every seat above 1
+    could neither steal nor be stolen from - cells owned by seat 5 looked
+    unowned to seat 7 and the victim was never debited. Cross-steal is the core
+    competitive interaction, so Royale would have been parallel solitaire. The
+    rule is now rival-agnostic (any seat that is not the actor), a steal debits
+    the actual owner, and re-using your own unlocked cells still never scores
+    twice.
+  - >-
+    Q10 board sizing: BoardCells(seats) is 12 for 1v1 and otherwise two cells
+    per seat rounded to whole rows of six, capped at 60 (a 6x10 grid, one cell
+    per player at the 60-seat maximum). Crucially the letter at cell i still
+    depends only on (seed, language, wave), so a larger board is a
+    prefix-compatible extension of a smaller one: the 1v1 board is
+    bit-identical to M0/M1 and a client can render before the lobby fills.
+    The older "identical board at every roster" test was deliberately replaced
+    by this stronger prefix-stability property.
+  - >-
+    Q9 elimination: at each wave boundary the lowest scorers are culled to two
+    thirds of the active roster (60 -> 40 -> 26), never below 2, and never at
+    all below 4 seats so 1v1 and small lobbies are untouched. The cut is by
+    score then seat index over logged state only; a tie ACROSS the cut line
+    keeps everyone, because losing a Royale on seat number would be
+    indefensible. An eliminated seat becomes a spectator: intents are logged
+    but rejected and cannot mutate state.
+  - >-
+    Determinism survives: EliminatedAtWave is folded into Match.Fingerprint, and
+    the randomized roster replay now crosses wave boundaries so culls are part
+    of what must replay identically, asserted per seat.
+  - >-
+    The client agrees with the server on geometry: Unity derives grid width
+    from the cell count (4 columns at 12 cells, 6 above), because the 8-way
+    adjacency gesture rules and the renderer must use the same value or swipes
+    would not match what the player sees. MaxPathCells stays 12.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./internal/match ./internal/matchroom ./cmd/game : ok"
+  - "11 new tests; the pre-existing suite passes unchanged, which is the 1v1 non-regression evidence"
+
+file_ownership:
+  - server/internal/match/
+  - server/cmd/game/nway_e2e_test.go
+  - client/unity/Assets/Scripts/WordArenaBootstrap.cs
+  - docs/M2-ROYALE-RULES.md
+  - docs/PRODUCT-DECISIONS.md
+
+notes: >-
+  Royale is not a second simulation - it is the same deterministic match with a
+  larger roster, and every rule reduces to M0 at two seats. Still deliberately
+  not done: no HTTP endpoint exposes a seats knob, because snapshot fan-out
+  (batch 30F: 60 subscribers x a 60-player snapshot) should be addressed with
+  delta or interest-scoped snapshots before the mode is publicly reachable.

@@ -34,6 +34,8 @@ func TestRosterReplayProperty(t *testing.T) {
 			t.Fatalf("trial %d: roster %d, want %d", trial, m.Seats(), seats)
 		}
 
+		// Long enough to cross wave boundaries, so elimination (Q9) is part
+		// of what must replay identically.
 		steps := 40 + rng.Intn(60)
 		for step := 0; step < steps && !m.IsOver(); step++ {
 			switch roll := rng.Intn(10); {
@@ -41,6 +43,9 @@ func TestRosterReplayProperty(t *testing.T) {
 				m.AdvanceTicks(1 + rng.Intn(400))
 			case roll == 9 && m.tick > 10:
 				m.AdvanceTicks(ComboResetWindowTicks + 2)
+			case roll == 8:
+				// Push past a wave boundary so culls happen mid-trial.
+				m.AdvanceTicks(WaveTicks / 2)
 			default:
 				seat := Seat(rng.Intn(seats))
 				path := findCells(m, seat, words[rng.Intn(len(words))])
@@ -86,54 +91,78 @@ func TestRosterReplayProperty(t *testing.T) {
 				t.Fatalf("trial %d: seat %d replayed score %d != %d",
 					trial, s, r.Score(Seat(s)), m.Score(Seat(s)))
 			}
+			if r.IsEliminated(Seat(s)) != m.IsEliminated(Seat(s)) {
+				t.Fatalf("trial %d: seat %d elimination replayed as %v, want %v",
+					trial, s, r.IsEliminated(Seat(s)), m.IsEliminated(Seat(s)))
+			}
 		}
 	}
 }
 
-// TestBoardGenerationIgnoresRosterSize pins that the roster does not leak into
-// wave generation: the same (seed, language, wave) must produce the same board
-// whether two players or sixty are seated, otherwise a client could not join a
-// match without knowing the final roster first.
-func TestBoardGenerationIgnoresRosterSize(t *testing.T) {
+// TestBoardGenerationIsPrefixStableAcrossRosters replaces the older
+// "board is identical at every roster" rule, which Q10 deliberately retired:
+// the board now GROWS with the roster (twelve cells shared by sixty players is
+// not a game). What must survive is the weaker but sufficient property that
+// makes that safe - the letter at cell i is a function of (seed, language,
+// wave) alone, never of the roster. A bigger board is a prefix-compatible
+// extension of a smaller one, so wave generation stays deterministic and a
+// 1v1 board is bit-identical to what M0 and M1 shipped.
+func TestBoardGenerationIsPrefixStableAcrossRosters(t *testing.T) {
 	const seed = 0x1512
-	ref := ""
-	for _, seats := range []int{2, 3, 7, 30, 60} {
-		m, err := New(Config{MatchID: 1, Seed: seed, Lang: "en", Seats: seats})
-		if err != nil {
-			t.Fatalf("%d seats: %v", seats, err)
-		}
-		board := ""
-		for _, c := range m.Snapshot().Cells {
-			board += string(c.Letter)
-		}
-		if ref == "" {
-			ref = board
-			continue
-		}
-		if board != ref {
-			t.Fatalf("%d seats produced board %q, want %q - the roster leaked into wave generation",
-				seats, board, ref)
+	for _, wave := range []int{0, 1, 2} {
+		ref := generateWave(seed, "en", wave, MaxCellsPerWave)
+		for _, seats := range []int{2, 3, 7, 30, 60} {
+			cells := generateWave(seed, "en", wave, BoardCells(seats))
+			for i, c := range cells {
+				if c.Letter != ref[i].Letter {
+					t.Fatalf("wave %d, %d seats: cell %d is %q, want %q - the roster leaked into wave generation",
+						wave, seats, i, c.Letter, ref[i].Letter)
+				}
+				if c.ID != i {
+					t.Fatalf("cell %d has ID %d", i, c.ID)
+				}
+			}
 		}
 	}
 
-	// The same must hold for later waves, which are generated lazily.
-	ref = ""
-	for _, seats := range []int{2, 9, 60} {
-		m, err := New(Config{MatchID: 1, Seed: seed, Lang: "en", Seats: seats})
-		if err != nil {
-			t.Fatalf("%d seats: %v", seats, err)
+	// A two-seat match must still be exactly the M0 board.
+	m, err := New(Config{MatchID: 1, Seed: seed, Lang: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(m.Snapshot().Cells); got != CellsPerWave {
+		t.Fatalf("1v1 board has %d cells, want the unchanged %d", got, CellsPerWave)
+	}
+}
+
+// TestBoardCellsScalesWithRoster pins the Q10 sizing curve itself.
+func TestBoardCellsScalesWithRoster(t *testing.T) {
+	if got := BoardCells(2); got != CellsPerWave {
+		t.Fatalf("1v1 board %d, want %d unchanged", got, CellsPerWave)
+	}
+	prev := 0
+	for seats := 2; seats <= MaxSeats; seats++ {
+		n := BoardCells(seats)
+		if n < prev {
+			t.Fatalf("board shrank from %d to %d cells at %d seats", prev, n, seats)
 		}
-		m.AdvanceTicks(WaveTicks + 1)
-		board := ""
-		for _, c := range m.Snapshot().Cells {
-			board += string(c.Letter)
+		if n > MaxCellsPerWave {
+			t.Fatalf("%d seats produced %d cells, above the %d cap", seats, n, MaxCellsPerWave)
 		}
-		if ref == "" {
-			ref = board
-			continue
+		if n < CellsPerWave {
+			t.Fatalf("%d seats produced %d cells, below the 1v1 floor", seats, n)
 		}
-		if board != ref {
-			t.Fatalf("wave 1 with %d seats is %q, want %q", seats, board, ref)
+		if seats > 2 && n%BoardColumnsLarge != 0 {
+			t.Fatalf("%d seats produced %d cells, not whole rows of %d", seats, n, BoardColumnsLarge)
 		}
+		// Contention must stay real: never more cells than two per seat.
+		if seats > 2 && n > seats*BoardCellsPerSeat+BoardColumnsLarge {
+			t.Fatalf("%d seats got %d cells, too generous", seats, n)
+		}
+		prev = n
+	}
+	if got := BoardCells(MaxSeats); got != MaxCellsPerWave {
+		t.Fatalf("a full %d-seat lobby gets %d cells, want the %d cap (one per player)",
+			MaxSeats, got, MaxCellsPerWave)
 	}
 }
