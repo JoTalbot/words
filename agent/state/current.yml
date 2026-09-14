@@ -1,4 +1,41 @@
 status: >-
+  BATCH 34A (OPS, LIVE PROMOTION) COMPLETE 2026-09-14: the live OCI service was
+  promoted from the 97a2414-era binary (Sep 12) to main 22fb7af - seven batches
+  of drift closed (27B/27E/27H/27I/28x device chain, 29A tunnel, 30-32 M2 rows,
+  33 protocol handshake). Migrations 004 (match_results_bots) and 005 (guilds)
+  applied AFTER a fresh pg_dump backup
+  (/home/ubuntu/backup-wordarena-pre-004-005-20260914T190524Z.dump); schema_migrations
+  now 1-5. WORDARENA_ALLOW_BOT_SEATS=true added to /etc/wordarena/wordarena.env
+  (required by the 32D QA legs and 32E pve). Previous binary kept as
+  wordarena-server.prev. GATES, all live: smoke.sh 27/0 with
+  SMOKE_EXPECT_STORAGE=postgres; direct exit gate 3/3 PASS with the exact
+  baseline scores 43:45 / 37:60 / 44:40 (terminal_snapshots_equal and
+  client_streams_equal true in all three); guild sanity (owner token issued once,
+  guild created with X-Player-Token, roster readable, token absent from the
+  profile read); pve sanity (POST /v1/matches pve:true created match 9292);
+  service active NRestarts=0, readyz storage=postgres, match ids resumed from
+  the durable store at 9290. Binary was CROSS-COMPILED in the Arena sandbox
+  (GOARCH=arm64, trimpath) instead of built on the host because the host disk is
+  critically full (see owner item below).
+  HOST INCIDENT (recovered): arm-server-01 hit 100% disk (145G/145G). The
+  culprit is NOT words - it is /var/lib/octopus at 88G (another project on the
+  shared host: a 51G offline snapshot from 13:50Z today, an 18G one from Sep 13,
+  and an 8.7G eternal snapshot being written during the incident). words
+  footprint is tiny (Postgres 191M, telemetry 1.1M). Mitigation done: journal
+  vacuum to 200M, apt clean, removed regenerable caches (go-build, pip, .gradle
+  caches) - about 2.2G freed. The disk-full event had also left /opt/words with
+  an INTERRUPTED git reset (stale index.lock, staged inverse of batch 33,
+  'ahead 2' of a stale origin/main): diagnosed as aborted-by-ENOSPC, NOT unique
+  work (the staged diff was exactly the reverse of 0b71946+22fb7af which are on
+  origin); repaired with git fetch + reset --hard origin/main, worktree clean at
+  22fb7af.
+  OWNER ITEM (NEW, cross-project, human decision): the octopus snapshots will
+  refill the freed headroom; deleting another project's backups is a destructive
+  cross-project action this agent will not take autonomously. words is safe at
+  current headroom, but the host needs an owner decision on
+  /var/lib/octopus/backups (69G of offline snapshots) before the next host-side
+  build or load stage.
+
   M2 batch 33 (PROTOCOL-VERSION DEBT) CLOSED 2026-09-14 (0b71946): version + capabilities handshake on the connect path (ClientHello/ServerHello, envelope field numbers 4/5; serverProtocolVersion=1). Legacy clients served exactly as before (no ServerHello, deltas preserved); supports_delta=false clients never receive a MatchStateDelta; modern clients still get reconstructable deltas. 13/13 game-package tests pass including three new protocol-version tests; the cmd/loadtest timing test is a known resource-contention flake on a loaded box, not a regression.
 
   M1_COMPLETE (8/8) and M2 COMPLETE with all six rows closed: the 60-player row
@@ -18,6 +55,18 @@ status: >-
   guild rate limits, pve).
 
 completed_tasks:
+  - >-
+    Batch 34A (ops, live promotion, 2026-09-14): promoted the live OCI systemd
+    service from the 97a2414-era binary to main 22fb7af (cross-compiled
+    linux/arm64 in the sandbox, scp'd, installed over a .prev backup). Applied
+    migrations 004+005 after a pg_dump backup. Added WORDARENA_ALLOW_BOT_SEATS=true.
+    Live gates all green: smoke 27/0, exit gate 3/3 with baseline scores
+    43:45/37:60/44:40, guild + pve sanity, no owner-token leak through the
+    profile read, NRestarts=0, readyz storage=postgres. Also recovered the host
+    from a 100%-disk incident caused by another project's snapshots (2.2G freed
+    via safe caches/journal; /opt/words git state repaired from an
+    ENOSPC-interrupted reset). See status block for the owner item on
+    /var/lib/octopus.
   - >-
     Batch 33 (M2, protocol-version debt, 2026-09-14, commit 0b71946638d291ef0dcb89208fb88dd6abe885dd): PROTOCOL-VERSION HANDSHAKE on the connect path. The WebSocket upgrade now negotiates a wire protocol version and capabilities before any game traffic. A client sends ClientHello (envelope field 4) carrying its protocol_version and a supports_delta capability; the server replies with ServerHello (envelope field 5) echoing the negotiated version and the final use_delta decision. Legacy clients that send no ClientHello are served exactly as before - no ServerHello is emitted and deltas are preserved. A client that negotiates supports_delta=false is NEVER served a MatchStateDelta (the server sends only full snapshots for it), so the server no longer unilaterally decides delta eligibility. A modern client that negotiates supports_delta=true still receives reconstructable deltas. serverProtocolVersion=1, with graceful downgrade to the client's declared version. Verified: gofmt/vet clean; full server suite passes; three new tests (TestProtocolVersionDeltaOptOut/OptIn/LegacyUnaffected) plus the existing delta/transport tests updated to negotiate. The cmd/loadtest timing test is a known resource-context flake on a loaded box and is not a regression.
   - >-
