@@ -1,22 +1,65 @@
 status: >-
-  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13; M2_IN_PROGRESS with
-  THREE ROWS CLOSED: the 60-player row (32A/32B/32D), first PvE content (32E) and
-  infrastructure load testing (32F). ONE M2 ROW REMAINS: guild foundation, which
-  needs a design note before code. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd,
-  32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798. Q5 WAS DECIDED BY THE
-  AGENT on owner delegation: a bot is DECLARED and never inferred, DISCLOSED on
-  every surface permanently, and any match containing one is NEVER rating- or
-  reward-eligible (durable, migration 004); 32E is the first feature built ON
-  that decision. Q11 settled with it: the first practice mode is a plain 1v1
-  against a server-driven, polite-by-default, deterministic opponent. 32F
-  replaced assumptions with numbers (0.6-0.9 KB/s per lobby client, 0.28 ms CPU
-  per room per second, ~270 KB RSS per room, drain 180.2 s) and found the first
-  real admission ceiling (WORDARENA_MUTATIONS_PER_MIN, default 120/min per
-  caller). OWNER ITEMS: B2 (uk dictionary licence) is CONFIRMED to exist and
-  arrive later - non-blocking, nothing waits on it; Q8 stage 2 (stable domain)
-  still waits on a domain from the owner.
+  M1_COMPLETE (8/8) and M2 COMPLETE with all six rows closed: the 60-player row
+  (32A/32B/32D), first PvE content (32E), infrastructure load testing (32F) and
+  guild foundation (32G), with anti-snowball marked [~] only because its
+  constants are deliberately uncalibrated (PD-007) - the mechanics themselves are
+  implemented and tested. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd,
+  32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798, 32G 24b87a0. 32G turned out
+  to be about identity rather than about guilds: the server had anonymous
+  profiles, so guild membership needed the smallest durable answer to 'who is
+  asking' (a per-profile owner token, hashed at rest, with no endpoint trusting
+  a caller-supplied player id). OWNER ITEMS: B2 (uk dictionary licence) is
+  CONFIRMED to exist and arrive later - non-blocking, nothing waits on it; Q8
+  stage 2 (stable domain) still waits on a domain from the owner. NEXT: protocol
+  version negotiation (debt created by 32A/32D), anti-snowball calibration by
+  simulation, and a security review of the surfaces added today (owner token,
+  guild rate limits, pve).
 
 completed_tasks:
+  - >-
+    Batch 32G (M2, PR #48, merged 24b87a0): GUILD FOUNDATION - the last open M2
+    row, and the design note the row demanded turned out to be about identity
+    rather than about guilds. The server had two kinds of durable state: match
+    results, protected by unguessable per-match capability tokens, and ANONYMOUS
+    profiles, where any caller may act as any player. A roster built on a
+    caller-supplied player_id would let anyone manage any guild as anyone, and
+    that abuse would already be in the data by the time a permission check was
+    added - so the batch ships the smallest primitive that makes the model
+    enforceable and stops there. IDENTITY: POST /v1/players now returns a
+    per-profile OWNER TOKEN (128 bits from crypto/rand) exactly once; only its
+    SHA-256 is stored, so a database read cannot be replayed as a player; every
+    guild mutation presents it as X-Player-Token; NO endpoint trusts a
+    caller-supplied player id, so impersonation is impossible by construction
+    rather than by a check someone could forget; profiles created before this
+    batch have no token and cannot use guilds, because minting one on demand
+    would be exactly the hole being closed. MODEL (migration 005, durable both
+    in memory and in Postgres): one guild per player enforced by a unique index;
+    names (3-24 chars) and tags (2-5) unique case-insensitively with the
+    nickname character policy; exactly one owner - ownership passes to the
+    earliest-joined member when the owner leaves and the guild is DISSOLVED when
+    the last member leaves, so a dead guild cannot squat on a name; roster
+    capped at 50 so a guild never becomes an unbounded fan-out target; rosters
+    readable without a token, every mutation requires one. ENDPOINTS: POST
+    /v1/guilds, GET /v1/guilds/{id}, POST /v1/guilds/{id}/members, DELETE
+    /v1/guilds/{id}/members/{player_id} (leave, or owner-removes), GET
+    /v1/players/{id}/guild. THE MIGRATION DRIFT GATE HAD TO GROW: it understood
+    columns added by later migrations but not TABLES, so 005 would have failed
+    it; it now folds in CREATE TABLE as well, with both directions pinned by
+    tests so the guard cannot quietly become a test that always passes.
+    DELIBERATELY OUT of the first slice, each named in docs/M2-GUILDS.md and in
+    Q12 rather than silently assumed: guild chat and its moderation/retention
+    obligations, invite-only join and join requests, co-owners, the cap number,
+    guild-vs-guild matchmaking and rewards. Q12 records the decided rules and
+    lists the open product questions rather than answering them. 9 new tests,
+    mostly refusals: token required/malformed/other-player, one guild per
+    player, owner handover, dissolution and name reuse, name/tag rules, roster
+    cap, legacy-profile refusal, and that the owner token never appears in a
+    profile response. Verified: gofmt/vet clean, go test ./... 13/13 packages,
+    go test -race ./... 0 races (twice), cmd/game -count=3 clean (one transient
+    FAIL was seen once in a race run started while the previous full suite was
+    still winding down; it did not reproduce in any of the following runs),
+    hygiene 247/0, task-yaml 62/0, CI 6/6 green on 1c59fd7 including the
+    migration job that now applies 005.
   - >-
     Batch 32F (M2, PR #47, merged 4477798): INFRASTRUCTURE LOAD TESTING - the
     row is closed and the useful output is not a capacity number (that depends
@@ -1199,27 +1242,27 @@ failed_tasks:
     completed success, so treat 34437012338 as runner/emulator flake unless it recurs
 next_tasks:
   - >-
-    M2 "guild foundation" - the last open M2 row and it needs a DESIGN NOTE
-    first: it touches persistence and identity (the M2 auth scope), so the note
-    must fix the model, the tables, the endpoints and the capability checks
-    before code exists. A guild that cannot survive a restart or a second
-    process is not a foundation. Deliberately out of scope for the first slice
-    unless the note argues otherwise: guild chat (moderation is a
-    product/safety decision, not an engineering one), guild-vs-guild
-    matchmaking, and rewards.
+    PROTOCOL-VERSION DEBT - now the top item: two additive binary fields
+    (snapshot_delta from 32A, is_bot from 32D) and STILL no version
+    negotiation. An M1 client works by luck (proto3 skips unknown fields), but a
+    client that needs a delta cannot ask for one and cannot say it cannot apply
+    one, so the server's decision to send deltas is currently made for the
+    client. Fix before any external client ships: a version on the connect path
+    plus a capabilities handshake, with the old behaviour (no version declared)
+    preserved exactly.
   - >-
-    Anti-snowball follow-ups (own batches, each needs evidence): leader lock
-    duration, steal economics against a leader, a combo cap, per-match exposure
-    of the rule, and calibration of CatchUpGap/divisor/cap against playtest or
-    simulation rather than a guess.
+    Anti-snowball calibration (the row is [~]): CatchUpGap/divisor/cap are
+    explicitly UNcalibrated (PD-007) and the fix is evidence rather than a
+    guess - a simulation harness over real matches measuring how much the bonus
+    closes a gap, whether it changes who wins, and what it costs in score, then
+    a documented provisional choice. The per-match exposure of the rule is the
+    other half of that row.
   - >-
-    PROTOCOL-VERSION DEBT, created by 32A and 32D and NOT reduced by 32E/32F:
-    two additive binary fields (snapshot_delta, is_bot) and still NO version
-    negotiation. An old M1 client is fine today because proto3 skips unknown
-    fields, but a client that needs a delta cannot ask for one and cannot say it
-    cannot apply one. Before any external client ships, add the handshake (a
-    protocol version on the connect path or in the envelope) - a decision, not
-    an accident.
+    Security review of the new surfaces rather than only the new code: the owner
+    token (entropy, hashing, no enumeration, no leak through logs, telemetry,
+    errors or the profile read), the guild endpoints' rate limits, and the PvE
+    field. Extend docs/SECURITY-REVIEW-M1.md rather than starting a second
+    document.
   - >-
     PvE follow-ups, deliberately left by 32E: difficulty selection, practice
     rewards, tutorial framing, and whether practice is reachable from the ranked
@@ -1227,9 +1270,9 @@ next_tasks:
     match stays non-rating-eligible either way.
   - >-
     Load-testing follow-ups from 32F: a Postgres-backed stage on a throwaway
-    database, a latency run with the generator OFF the target box (the numbers
-    so far are upper bounds because both share four vCPUs), and a stage that
-    pushes the per-seat intent limit rather than the per-caller mutation limit.
+    database, a latency run with the generator OFF the target box, and a stage
+    that pushes the per-seat intent limit rather than the per-caller mutation
+    limit.
 
-last_verified_commit: "4477798 on main (batch 32F). CI 6/6 green on both 32E (a14a25c) and 32F (6b1cf93): the 32F first run failed in 'Build image and smoke the compose stack' because Docker Hub reset the connection while pulling postgres:16-alpine - infrastructure, not code - and the re-run of that job passed. Locally on 32F: go build/vet/gofmt clean, go test ./... 13/13 packages, go test -race ./... 0 races, hygiene 241/0, test-assets 6/0, monitoring 11/0, task-yaml 61/0. PREVIOUS SESSION MERGES 11c1ad6 (32A), 229f1bd (32B), 547243f (32C), dbcd8e0 (32D), 1ce9aba (32E) all 6/6. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 and was not touched by this session. NOTE FOR THE NEXT PROMOTION: 32D makes the QA legs declare themselves (headless-bot sends bot:true on every queue call) and 32E adds the pve field, so a deployment hosting the exit gate, the device smoke or practice must set WORDARENA_ALLOW_BOT_SEATS=true; without it those calls are refused by name (docs/M1-OPS.md). The 32F harness must never be pointed at the live service."
-resume_from: "M1 COMPLETE (8/8). M2: the 60-player row is FULLY CLOSED (32A/32B/32D), FIRST PvE CONTENT IS DONE (32E) and INFRASTRUCTURE LOAD TESTING IS DONE (32F). Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798. Q5/Q9/Q10/Q11 are DECIDED - do NOT re-open any of them. SIX FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, not 10x - and the cost is now MEASURED from outside: 163-178 B/s per 1v1 client, about 900 B/s per client in a full 60-seat lobby, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy) - keep both properties. (6) A full lobby's real cost is FRAMES not bytes (intents x seats, 5 400 frames/s measured at 60 seats) - a byte-only optimisation has not addressed it; and rooms OUTLIVE their clients (measured drain 180.2 s), so capacity is creations/s x 180 s and memory (~270 KB per room) is the first resource to watch, after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min, which answers a burst with 429 long before the box does). NEXT WORK, in order: (a) M2 'guild foundation' - the last open M2 row, design note FIRST because it touches persistence and identity; keep guild chat, guild matchmaking and rewards out of the first slice; (b) anti-snowball follow-ups; (c) PROTOCOL-VERSION DEBT (snapshot_delta + is_bot, no version negotiation) which must be a decision before an external client ships; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, re-install Go to /home/user/go-toolchain, and USE A FRESH GOMODCACHE (/home/user/go/pkg/mod): the persisted module cache is truncated by the workspace snapshot and produces 'no required module provides package ...' errors that look like a go.mod problem but are not. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
+last_verified_commit: "24b87a0 on main (batch 32G). CI 6/6 green on 1c59fd7 (32G), including the migration job which now applies migration 005 (guilds, guild_members, players.owner_token_hash). Locally on 32G: go build/vet/gofmt clean, go test ./... 13/13 packages, go test -race ./... 0 races (run twice), cmd/game -count=3 clean, hygiene 247/0, test-assets 6/0, monitoring 11/0, task-yaml 62/0. PREVIOUS SESSION MERGES 11c1ad6 (32A), 229f1bd (32B), 547243f (32C), dbcd8e0 (32D), 1ce9aba (32E), 4477798 (32F) all 6/6. ONE FLAKE OBSERVED AND NOT REPRODUCED: a single FAIL in cmd/game appeared in a race run that was started while the previous full suite was still winding down; two full race runs and three sequential cmd/game runs after it were clean, so it is treated as resource contention rather than a real defect - if it recurs, capture the failing test name before anything else. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 and was not touched by this session. NOTE FOR THE NEXT PROMOTION: 32D makes the QA legs declare themselves (headless-bot sends bot:true on every queue call) and 32E adds the pve field, so a deployment hosting the exit gate, the device smoke or practice must set WORDARENA_ALLOW_BOT_SEATS=true; 32G adds migration 005 and the owner-token column, so the migration must run before the new binary serves guild traffic."
+resume_from: "M1 COMPLETE (8/8). M2: ALL SIX ROWS ARE NOW CLOSED - the 60-player row (32A/32B/32D), first PvE content (32E), infrastructure load testing (32F) and guild foundation (32G), with anti-snowball marked [~] because its constants are deliberately uncalibrated. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798, 32G 24b87a0. Q5/Q9/Q10/Q11/Q12 are DECIDED - do NOT re-open any of them. SEVEN FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, and the cost is MEASURED: 163-178 B/s per 1v1 client, about 900 B/s per full-lobby client, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy). (6) A full lobby's real cost is FRAMES not bytes (intents x seats), and rooms OUTLIVE their clients (drain 180.2 s), so capacity is creations/s x 180 s - after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min) which answers a burst with 429 long before the box does. (7) Guild mutations authenticate with a per-profile OWNER TOKEN (returned once at profile creation, stored only as a SHA-256 hash); no endpoint trusts a caller-supplied player id; profiles created before 32G cannot use guilds and there is deliberately no way to mint a token for them. NEXT WORK, in order: (a) PROTOCOL-VERSION DEBT - two additive binary fields and no version negotiation, must be a decision before an external client ships; (b) anti-snowball calibration by simulation rather than guess (PD-007); (c) security review of the NEW surfaces (owner token, guild rate limits, pve field) extending docs/SECURITY-REVIEW-M1.md; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, and note that a PARTIAL snapshot also strips the executable bit from toolchain binaries (chmod +x /home/user/go-toolchain/go/bin/* and /home/user/protoc21/bin/protoc and /home/user/gopath/bin/protoc-gen-go, or reinstall Go to /home/user/go-toolchain); USE A FRESH GOMODCACHE (/home/user/go/pkg/mod) because the persisted module cache is truncated and produces 'no required module provides package ...' errors that look like a go.mod problem. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
