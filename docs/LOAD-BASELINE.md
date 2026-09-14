@@ -96,3 +96,33 @@ Reading:
   faster tick.
 
 These are engineering baselines on a shared sandbox, not capacity commitments.
+
+## Snapshot fan-out (M2 batch 31B, measured 2026-09-14)
+
+Batch 30F identified per-subscriber fan-out as the real Royale constraint.
+Measured by `TestSharedFanoutIsCheaperThanPerSubscriber` and the
+`BenchmarkSnapshotFanout*` family in `server/internal/protocol`, fanning ONE
+canonical 60-seat snapshot out to 60 subscribers:
+
+| Strategy | Time | Allocations |
+|---|---|---|
+| Encode per subscriber (old) | ~906 µs | 8 280 |
+| Encode once, share (current) | ~15 µs | 139 |
+
+**~60x cheaper, ~60x less garbage.** The saving is exactly the roster size,
+which is the point: a canonical snapshot is byte-for-byte identical for every
+seat, so rendering and marshalling it once per connection multiplied the work
+by the number of players for no benefit at all. At 1v1 the waste was invisible
+(2x); at 60 seats it dominated.
+
+Mechanism: `matchroom.SharedPayload` is a lazily-encoded, `sync.Once`-guarded
+box attached to each broadcast frame. Every subscriber of that frame receives
+the *same pointer*; the first one to write pays for the encoding and the rest
+reuse the bytes. The room stays protocol-agnostic - it carries the box, the
+transport supplies the encoder - and the shared slice is read-only.
+
+Note this reduces CPU and allocation, **not bandwidth**: each of the 60
+subscribers still receives the full snapshot over its own socket. Cutting the
+bytes on the wire needs delta or interest-scoped snapshots, which require a
+protocol change (`protoc` is not available in the dev sandbox) and are
+therefore tracked separately.

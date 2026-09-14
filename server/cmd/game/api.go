@@ -1388,17 +1388,34 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case ev := <-sub.Events:
-				pb := protocol.WordEventToProto(toMatchEvent(ev), room.UserID(ev.Seat))
-				pb.ClientSequence = ev.ClientSeq
-				evp := pb
-				env := protocol.WordEnvelope(id, evp)
-				if err := wsWriteProto(ctx, conn, env); err != nil {
+				// Batch 31B: every subscriber receives the same
+				// event frame - same seat, same client sequence -
+				// so the encoding is identical for all of them and
+				// is marshalled once per frame instead of once per
+				// connection.
+				b, err := ev.Encoded.Bytes(func() ([]byte, error) {
+					pb := protocol.WordEventToProto(toMatchEvent(ev), room.UserID(ev.Seat))
+					pb.ClientSequence = ev.ClientSeq
+					return proto.Marshal(protocol.WordEnvelope(id, pb))
+				})
+				if err != nil {
+					return
+				}
+				if err := wsWriteBytes(ctx, conn, b); err != nil {
 					return
 				}
 			case sf := <-sub.Snapshots:
-				userIDs := room.UserIDs()
-				env := protocol.SnapshotEnvelope(id, protocol.SnapshotToProto(sf.Snapshot, userIDs))
-				if err := wsWriteProto(ctx, conn, env); err != nil {
+				// The canonical snapshot is identical for every
+				// seat, so it is rendered and marshalled once per
+				// frame regardless of roster size.
+				b, err := sf.Encoded.Bytes(func() ([]byte, error) {
+					pb := protocol.SnapshotToProto(sf.Snapshot, room.UserIDs())
+					return proto.Marshal(protocol.SnapshotEnvelope(id, pb))
+				})
+				if err != nil {
+					return
+				}
+				if err := wsWriteBytes(ctx, conn, b); err != nil {
 					return
 				}
 			}
@@ -1552,6 +1569,12 @@ func wsWriteProto(ctx context.Context, conn *websocket.Conn, msg *wordarenav1.Se
 	if err != nil {
 		return err
 	}
+	return wsWriteBytes(ctx, conn, b)
+}
+
+// wsWriteBytes writes an already-marshalled envelope. The slice may be shared
+// between connections (see matchroom.SharedPayload), so it is read-only here.
+func wsWriteBytes(ctx context.Context, conn *websocket.Conn, b []byte) error {
 	return conn.Write(ctx, websocket.MessageBinary, b)
 }
 
