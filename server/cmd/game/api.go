@@ -113,6 +113,16 @@ type API struct {
 	// trustProxy enables X-Forwarded-For based caller identity. It must only
 	// be set when the service sits behind a proxy that overwrites the header.
 	trustProxy bool
+	// maxSeats caps the roster size a client may request through
+	// POST /v1/matches. Batch 32B: the Royale roster path exists and is
+	// tested, but a 60-seat match created through an unauthenticated endpoint
+	// is a different resource proposition from a 1v1 one (60 seat tokens and
+	// 60 WebSocket connections per request), and the abuse review in
+	// docs/SECURITY-EXPOSURE.md sized the creation limiter for a single
+	// developer deployment. The default therefore stays at 1v1 and an operator
+	// opts in explicitly via WORDARENA_MAX_SEATS. This is a deployment
+	// default, not a gameplay limit: match.MaxSeats remains the hard bound.
+	maxSeats int
 	// allowExplicitSeed permits clients to pin a match seed. Deterministic
 	// seeds are the backbone of replay tooling, so the default is permissive
 	// on dev deployments; a public edge must set this to false (a pinned
@@ -253,6 +263,7 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		mutators:          security.NewLimiter(envInt("WORDARENA_MUTATIONS_PER_MIN", 120), time.Minute, 0),
 		trustProxy:        envBool("WORDARENA_TRUST_PROXY_HEADERS", false),
 		allowExplicitSeed: envBool("WORDARENA_ALLOW_EXPLICIT_SEED", true),
+		maxSeats:          envInt("WORDARENA_MAX_SEATS", match.MinSeats),
 		maxBodyBytes:      int64(envInt("WORDARENA_MAX_BODY_BYTES", 16<<10)),
 	}
 	go a.runReaper()
@@ -432,16 +443,26 @@ type createMatchRequest struct {
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	// Defaults to false: M0 rules apply and ties are draws.
 	SuddenDeath bool `json:"sudden_death,omitempty"`
+	// Seats requests a roster size (M2 batch 32B). Absent or zero means 1v1,
+	// so every existing client keeps the match it always got. The request is
+	// bounded by match.MaxSeats and, more tightly, by the deployment's own
+	// WORDARENA_MAX_SEATS - see API.maxSeats for why the default is 2.
+	Seats int `json:"seats,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
 type createMatchResponse struct {
-	MatchID     uint64    `json:"match_id"`
-	Seed        uint64    `json:"seed"`
-	Language    string    `json:"language"`
-	SuddenDeath bool      `json:"sudden_death"`
-	Tokens      [2]string `json:"tokens"`
-	UserIDs     [2]uint64 `json:"user_ids"`
+	MatchID     uint64   `json:"match_id"`
+	Seed        uint64   `json:"seed"`
+	Language    string   `json:"language"`
+	SuddenDeath bool     `json:"sudden_death"`
+	Tokens      []string `json:"tokens"`
+	UserIDs     []uint64 `json:"user_ids"`
+	// Seats is the roster size of the created match. Batch 32B widened the
+	// two-seat response to a roster: the JSON is unchanged for 1v1 (a
+	// two-element array either way), and a client can now size its seat loop
+	// from the response instead of assuming two.
+	Seats int `json:"seats"`
 	// MatchCode is the unguessable handle for the result and replay endpoints;
 	// ReadCapability is the credential that endpoint requires once
 	// WORDARENA_REQUIRE_READ_CAPABILITY is set. Both are returned exactly once,
@@ -595,6 +616,29 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
+	// Batch 32B: roster size. Zero means 1v1, so the field is purely additive.
+	seats := req.Seats
+	if seats == 0 {
+		seats = match.MinSeats
+	}
+	if seats < match.MinSeats || seats > match.MaxSeats {
+		httpError(w, http.StatusBadRequest, fmt.Sprintf("seats must be between %d and %d", match.MinSeats, match.MaxSeats))
+		return
+	}
+	if seats > a.maxSeats {
+		// Distinguish "this deployment does not offer that" from "that size
+		// does not exist": the first is a policy default an operator can
+		// change, the second is a property of the game.
+		httpError(w, http.StatusBadRequest, fmt.Sprintf(
+			"seats above %d are not enabled on this deployment (WORDARENA_MAX_SEATS)", a.maxSeats))
+		return
+	}
+	if req.PlayerIDs != nil && seats != match.MinSeats {
+		// Profile binding is positional and 1v1-only in this release; saying
+		// so is better than silently ignoring half the request.
+		httpError(w, http.StatusBadRequest, "player_ids is only supported for a 1v1 match")
+		return
+	}
 	if req.PlayerIDs != nil {
 		if req.PlayerIDs[0] == 0 || req.PlayerIDs[1] == 0 || req.PlayerIDs[0] == req.PlayerIDs[1] {
 			httpError(w, http.StatusBadRequest, "player_ids must be two distinct positive ids")
@@ -619,10 +663,20 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, seed, tokens, userIDs, access, err := a.createRoom(lang, req.Seed, req.PlayerIDs, req.SuddenDeath)
+	var pids []uint64
+	if req.PlayerIDs != nil {
+		pids = []uint64{req.PlayerIDs[0], req.PlayerIDs[1]}
+	}
+	info, err := a.createRoomN(lang, req.Seed, pids, seats, req.SuddenDeath)
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
+			return
+		}
+		// createRoomN rejects out-of-range seats before allocating; that is a
+		// client error and must not be reported as a server failure.
+		if strings.Contains(err.Error(), "out of range") {
+			httpError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		log.Printf("create match failed: %v", err)
@@ -630,9 +684,9 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, createMatchResponse{
-		MatchID: id, Seed: seed, Language: lang, SuddenDeath: req.SuddenDeath,
-		Tokens: tokens, UserIDs: userIDs,
-		MatchCode: access.Code, ReadCapability: access.ReadCap,
+		MatchID: info.ID, Seed: info.Seed, Language: lang, SuddenDeath: req.SuddenDeath,
+		Tokens: info.Tokens, UserIDs: info.UserIDs, Seats: len(info.Tokens),
+		MatchCode: info.Access.Code, ReadCapability: info.Access.ReadCap,
 	})
 }
 

@@ -1,0 +1,61 @@
+id: M2-batch32b-seats-parameter
+title: >-
+  Put the roster size on the HTTP surface, and keep the deployment default at
+  1v1 behind an explicit opt-in
+owner: orchestrator (protocol/API lane)
+priority: critical
+complexity: medium
+status: merged_green
+inputs:
+  - docs/M2-ROYALE-RULES.md §6 ("No HTTP endpoint exposes a seats knob yet")
+  - server/cmd/game/api.go (createMatchRequest/Response, handleCreateMatch,
+    createRoom, createRoomN)
+  - server/internal/match/match.go (MinSeats/MaxSeats, the Q10 roster cap)
+  - docs/SECURITY-EXPOSURE.md (creation limiter sized for one developer)
+dependencies:
+  - M2-batch32a-delta-snapshots
+outputs:
+  - server/cmd/game/api.go — Seats on the create request, roster-shaped
+    tokens/user_ids/seats in the response, WORDARENA_MAX_SEATS gate,
+    player_ids refused above 1v1, out-of-range seats reported as 400
+  - server/cmd/game/seats_test.go — six tests covering defaults, both bounds,
+    a real 8-seat room over a socket and the 60-seat maximum
+  - server/cmd/game/{api,security,store_pg,profile}_test.go — call sites
+    adapted to the roster-shaped response
+  - docs/WIRE-PROTOCOL.md § 1, docs/M2-ROYALE-RULES.md § 6/§ 7
+acceptance:
+  - A create request without a seats field returns exactly the 1v1 match it
+    always did, with a two-element tokens and user_ids array.
+  - A client can create a roster of 2..60 seats, and the response carries one
+    token and one user id per seat, all distinct.
+  - The created roster is real, not a counted loop - the last seat's token
+    opens a socket that sees the requested number of players and the board
+    sized for that roster.
+  - The game's bound and the deployment's bound are refused with different
+    messages, so an operator limit is never reported as a game limit.
+  - The stock deployment refuses a roster larger than 1v1 and names
+    WORDARENA_MAX_SEATS, so the mode cannot be reached by default.
+  - player_ids with a roster larger than two is refused rather than
+    half-honoured.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./cmd/game/ -run TestCreateMatch -v
+  - cd server && go test ./... && go test -race ./...
+file_ownership:
+  - server/cmd/game/api.go
+  - server/cmd/game/*_test.go
+  - docs/WIRE-PROTOCOL.md, docs/M2-ROYALE-RULES.md, docs/ROADMAP.md
+risk: medium
+escalation: none
+notes: >-
+  The roadmap item was "expose a seats parameter, which is deliberately still
+  absent". Implementing it raised a decision the roadmap had not separated: is
+  the knob a game capability or a deployment policy? Both, and conflating them
+  would have been the expensive mistake - a 60-seat room is 60 tokens and 60
+  WebSocket connections per unauthenticated request, while the current public
+  exposure was reviewed for a single-developer deployment. So the game's range
+  (2..60) is enforced as a client error, and the deployment's range
+  (WORDARENA_MAX_SEATS, default 2) is enforced as a named policy refusal. The
+  mode is now reachable with one environment variable, and unreachable by
+  default. Refusing player_ids above 1v1 rather than ignoring it follows the
+  same rule: say no instead of half-yes.

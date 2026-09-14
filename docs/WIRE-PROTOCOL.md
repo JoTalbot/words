@@ -10,7 +10,8 @@ transport behaves in the M0 dev service (`cmd/game`).
 POST /v1/matches
 Content-Type: application/json
 
-{ "language": "en" | "ru" | "uk", "seed": 1512, "sudden_death": true }  // optional fields
+{ "language": "en" | "ru" | "uk", "seed": 1512,
+  "sudden_death": true, "seats": 8 }                        // optional fields
 ```
 
 `201 Created`:
@@ -21,8 +22,9 @@ Content-Type: application/json
   "seed": 1512,
   "language": "en",
   "sudden_death": true,
-  "tokens": ["<seat0 token>", "<seat1 token>"],
-  "user_ids": [1, 2]
+  "seats": 8,
+  "tokens": ["<seat0 token>", "...", "<seat7 token>"],
+  "user_ids": [1, 2, 3, 4, 5, 6, 7, 8]
 }
 ```
 
@@ -33,6 +35,27 @@ seats. `user_ids` are the account ids reported in snapshots and events.
 `sudden_death` (default `false`) enables the opt-in tiebreak described in
 `docs/M1-SUDDEN-DEATH.md`: a tied final score plays one extra wave where the
 first accepted word wins. With it off, ties are draws (M0 rules).
+
+`seats` (M2 batch 32B, absent or `0` = 1v1) requests a roster size. `tokens`
+and `user_ids` are indexed by seat and have one entry per seat, so a client
+sizes its seat loop from `seats` in the response rather than assuming two. The
+JSON for a 1v1 match is unchanged: a two-element array either way.
+
+Two bounds apply, and they are deliberately different things:
+
+- **the game's range**, `2 … 60` (`match.MinSeats`/`match.MaxSeats`, the Q10
+  roster cap). Outside it the request is a client error whatever the
+  deployment offers.
+- **this deployment's range**, `WORDARENA_MAX_SEATS` (default `2`, i.e. 1v1
+  only). A 60-seat match created through an unauthenticated endpoint is a
+  different resource proposition from a 1v1 one - 60 seat tokens and 60
+  WebSocket connections per request - and the abuse review behind the current
+  public exposure sized the creation limiter for a single-developer
+  deployment (`docs/SECURITY-EXPOSURE.md`). An operator opts in explicitly.
+  The refusal names `WORDARENA_MAX_SEATS` so the two cases cannot be confused.
+
+`player_ids` is positional and 1v1-only in this release; sending it together
+with a roster larger than two is refused rather than half-honoured.
 
 ## 2. Live play
 

@@ -111,13 +111,20 @@ Exit gate: two remote clients can complete repeated matches with identical final
   shows the bytes were never the blocker the row assumed: a 60-seat client
   costs **0.6-0.9 KB/s**, roughly 50 KB/s of aggregate egress for a full lobby.
   Interest-scoped snapshots cannot help either - every seat needs the whole
-  board and the whole scoreboard. REMAINING before the mode is publicly
-  reachable is therefore a decision on bot backfill for under-filled lobbies
-  (belongs with the bot disclosure row) and, after it, a seats parameter on the
-  HTTP surface. The largest remaining wire saving, if it is ever worth taking,
-  is replacing the per-second lock countdown with a stable lock field (~27 % of
-  the delta), which is a client-contract change rather than a server
-  optimisation.
+  board and the whole scoreboard. Batch 32B then put `seats` on the HTTP
+  surface: `POST /v1/matches` accepts a roster size in `2..60`, the wider
+  `tokens`/`user_ids` arrays are roster-shaped, and a created 60-seat room was
+  verified over a real socket (60 players on a 60-cell board). The default
+  stays 1v1 behind `WORDARENA_MAX_SEATS`, because a 60-seat match through an
+  unauthenticated endpoint is 60 tokens and 60 sockets per request and the
+  current public exposure was reviewed for a single-developer deployment - one
+  environment variable turns it on, and the refusal names it.
+  REMAINING on this row: a decision on bot backfill for under-filled lobbies
+  (belongs with the bot disclosure row; the shipped default is the human-only
+  short-handed start from 31C, so nothing is blocked on it). The largest
+  remaining wire saving, if ever worth taking, is replacing the per-second lock
+  countdown with a stable lock field (~27 % of the delta), which is a
+  client-contract change rather than a server optimisation.
 - [ ] bot strategy and disclosure policy
 - [ ] anti-snowball mechanics
 - [ ] first PvE content

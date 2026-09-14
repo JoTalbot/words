@@ -72,7 +72,10 @@ func newLiveMatch(t *testing.T, srv *httptest.Server) (uint64, [2]string) {
 	if err := json.Unmarshal([]byte(body), &cr); err != nil {
 		t.Fatal(err)
 	}
-	return cr.MatchID, cr.Tokens
+	if len(cr.Tokens) != 2 {
+		t.Fatalf("a default create returned %d tokens, want 2", len(cr.Tokens))
+	}
+	return cr.MatchID, [2]string{cr.Tokens[0], cr.Tokens[1]}
 }
 
 // TestSnapshotRequiresSeatCredential closes the live-board leak: match ids are

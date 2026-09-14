@@ -44,13 +44,18 @@ func createMatch(t *testing.T, srv *httptest.Server, lang string, seed *uint64) 
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if out.MatchID == 0 || out.Tokens[0] == "" || out.Tokens[1] == "" {
+	if len(out.Tokens) != 2 || out.Tokens[0] == "" || out.Tokens[1] == "" {
 		t.Fatalf("bad create response %+v", out)
 	}
 	if out.Language != lang {
 		t.Fatalf("language %s", out.Language)
 	}
-	return out.MatchID, out.Tokens, out.UserIDs
+	if out.Seats != 2 {
+		t.Fatalf("a default create returned %d seats, want 2", out.Seats)
+	}
+	// The 1v1 helper keeps its two-element shape; the wire field is a roster
+	// now (batch 32B), and the JSON for two seats is unchanged.
+	return out.MatchID, [2]string{out.Tokens[0], out.Tokens[1]}, [2]uint64{out.UserIDs[0], out.UserIDs[1]}
 }
 
 func dial(t *testing.T, srv *httptest.Server, id uint64, token string) *testClient {

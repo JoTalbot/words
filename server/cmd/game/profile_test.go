@@ -112,7 +112,7 @@ func TestMatchWithProfilesUpdatesStats(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if created.UserIDs != [2]uint64{p0.ID, p1.ID} {
+	if len(created.UserIDs) != 2 || created.UserIDs[0] != p0.ID || created.UserIDs[1] != p1.ID {
 		t.Fatalf("user_ids = %v, want profile ids %d/%d", created.UserIDs, p0.ID, p1.ID)
 	}
 

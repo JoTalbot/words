@@ -81,15 +81,30 @@ player has waited `lobbyFillWait` (20 s):
   lobby that simply stops receiving arrivals still starts rather than expiring
   everyone at the queue TTL.
 
-## 6. What is deliberately NOT decided here
+## 6. Reachability (updated by batches 32A and 32B)
 
-- **Snapshot fan-out.** A 60-seat match sends every subscriber a snapshot
-  containing 60 players and up to 60 cells; that is the dominant cost
-  (`docs/LOAD-BASELINE.md`, batch 30F), and delta or interest-scoped snapshots
-  are the next Royale work item. The simulation itself is not the constraint.
+- **Snapshot fan-out: measured and closed.** A 60-seat frame repeats the whole
+  roster and board, so batch 32A added `MatchStateDelta` - scalars plus only
+  what changed - which cuts the stream about 2x, and the same measurement
+  showed the absolute cost was never the blocker: a 60-seat client pays
+  **0.6-0.9 KB/s**, roughly 50 KB/s for a full lobby
+  (`docs/LOAD-BASELINE.md`, `docs/WIRE-PROTOCOL.md` § State deltas). Interest
+  scoping would have cut nothing, since every seat needs the whole board and
+  the whole scoreboard.
+- **`seats` is on the HTTP surface now (batch 32B).** `POST /v1/matches`
+  accepts `seats` (`docs/WIRE-PROTOCOL.md` § 1), so the mode is requestable by
+  a client rather than only reachable internally through `createRoomN`.
+- **The default is still 1v1, on purpose.** `WORDARENA_MAX_SEATS` defaults to
+  `2`: a 60-seat match through an unauthenticated endpoint is 60 seat tokens
+  and 60 sockets per request, and the current public exposure was reviewed for
+  a single-developer deployment (`docs/SECURITY-EXPOSURE.md`). Turning Royale
+  on is one environment variable, and the refusal says so.
+
+## 7. What is deliberately NOT decided here
+
 - **Bot backfill.** Whether an under-filled lobby is topped up with bots is
-  still open and belongs with the bot disclosure roadmap row. What *is*
-  decided (batch 31C) is the human-only fallback below.
-- **No HTTP endpoint exposes a `seats` knob yet.** Royale is reachable
-  internally via `createRoomN`; the public surface stays 1v1 until the
-  fan-out work lands.
+  still open and belongs with the bot disclosure roadmap row (Q5). What *is*
+  decided (batch 31C) is the human-only fallback above, and that fallback is
+  the default: a lobby starts short-handed rather than waiting forever or
+  inventing opponents. No bot-fill policy has been implemented on the strength
+  of an assumption.
