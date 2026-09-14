@@ -126,7 +126,16 @@ Exit gate: two remote clients can complete repeated matches with identical final
   countdown with a stable lock field (~27 % of the delta), which is a
   client-contract change rather than a server optimisation.
 - [ ] bot strategy and disclosure policy
-- [ ] anti-snowball mechanics
+- [~] anti-snowball mechanics - the catch-up rule is implemented as an
+  **opt-in** server rule (batch 32C, docs/M2-ANTI-SNOWBALL.md): a seat at least
+  `CatchUpGap`=25 points behind the leader earns half again on an accepted word,
+  capped at 15, computed from non-eliminated scores in integer arithmetic so a
+  replay cannot diverge. It is off by default, so no M0/M1 baseline, replay or
+  device assertion moves, and it deliberately does not touch cell credit values
+  because that is what a steal debits - a re-priced steal would have been a much
+  larger change than a score bonus. REMAINING: the board-side levers (leader
+  lock duration, steal economics), a combo cap, exposing the option per match,
+  and calibration of the constants against playtest rather than this guess.
 - [ ] first PvE content
 - [ ] guild foundation
 - [ ] infrastructure load testing

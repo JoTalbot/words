@@ -33,6 +33,9 @@ type Config struct {
 	SeatTokens  []string
 	// SuddenDeath enables the opt-in tiebreak (docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
+	// AntiSnowball enables the opt-in catch-up rule for this room
+	// (docs/M2-ANTI-SNOWBALL.md). Default false.
+	AntiSnowball bool
 	// TokenTTL bounds seat-token lifetime. Zero (default) disables expiry
 	// (M0 behaviour: tokens last the whole match). When positive, a token
 	// minted or rotated at time T stops authenticating after T+TokenTTL;
@@ -137,11 +140,12 @@ func New(cfg Config) (*Room, error) {
 		tokens = []string{cfg.Token0, cfg.Token1}
 	}
 	m, err := match.New(match.Config{
-		MatchID:     cfg.MatchID,
-		Seed:        cfg.Seed,
-		Lang:        cfg.Language,
-		SuddenDeath: cfg.SuddenDeath,
-		Seats:       len(userIDs),
+		MatchID:      cfg.MatchID,
+		Seed:         cfg.Seed,
+		Lang:         cfg.Language,
+		SuddenDeath:  cfg.SuddenDeath,
+		Seats:        len(userIDs),
+		AntiSnowball: cfg.AntiSnowball,
 	})
 	if err != nil {
 		return nil, err
