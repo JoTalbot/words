@@ -1,0 +1,65 @@
+id: M2-batch32c-anti-snowball
+title: >-
+  Anti-snowball: an opt-in, deterministic, capped catch-up rule that does not
+  re-price steals
+owner: orchestrator (gameplay lane)
+priority: high
+complexity: medium
+status: merged_green
+inputs:
+  - docs/ROADMAP.md M2 row "anti-snowball mechanics"
+  - docs/PRODUCT-DECISIONS.md Q1 (score formula must define catch-up mechanics
+    and hard caps to prevent runaway scores)
+  - docs/M0-MATCH-RULES.md (claim, lock, steal, combo)
+  - server/internal/match/match.go evaluate() credit path
+dependencies:
+  - M2-batch31a-royale-rules
+outputs:
+  - server/internal/match/antisnowball.go - the rule, its constants and the
+    reasoning for each
+  - server/internal/match/match.go - opt-in flag, bonus folded into the
+    credited score on the accepted path
+  - server/internal/match/types.go - Config.AntiSnowball, Event.CatchUpBonus
+  - server/internal/matchroom/room.go - Config passthrough
+  - server/internal/match/antisnowball_test.go - 7 tests
+  - docs/M2-ANTI-SNOWBALL.md - the design note the repository requires for a
+    gameplay change
+acceptance:
+  - The rule is off by default, so no existing match, replay, golden test,
+    exit-gate baseline or device assertion changes behaviour.
+  - A seat at least CatchUpGap points behind the leader earns half again on an
+    accepted word, capped at CatchUpMaxBonus, computed with integer arithmetic
+    from the scores of non-eliminated seats only.
+  - The bonus participates in Match.Fingerprint and in the event log, so a
+    divergent bonus cannot replay equal and a replay can say why a score moved.
+  - The bonus is never folded into a cell's CreditedValue, so a later steal
+    debits exactly what it would have debited without the rule - asserted by
+    running identical submissions with the rule off and on and comparing the
+    victim's score before and after being stolen from.
+  - The leader never awards themselves a bonus.
+  - The constants are documented as uncalibrated engineering defaults, not as
+    tuned values.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./internal/match/ -run 'AntiSnowball|CatchUp' -v
+  - cd server && go test ./... && go test -race ./...
+file_ownership:
+  - server/internal/match/antisnowball.go
+  - server/internal/match/{match,types}.go
+  - server/internal/match/antisnowball_test.go
+  - server/internal/matchroom/room.go
+  - docs/M2-ANTI-SNOWBALL.md, docs/ROADMAP.md
+risk: medium
+escalation: none
+notes: >-
+  Two design choices carry the batch. First, the bonus is added to the SCORE and
+  never to a cell's CreditedValue, because CreditedValue is what a later steal
+  debits - folding it in would have re-priced every steal on the board, a much
+  larger change than the one intended, and the test suite pins that it does not
+  happen. Second, the rule is opt-in and its constants are declared uncalibrated:
+  Q1 lists catch-up mechanics as a required part of the formula but also treats
+  M0 numbers as calibration candidates, so shipping a documented default that
+  nobody has tuned is honest, while changing the game everyone already plays
+  would not have been. The board-side levers that actually cause the runaway
+  (leader lock duration, steal economics) are left for their own batch and are
+  listed on the roadmap row.

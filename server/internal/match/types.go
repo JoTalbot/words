@@ -135,6 +135,10 @@ type Event struct {
 	ComboMult        float64
 	IsSteal          bool
 	StateVersion     int
+	// CatchUpBonus is the anti-snowball bonus folded into ScoreAdded, or zero
+	// when the opt-in rule did not apply. It is recorded rather than inferred
+	// so a replay can prove WHY a score differs, not only that it does.
+	CatchUpBonus int64
 }
 
 // Snapshot is the canonical public state view at a tick.
@@ -195,6 +199,9 @@ type Config struct {
 	// every existing 1v1 caller is unaffected; larger values are the path to
 	// the 60-player Royale mode without a second simulation.
 	Seats int
+	// AntiSnowball enables the opt-in catch-up rule (docs/M2-ANTI-SNOWBALL.md).
+	// Default false: M0 behaviour, existing baselines and replays unchanged.
+	AntiSnowball bool
 }
 
 // WordValidator is the dictionary capability the match needs.

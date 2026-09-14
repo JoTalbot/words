@@ -24,7 +24,9 @@ type Match struct {
 	eventSeq  int
 
 	// suddenDeath is the opt-in flag; inSuddenDeath marks the tiebreak wave.
-	suddenDeath   bool
+	suddenDeath bool
+	// antiSnowball enables the opt-in catch-up rule; see antisnowball.go.
+	antiSnowball  bool
 	inSuddenDeath bool
 
 	cells []Cell
@@ -51,13 +53,14 @@ func New(cfg Config) (*Match, error) {
 		return nil, fmt.Errorf("match: load dictionary %s: %w", lang, err)
 	}
 	m := &Match{
-		ID:          cfg.MatchID,
-		Seed:        cfg.Seed,
-		Lang:        cfg.Lang,
-		dict:        *snap,
-		wave:        0,
-		phase:       "active",
-		suddenDeath: cfg.SuddenDeath,
+		ID:           cfg.MatchID,
+		Seed:         cfg.Seed,
+		Lang:         cfg.Lang,
+		dict:         *snap,
+		wave:         0,
+		phase:        "active",
+		suddenDeath:  cfg.SuddenDeath,
+		antiSnowball: cfg.AntiSnowball,
 	}
 	seats := cfg.Seats
 	if seats == 0 {
@@ -409,6 +412,14 @@ func (m *Match) evaluate(ev Event) Event {
 		values = append(values, scoring.LetterValue(dictionary.Language(m.Lang), m.cells[id].Letter))
 	}
 	points, _ := scoring.WordScore(values, len(ev.CellIDs), p.Combo)
+	// Anti-snowball (M2, opt-in): a seat far behind the leader earns a capped
+	// bonus on the word itself. It is added to the SCORE, never to the cell's
+	// CreditedValue, so a later steal still debits exactly what the cell was
+	// worth to its owner - see internal/match/antisnowball.go.
+	if bonus := m.CatchUpBonus(seat, points); bonus > 0 {
+		ev.CatchUpBonus = int64(bonus)
+		points += bonus
+	}
 	p.Score += int64(points)
 	p.LastAcceptTick = m.tick
 
