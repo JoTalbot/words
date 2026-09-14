@@ -74,6 +74,15 @@ adb shell settings put system accelerometer_rotation 1 >/dev/null 2>&1 || true
 
 echo "--- install ---"
 retry 3 6 adb install -r -g "$apk" || { echo "FAIL: adb install never succeeded"; exit 1; }
+# Batch 34D: let the install FINALIZE before launching. Measured on run
+# 34889290062: `adb install` printed Success, the app launched and even
+# reached "isLoading: false", but PackageManager post-processing was still
+# running - when it landed ("ApplicationInfo updating for com.jotalbot.words"
+# at +5 s) the system killed the live process, the launcher took over, and
+# the pre-swipe gate spent its recovery budget tapping at a sheet that did
+# not exist. A bounded settle here removes the race in the common case; the
+# death-detecting relaunch in pre_swipe_focus_gate is the safety net.
+sleep 5
 
 echo "--- launch ---"
 retry 3 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W || {
@@ -324,6 +333,38 @@ pre_swipe_focus_gate() {
   fi
   echo "  focus lost before the swipe; current focus:"
   printf '%s\n' "$window" | head -2 || true
+  # Batch 34D: a COVERED app and a DEAD app need opposite recoveries. Run
+  # 34889290062 lost the app process (killed by late package finalization,
+  # see the post-install settle note); the sheet-tap recovery cannot revive
+  # a corpse, and the SystemUI last resort only made the misdiagnosis
+  # expensive. Check liveness first and relaunch cold when the process is
+  # gone, waiting for the NEW session to become ready before handing focus
+  # checking back to the ordinary path.
+  if ! adb shell pidof "$PKG" >/dev/null 2>&1; then
+    echo "  app process is DEAD - cold relaunch (sheet taps cannot recover a dead app)"
+    adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    adb logcat -c >/dev/null 2>&1 || true
+    retry 2 5 adb shell am start -n "$PKG/com.unity3d.player.UnityPlayerActivity" -W >/dev/null 2>&1 || true
+    local i
+    for i in $(seq 1 30); do
+      if adb shell dumpsys window 2>/dev/null | grep -qE "mCurrentFocus=Window\{[^}]* $PKG/"; then
+        echo "  relaunched app holds focus after $(( i * 2 ))s"
+        # Readiness of the NEW session (the log was cleared at relaunch, so
+        # any line found belongs to it): the swipe must not fire into a
+        # loading screen (the run 34498217023 lesson).
+        for _ in $(seq 1 30); do
+          adb logcat -d 2>/dev/null | grep -q "SetGameState: isLoading: false" && break
+          sleep 2
+        done
+        return 0
+      fi
+      sleep 2
+    done
+    echo "INFRA_FAIL: $PKG died before the swipe and the cold relaunch never regained focus on $BACKEND"
+    adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
+    adb exec-out screencap -p >"$DIAG/android-smoke.png" 2>/dev/null || true
+    exit 8
+  fi
   if ! dismiss_immersive_sheet; then
     echo "INFRA_FAIL: $PKG lost input focus before the swipe and recovery failed on $BACKEND"
     adb logcat -d >"$DIAG/logcat.txt" 2>&1 || true
@@ -575,34 +616,83 @@ echo "WORDS_SWIPE_SMOKE_OK"
 # only logs after the REST result endpoint confirms over=true. Local score
 # bookkeeping can never produce it.
 #
-# It runs only when WORDS_SERVER_URL is set (the Q8 stage-1 tunnel URL). With
-# no reachable server the leg is skipped with an explicit notice instead of
-# silently weakening the smoke.
+# It runs against a REAL server. Batch 34D made the leg self-contained:
+# the configured WORDS_SERVER_URL (the Q8 stage-1 tunnel) is used when it is
+# reachable, but a stale/unreachable tunnel no longer kills or skips the leg
+# - the script then builds and runs the SAME-COMMIT server on the runner and
+# the emulator reaches it through the AOSP host alias 10.0.2.2. Version-
+# matched client+server is strictly better evidence for this smoke than a
+# tunnel that may lag main; the tunnel stays first choice because it also
+# exercises the live deployment and its public edge.
 #
 # Opponent: server/cmd/headless-bot -partner, started here in the background
 # on the runner. It enqueues ONE anonymous seat, waits for the device client
 # to pair with it, and plays legal words with a per-wave grace delay so the
 # client gets cells of its own.
 # ---------------------------------------------------------------------------
-if [ -z "${WORDS_SERVER_URL:-}" ]; then
-  echo "note: WORDS_SERVER_URL is unset - skipping the batch 28b full-match leg"
-  exit 0
-fi
+DIAG_ABS="$(cd "$DIAG" && pwd)"
+LOCAL_SERVER_PID=""
+kill_local_server() {
+  if [ -n "$LOCAL_SERVER_PID" ]; then
+    # `go run` supervises the compiled child; kill the child first, then the
+    # runner, so the port is freed even if signal forwarding is imperfect.
+    pkill -P "$LOCAL_SERVER_PID" >/dev/null 2>&1 || true
+    kill "$LOCAL_SERVER_PID" >/dev/null 2>&1 || true
+  fi
+  LOCAL_SERVER_PID=""
+}
+trap 'kill_local_server' EXIT
 
-echo "--- full match loop (batch 28b) against $WORDS_SERVER_URL ---"
-if ! curl -fsS -m 20 "$WORDS_SERVER_URL/healthz" >/dev/null 2>&1; then
-  echo "INFRA_FAIL: $WORDS_SERVER_URL/healthz is not reachable from the runner"
-  exit 9
+SERVER_SOURCE=""
+CLIENT_URL=""
+PARTNER_ADDR=""
+echo "--- full match server resolution (batch 34D) ---"
+if [ -n "${WORDS_SERVER_URL:-}" ] && curl -fsS -m 20 "$WORDS_SERVER_URL/healthz" >/dev/null 2>&1; then
+  SERVER_SOURCE="configured"
+  CLIENT_URL="$WORDS_SERVER_URL"
+  PARTNER_ADDR="$WORDS_SERVER_URL"
+  echo "configured server is healthy: $WORDS_SERVER_URL"
+else
+  if [ -n "${WORDS_SERVER_URL:-}" ]; then
+    echo "note: configured WORDS_SERVER_URL ($WORDS_SERVER_URL) is NOT reachable from the runner"
+  else
+    echo "note: WORDS_SERVER_URL is unset"
+  fi
+  if ! command -v go >/dev/null 2>&1; then
+    echo "note: no Go toolchain on the runner either - skipping the batch 28b full-match leg"
+    exit 0
+  fi
+  # Build+run the real server binary from this checkout, in-memory storage,
+  # bot seats allowed (the partner declares bot:true since batch 32D).
+  echo "starting a runner-local server from this checkout (log: $DIAG/local-server.log)"
+  ( cd server && WORDARENA_ADDR="127.0.0.1:18080" WORDARENA_ALLOW_BOT_SEATS=true \
+      nohup go run ./cmd/game >"$DIAG_ABS/local-server.log" 2>&1 & \
+      echo $! >"$DIAG_ABS/local-server.pid" ) || true
+  LOCAL_SERVER_PID=$(cat "$DIAG_ABS/local-server.pid" 2>/dev/null || true)
+  healthy=0
+  for _ in $(seq 1 90); do
+    if curl -fsS -m 2 "http://127.0.0.1:18080/healthz" >/dev/null 2>&1; then healthy=1; break; fi
+    sleep 2
+  done
+  if [ "$healthy" != 1 ]; then
+    echo "INFRA_FAIL: the runner-local server never became healthy"
+    tail -20 "$DIAG_ABS/local-server.log" 2>/dev/null || true
+    exit 9
+  fi
+  SERVER_SOURCE="runner-local"
+  CLIENT_URL="http://10.0.2.2:18080"
+  PARTNER_ADDR="http://127.0.0.1:18080"
+  echo "runner-local server is healthy (client will use $CLIENT_URL via the emulator host alias)"
 fi
-echo "origin health ok"
+echo "full-match server: source=$SERVER_SOURCE client=$CLIENT_URL partner=$PARTNER_ADDR"
 
-PARTNER_LOG="$(cd "$DIAG" && pwd)/partner-bot.log"
+PARTNER_LOG="$DIAG_ABS/partner-bot.log"
 PARTNER_PID=""
 if command -v go >/dev/null 2>&1; then
   # Absolute log path: the bot runs from server/ (its go module root) while
   # DIAG is relative to the repository root.
   ( cd server && nohup go run ./cmd/headless-bot -partner -v \
-      -addr "$WORDS_SERVER_URL" -partner-wait 5m -partner-budget 9m \
+      -addr "$PARTNER_ADDR" -partner-wait 5m -partner-budget 9m \
       >"$PARTNER_LOG" 2>&1 & echo $! >"$PARTNER_LOG.pid" ) || true
   # `go run` compiles first, so give the opponent time to reach the queue.
   sleep 45
@@ -618,7 +708,7 @@ fi
 # both through the batch 27B file channel (no typing on a device screen).
 adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
 sleep 2
-printf '%s' "$WORDS_SERVER_URL" >/tmp/server_url.txt
+printf '%s' "$CLIENT_URL" >/tmp/server_url.txt
 printf '1' >/tmp/autoplay.txt
 adb push /tmp/server_url.txt /data/local/tmp/server_url.txt >/dev/null 2>&1 || true
 adb push /tmp/autoplay.txt /data/local/tmp/autoplay.txt >/dev/null 2>&1 || true

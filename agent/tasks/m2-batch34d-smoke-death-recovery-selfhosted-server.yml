@@ -1,0 +1,92 @@
+id: m2-batch34d-smoke-death-recovery-selfhosted-server
+title: "Batch 34D: device smoke - survive the install/launch kill race and make the full-match leg self-contained"
+milestone: M2
+batch: 34D
+type: ci-infra
+status: in_progress
+owner: agent (device smoke leg; no Go/Unity product code touched)
+branch: fix/m2-batch34d-smoke-death-recovery
+files:
+  - tools/android-smoke.sh
+  - .github/workflows/unity-android.yml
+  - agent/tasks/m2-batch34d-smoke-death-recovery-selfhosted-server.yml
+goal: >
+  Fix the two device-smoke failure modes measured on scheduled run 34889290062
+  (2026-09-14 19:50 UTC, API 35 leg, INFRA_FAIL):
+  (1) INSTALL/LAUNCH RACE. `adb install` printed Success while PackageManager
+  post-processing was still running; the app launched, reached
+  "isLoading: false" and "Fully drawn +4s529ms", then the finalization landed
+  ("ApplicationInfo updating for com.jotalbot.words" at +5 s) and the SYSTEM
+  KILLED the live process (onPause -> onDestroy -> Quitting process ->
+  "Process ... has died: fg TOP"); the launcher took the foreground. The
+  pre-swipe focus gate misdiagnosed the corpse as a first-run sheet: 3 rounds
+  of sheet taps + a SystemUI force-stop, all no-ops, INFRA_FAIL.
+  (2) STALE SERVER URL. The full-match leg depends on the Q8 tunnel URL
+  (repo variable WORDS_SERVER_URL); the recorded URL
+  (ireland-placement-dot-inner) is dead, and the GitHub variables API is
+  unreachable with the current PAT (repo + orgs endpoints 404), so the leg
+  would INFRA_FAIL on /healthz even after fixing (1).
+evidence: |-
+  1. Run 34889290062 job 104129445922 log - install 19:57:04.8 Success;
+     launch 19:57:05; focus held 19:57:06.6; fully drawn 19:57:09.2;
+     "ApplicationInfo updating" 19:57:09.729; process died 19:57:10.463;
+     focus lost 19:57:29; sheet taps 19:57:29-41; SystemUI kill;
+     INFRA_FAIL 19:57:46.
+  2. Artifact android-smoke-diagnostics logcat-full.txt - single install;
+     PromiseIcon removal 19:57:07.2 and packageinstaller activity until
+     19:57:09.7 prove finalization was still in flight after launch.
+  3. External check - ireland-placement-dot-inner.trycloudflare.com does not
+     resolve; hour-define-resistant-loan.trycloudflare.com is the live
+     tunnel (readyz postgres ok).
+changes: |-
+  tools/android-smoke.sh:
+  a) Post-install settle (sleep 5, bounded, comment cites run 34889290062)
+     so PackageManager finalization lands before the first launch.
+  b) pre_swipe_focus_gate: liveness check first - if `adb shell pidof $PKG`
+     is empty the app is DEAD, not covered: force-stop, logcat -c, cold
+     `am start -W`, bounded focus wait (60 s), then wait for the NEW
+     session's "isLoading: false" before returning; sheet taps only for a
+     live-but-covered app; distinct INFRA_FAIL text for the dead path.
+  c) Full-match leg self-contained server resolution: configured
+     WORDS_SERVER_URL used when /healthz passes (source=configured);
+     otherwise build+run the SAME-COMMIT server on the runner
+     (WORDARENA_ADDR=127.0.0.1:18080, WORDARENA_ALLOW_BOT_SEATS=true,
+     in-memory storage; go run from server/) and split the URLs - client
+     gets http://10.0.2.2:18080 (AOSP host alias), partner bot gets
+     http://127.0.0.1:18080 (source=runner-local); skip only when neither
+     a reachable server nor a Go toolchain exists; trap-EXIT cleanup kills
+     the `go run` child then parent (order verified locally, port freed).
+  d) Partner bot -addr and the client server_url file now use PARTNER_ADDR
+     / CLIENT_URL respectively.
+  .github/workflows/unity-android.yml: server_url input description and the
+  setup echo updated to the 34D fallback semantics (no behaviour change in
+  the workflow itself; it keeps passing WORDS_SERVER_URL through).
+acceptance:
+  - dispatched device run on this branch passes the swipe legs (no INFRA_FAIL
+    from the install/launch race - prevented by the settle, recovered by the
+    dead-app cold relaunch)
+  - full-match leg runs to WORDS_MATCH_COMPLETE against source=runner-local
+    while the repo variable URL is stale, or source=configured when a
+    dispatch input / repo variable provides a reachable server
+  - gesture legs and the live-but-covered sheet recovery are unchanged for a
+    clean run (no regression)
+  - no product Go/Unity code touched; PR CI green
+validation:
+  - "bash -n tools/android-smoke.sh: clean"
+  - "runner-local server leg rehearsed in the sandbox exactly as scripted: go run ./cmd/game with WORDARENA_ADDR=127.0.0.1:18080 and WORDARENA_ALLOW_BOT_SEATS=true -> /healthz ok in <2s (warm cache); POST /v1/queue mode=1v1 bot=true accepted with is_bot=true; cleanup order (pkill -P child then kill go-run parent) verified to free the port"
+  - "task yaml: python yaml.safe_load + tools/check-task-yaml.py clean; tools/check-repo-hygiene.py 254 checked / 0 failed"
+  - "PENDING: dispatched unity-android run on this branch (device-behaviour proof of the settle + dead-app relaunch)"
+risk: >
+  Low. Device smoke script and workflow docs only - no product code. Worst
+  case is another INFRA_FAIL classification on the device leg, which cannot
+  affect server/client behaviour. The runner-local server binds only
+  127.0.0.1 on an ephemeral GitHub runner and is killed on script exit
+  (trap EXIT); the emulator reaches it through the standard AOSP 10.0.2.2
+  host alias.
+notes: >
+  The version-matched local server is strictly better evidence for THIS
+  smoke (client protocol compatibility) than a tunnel that may lag main; the
+  tunnel remains first choice because it also exercises the live deployment
+  and its public edge. The GitHub variables API is permanently unusable with
+  the current PAT (404 on repo variables and orgs endpoints), which is why
+  the fix is self-containment rather than updating WORDS_SERVER_URL.
