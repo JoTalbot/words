@@ -1,29 +1,60 @@
 project: words
 milestone: M2
 status: >-
-  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13; M2_IN_PROGRESS. The
-  60-player row's ENGINEERING work is now DONE: batches 30A-30F (seat-count
-  agnostic stack), 31A (Q9/Q10 rules), 31B (fan-out encoded once per frame),
-  31C (short-handed lobby start), 32A (state deltas) and 32B (seats on the HTTP
-  surface) are merged. 32A closed the wire-bytes question with a measurement
-  that overturns the assumption behind it: deltas cut the stream ~2x, not 10x
-  (1460 -> 870 B/frame saturated, 1320 -> 600 B/frame typical), because a delta
-  can only save what did not change and about half the entries move between two
-  1 Hz frames at a realistic claim rate. The number that matters is absolute: a
-  60-seat client costs 0.6-0.9 KB/s, ~50 KB/s of aggregate egress for a full
-  lobby, so bandwidth was never the capacity blocker. Interest-scoped snapshots
-  cannot help (every seat needs the whole board and scoreboard). 32B then put
-  `seats` on POST /v1/matches (2..60), with the deployment default deliberately
-  left at 1v1 behind WORDARENA_MAX_SEATS because a 60-seat match through an
-  unauthenticated endpoint is 60 tokens and 60 sockets per request. 32C (PR #44, merged
-  547243f) adds the M2 anti-snowball row as an OPT-IN,
-  deterministic, capped catch-up rule that deliberately does not re-price
-  steals. REMAINING ON THE 60-PLAYER ROW: only the bot-backfill product
-  question (Q5; the shipped default is the human-only short-handed start, so
-  nothing is blocked on it). OPEN OWNER ITEMS: Q8 stage 2 (stable domain), B2
-  (uk dictionary licence).
+  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13; M2_IN_PROGRESS, and the
+  60-player row is now FULLY CLOSED (engineering 32A/32B + policy 32D). Merged
+  2026-09-14: 32A state deltas (11c1ad6), 32B seats on the HTTP surface
+  (229f1bd), 32C opt-in anti-snowball (547243f), 32D bot disclosure / Q5
+  (dbcd8e0). Q5 WAS DECIDED BY THE AGENT on owner delegation: a bot is DECLARED
+  and never inferred, DISCLOSED on every surface permanently, and any match
+  containing one is NEVER rating- or reward-eligible (durable, migration 004).
+  The decision closes backfill NEGATIVELY: under-filled lobbies are never topped
+  up with silent opponents, so the human-only short-handed start from 31C stays
+  the answer to low population. Q9/Q10 were already decided in 31A. OWNER ITEMS:
+  B2 (uk dictionary licence) is CONFIRMED to exist and arrive later - recorded
+  in the register as non-blocking, no engineering work waits on it; Q8 stage 2
+  (stable domain) still waits on a domain from the owner. REMAINING M2 ROWS:
+  first PvE content (unblocked, largest), guild foundation (needs a design
+  note), infrastructure load testing (independent), anti-snowball follow-ups.
 
 completed_tasks:
+  - >-
+    Batch 32D (M2, PR #45, merged dbcd8e0): PRODUCT DECISION Q5, decided by the
+    agent on owner delegation 2026-09-14 and implemented the same day. Three
+    clauses, each chosen because its opposite is a failure no later feature can
+    undo. (1) A bot is DECLARED, never inferred - an absent profile is not
+    bot-ness (anonymous humans, tooling seats and load-test seats all exist), so
+    the server never guesses and can neither insult a human by marking them a
+    bot nor deceive a player by marking a bot human. (2) The declaration is
+    DISCLOSED on every surface, permanently: every seat's snapshot, deltas, the
+    HTTP state view, telemetry, and the finished result; and no request field
+    can CLEAR one, because a declaration only ever adds a disclosure. (3) A
+    match containing a declared bot is NEVER rating- or reward-eligible, and the
+    fact is DURABLE (infra/migrations/004_match_results_bots.sql - bots,
+    bot_present, rating_eligible) because a rating is computed from the stored
+    row possibly days later and after a restart; a flag that lived only in the
+    room would be worthless exactly when it mattered. The decision also closed
+    the backfill question NEGATIVELY rather than deferring it: under-filled
+    lobbies are never topped up with silent opponents, so the human-only
+    short-handed start (31C) remains the answer to low population - a small
+    honest match beats a full dishonest one. Wire: PlayerState.is_bot (proto
+    field 6), carried through snapshots AND deltas (a wire-visible field that
+    could not be delivered would be an invisible correctness hole, so is_bot
+    participates in the change set even though it never actually flips), plus
+    the declaration in Match.Fingerprint so a substituted opponent cannot replay
+    equal. Requests: bot_seats on create and the bot field on enqueue, both
+    gated by WORDARENA_ALLOW_BOT_SEATS (default OFF, refusal names the switch)
+    and validated against the roster; a bot may not bind a human profile. TWO
+    OPERATIONAL CONSEQUENCES, both deliberate: headless-bot now declares itself
+    on EVERY queue call with no suppression flag (the program IS a bot, and an
+    undeclared bot in the queue was the one real masquerade path in the product,
+    so the device-smoke partner now discloses itself to the Unity client instead
+    of bypassing the policy), and a deployment hosting those legs must set
+    WORDARENA_ALLOW_BOT_SEATS=true (docs/M1-OPS.md), which means the exit gate
+    baselines 43:45 / 37:60 / 44:40 remain valid as physics but are now
+    correctly recorded as non-rating-eligible bot matches. 8 new tests including
+    the negatives that matter: no inference, no clearing, no backfill, stock
+    deployment refuses.
   - >-
     Batch 32C (M2, PR #44, branch fa43ec9 rebased on 229f1bd): anti-snowball is
     implemented as an opt-in, deterministic, capped catch-up rule
@@ -1081,45 +1112,50 @@ failed_tasks:
     completed success, so treat 34437012338 as runner/emulator flake unless it recurs
 next_tasks:
   - >-
-    Batch 32C (PR #44) is MERGED at 547243f; the three-batch session (32A 11c1ad6,
-    32B 229f1bd, 32C 547243f) is complete and main is green on all of them.
+    M2 "first PvE content" - now UNBLOCKED and explicitly enabled by Q5: a
+    labelled bot mode is exactly what the disclosure and eligibility rules make
+    safe. The honest first deliverable is a server-driven practice opponent (one
+    human plays alone, no second client and no tooling), deterministic in the
+    sense PD-003 requires - the bot's choice must be a pure function of logged
+    match state and tick - declared is_bot, and therefore non-rating-eligible by
+    construction. Batch 32E.
   - >-
-    M2 "bot strategy and disclosure policy": the POLICY question (may a bot fill
-    an under-filled ranked lobby, and how is it disclosed) is a genuine product
-    decision (Q5) and must not be invented. The MECHANISM is engineering and is
-    unblocked: a per-seat synthetic flag on the wire so a bot can never
-    masquerade, plus a disclosure surface in the result. Do the mechanism only
-    if a policy lands; do not enable backfill on the strength of an assumption.
+    M2 "infrastructure load testing" - independent and unblocked. The 32A
+    measurement supplies the per-connection byte budget (0.6-0.9 KB/s per client
+    at 60 seats) and tick cost is roster-independent per 30F. Run load only
+    against an isolated instance, never the live systemd service.
   - >-
-    M2 "first PvE content": unblocked, no product decision required beyond the
-    existing PvE framing. Largest remaining M2 row.
-  - >-
-    M2 "guild foundation": unblocked but needs a design note first (persistence
-    and identity touch the M2 auth scope).
-  - >-
-    M2 "infrastructure load testing": unblocked and independent. The 32A
-    measurement gives the per-connection byte budget to test against
-    (0.6-0.9 KB/s per client at 60 seats); the tick cost is roster-independent
-    per batch 30F. Run load only against an isolated instance, never the live
-    systemd service.
+    M2 "guild foundation" - unblocked but needs a design note first: it touches
+    persistence and identity, i.e. the M2 auth scope, so it is not a
+    weekend-sized rules change.
   - >-
     Anti-snowball follow-ups (own batches, each needs evidence): leader lock
-    duration, steal economics against a leader, a combo cap, exposing the rule
-    per match on the HTTP surface, and calibrating CatchUpGap/divisor/cap
-    against playtest or simulation rather than a guess.
+    duration, steal economics against a leader, a combo cap, per-match exposure
+    of the rule, and calibration of CatchUpGap/divisor/cap against playtest or
+    simulation rather than a guess.
+  - >-
+    PROTOCOL-VERSION DEBT, newly created by 32A and 32D: the schema now has two
+    additive fields (snapshot_delta, is_bot) and NO version negotiation. An old
+    M1 client is fine today because proto3 skips unknown fields, but a client
+    that needs a delta cannot ask for one and cannot say it cannot apply one.
+    Before any external client ships, add the handshake (a protocol version in
+    the envelope or on the connect path) - recorded here so it is a decision
+    rather than an accident.
   - >-
     Recorded optimization, not scheduled: replace MatchStateSnapshot's
-    lock_remaining_ms countdown with a stable lock start/dispatch field (~27%
-    of the delta). It is a client-contract change, so it needs the M1 client
-    updated in the same batch, not a server-only edit.
+    lock_remaining_ms countdown with a stable lock start/dispatch field (~27% of
+    the delta). It is a client-contract change, so the M1 client moves in the
+    same batch.
   - >-
-    Q8 stage 2 (stable domain, per-IP limits at the edge, /metrics deny) and B2
-    (uk dictionary licence) remain OWNER items - real human blockers, recorded,
-    non-blocking for M2.
+    Q8 stage 2 (stable domain, per-IP limits at the edge, /metrics deny) remains
+    an OWNER item - it needs a domain. B2 (uk dictionary licence) is confirmed
+    to exist and arrive later; nothing waits on it.
   - >-
-    The M1 device leg (Unity Android workflow) still needs the ephemeral
-    quick-tunnel URL refreshed into the repo variable WORDS_SERVER_URL after any
-    tunnel restart, or the 28b full-match leg is skipped.
+    The M1 device leg still needs the ephemeral quick-tunnel URL refreshed into
+    WORDS_SERVER_URL after a tunnel restart, or the 28b full-match leg is
+    skipped. After any promotion of 32D that deployment must also set
+    WORDARENA_ALLOW_BOT_SEATS=true, or the partner's enqueue is refused.
+
 task_graph:
   M1-batch29a-public-exposure:
     status: deployed_and_verified_outside
@@ -1710,8 +1746,6 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: 547243f
-last_verified_commit: "547243f on main (batch 32C). CI + Container smoke green on every merge of this session: 11c1ad6 (32A), 229f1bd (32B) and 547243f (32C), six checks each. Locally on both: go build/vet/gofmt clean, go test ./... 12/12 packages, go test -race ./... 0 races. The LIVE OCI service is UNCHANGED and still runs /opt/words at 97a2414: nothing in this session altered a deployed behaviour (32A adds a transport path used only above two seats, 32B is behind WORDARENA_MAX_SEATS default 2, 32C is off by default), so promotion is a separate decision rather than a correctness requirement."
-resume_from: "M1 COMPLETE (8/8). M2: batches 30A-30F, 31A-31C, 32A and 32B are MERGED; 32C is MERGED. THE 60-PLAYER ROW IS ENGINEERING-COMPLETE. Do NOT re-open: roster plumbing, Q9 (cull 60->40->26, floor 2, ties across the cut line keep everyone), Q10 (board 12 cells at 1v1, two per seat above that, capped at 60, cell i letter-stable so 1v1 is bit-identical), the shared-payload fan-out (31B), the short-handed lobby start (31C), delta snapshots (32A) or the seats parameter (32B). THREE THINGS THIS SESSION ESTABLISHED that a future session must not re-litigate: (1) wire bytes were NEVER the 60-player blocker - a delta can only save what did not change, and at a realistic claim rate half the entries move between two 1 Hz frames, so the honest ceiling is ~2x (1460->870 B/frame saturated, 1320->600 typical) and the absolute cost is 0.6-0.9 KB/s per client, ~50 KB/s for a full lobby; interest-scoped snapshots are useless here because every seat needs the whole board and scoreboard. (2) The seats knob is both a game capability (2..60, client error outside it) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal); do not collapse the two. (3) Anti-snowball is OPT_IN and its bonus must never be folded into a cell's CreditedValue, because CreditedValue is what a steal debits - TestCatchUpDoesNotRepriceSteals pins that. NEXT WORK, in order: (a) merge 32C (PR #44) when green; (b) M2 'bot strategy and disclosure policy' - the POLICY is a genuine product decision (Q5) and must NOT be invented, but a per-seat synthetic flag as the MECHANISM is unblocked; (c) M2 'first PvE content' (largest unblocked row); (d) M2 'guild foundation' (needs a design note first); (e) M2 'infrastructure load testing' (independent; test against the 32A per-client byte budget, never against the live systemd service); (f) anti-snowball follow-ups (leader lock duration, steal economics, combo cap, per-match exposure, calibration) - each is its own batch with evidence. RECORDED BUT NOT SCHEDULED: replacing lock_remaining_ms with a stable lock field is ~27% of the delta but is a client-contract change, so the M1 client must move in the same batch. OPS: the Q8 quick-tunnel URL is EPHEMERAL - refresh the repo variable WORDS_SERVER_URL after any tunnel restart or the scheduled device run silently skips the 28b full-match leg. Q8 stage 2 (stable domain) and B2 (uk dictionary licence) remain OWNER items. RECOVERY: the sandbox home is wiped between turns - git init + remote add + fetch + reset --hard origin/main inside the leftover dir (clone refuses a non-empty dir), re-set git identity (Word Arena Agent / agent@jotalbot.local), re-install Go to /home/user/go-toolchain (protoc 21.12 to /home/user/protoc21 and protoc-gen-go v1.36.5 for proto changes - protoc IS now available, contrary to the older note), chmod 600 the OCI key. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials."
-
-updated_at: "2026-09-14 (M2 batches 32A state deltas, 32B seats on the HTTP surface and 32C anti-snowball all merged; the 60-player row is engineering-complete and its only remaining item is a product decision)"
+last_commit: dbcd8e0
+last_verified_commit: "dbcd8e0 on main (batch 32D). CI + Container smoke green on every merge of this session: 11c1ad6 (32A), 229f1bd (32B), 547243f (32C) and dbcd8e0 (32D), six checks each, including the migration job which now covers migration 004. Locally on all four: go build/vet/gofmt clean, go test ./... 12/12 packages, go test -race ./... 0 races. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 (verified this session: wordarena.service and words-tunnel.service active, /healthz ok, /readyz storage=postgres, NRestarts=0). NOTE FOR THE NEXT PROMOTION: 32D changes what the QA legs must be allowed to do - headless-bot declares itself a bot on every queue call, so a deployment hosting the exit gate or the device smoke must set WORDARENA_ALLOW_BOT_SEATS=true (docs/M1-OPS.md), and the matches those legs produce are now correctly recorded as non-rating-eligible."
+resume_from: "M1 COMPLETE (8/8), M2 IN PROGRESS with the 60-player row FULLY CLOSED (32A and 32B engineering plus 32D policy) and Q5/Q9/Q10 all DECIDED - do NOT re-open any of them. Merged 2026-09-14: 32A state deltas (11c1ad6), 32B seats on the HTTP surface behind WORDARENA_MAX_SEATS default 2 (229f1bd), 32C opt-in anti-snowball (547243f), 32D Q5 bot disclosure (dbcd8e0). FOUR FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, not 10x, because a delta only saves what did not change (roughly half of all entries move between two 1 Hz frames at a realistic claim rate) and the absolute cost is 0.6-0.9 KB/s per client, about 50 KB/s for a full lobby; interest-scoped snapshots are useless here because every seat needs the whole board and the whole scoreboard. (2) The seats knob is both a game capability (2..60, a client error outside it) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; the declaration cannot be cleared by a client; a bot match is never rating-eligible; and the QA legs (headless-bot exit gate and device partner) now declare themselves, so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. NEXT WORK, in order: (a) M2 'first PvE content' - unblocked and enabled by Q5, best done as a server-driven deterministic practice opponent (one human plays alone, the bot's choice a pure function of state and tick, is_bot true, non-rating-eligible by construction); (b) M2 'infrastructure load testing' (independent; use the 32A byte budget; never the live service); (c) M2 'guild foundation' (needs a design note - it touches persistence and identity); (d) anti-snowball follow-ups; (e) PROTOCOL-VERSION DEBT created by 32A and 32D - two additive fields and no version negotiation, fine for the M1 client today but it must be a decision before an external client ships. OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, re-install Go to /home/user/go-toolchain and protoc to /home/user/protoc21 with protoc-gen-go v1.36.5, and USE A FRESH GOMODCACHE (/home/user/go/pkg/mod): the persisted module cache is truncated by the workspace snapshot and produces 'no required module provides package ...' errors that look like a go.mod problem but are not. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
