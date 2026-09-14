@@ -95,9 +95,16 @@ Exit gate: two remote clients can complete repeated matches with identical final
   that scales with the roster (12 cells at 1v1 up to a 6x10 grid, with the
   letter at cell i still a function of (seed, language, wave) alone so the 1v1
   board is bit-identical and a client can render before the lobby fills). Rules
-  in docs/M2-ROYALE-RULES.md. REMAINING before the mode is publicly reachable:
-  delta or interest-scoped snapshots (a 60-seat match sends every subscriber a
-  60-player snapshot), and a lobby policy for an incomplete Royale roster.
+  in docs/M2-ROYALE-RULES.md. Batches 31B and 31C then removed the two
+  operational blockers: broadcast frames are now encoded ONCE per frame rather
+  than once per subscriber (measured ~60x less CPU and allocation on a 60-seat
+  fan-out), and a partial Royale lobby starts short-handed once its
+  longest-waiting player has waited 20 s instead of expiring at the queue TTL.
+  REMAINING before the mode is publicly reachable: delta or interest-scoped
+  snapshots to cut the BYTES on the wire (31B cut CPU, not bandwidth; this
+  needs a proto change, and protoc is unavailable in the dev sandbox), a
+  decision on bot backfill for under-filled lobbies (belongs with the bot
+  disclosure row), and only then a seats parameter on the HTTP surface.
 - [ ] bot strategy and disclosure policy
 - [ ] anti-snowball mechanics
 - [ ] first PvE content

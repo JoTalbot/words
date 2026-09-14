@@ -1,8 +1,40 @@
 project: words
 milestone: M2
 status: >-
-  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13 (shared board UX closed by device run 34782169182: full unattended match, [WORDS_MATCH_COMPLETE] source=result-endpoint, WORDS_ROLLBACK device markers, PARTNER-GATE PASS); M2_OPENED: batch_30a_variable_roster_merged_3817a89; batch_30b_roster_room_merged_65fe595; batch_30c_nway_room_and_matchmaker_merged_e164bd2; batch_30d_nway_e2e_merged_9c088fa_fixed_seat_gt_1_submit_bug; batch_30e_roster_replay_determinism_merged_cef9160; batch_30f_roster_cost_model_merged_52ca1a0; batch_31a_royale_rules_merged_735467d_Q9_Q10_DECIDED_AND_IMPLEMENTED; ROYALE_RULES_COMPLETE_REMAINING_IS_SNAPSHOT_FANOUT; SERVER_STACK_SEAT_COUNT_AGNOSTIC_SIMULATION_TO_ADMISSION; HUMAN_DECISION_NEEDED_elimination_rule_and_royale_board_sizing
+  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13 (shared board UX closed by device run 34782169182: full unattended match, [WORDS_MATCH_COMPLETE] source=result-endpoint, WORDS_ROLLBACK device markers, PARTNER-GATE PASS); M2_OPENED: batch_30a_variable_roster_merged_3817a89; batch_30b_roster_room_merged_65fe595; batch_30c_nway_room_and_matchmaker_merged_e164bd2; batch_30d_nway_e2e_merged_9c088fa_fixed_seat_gt_1_submit_bug; batch_30e_roster_replay_determinism_merged_cef9160; batch_30f_roster_cost_model_merged_52ca1a0; batch_31a_royale_rules_merged_735467d_Q9_Q10_DECIDED_AND_IMPLEMENTED; batch_31b_shared_fanout_merged_d5881f2_60x; batch_31c_lobby_fill_merged_9524588; ROYALE_PLAYABLE_REMAINING_IS_WIRE_BYTES_AND_BOT_BACKFILL; SERVER_STACK_SEAT_COUNT_AGNOSTIC_SIMULATION_TO_ADMISSION; HUMAN_DECISION_NEEDED_elimination_rule_and_royale_board_sizing
 completed_tasks:
+  - >-
+    Batch 31C (M2, PR #41, merged 9524588): a partial Royale lobby now STARTS
+    instead of stalling. A 30- or 60-seat queue cannot assume the whole roster
+    arrives at once, so it would have expired everyone at queueTTL and the mode
+    would never have been playable outside a load test. Once the
+    LONGEST-WAITING player has waited lobbyFillWait (20 s) the lobby starts
+    with whoever is present. Keying off the oldest entry rather than the newest
+    is what bounds an individual player's wait - a trickle of late arrivals
+    would otherwise postpone the start forever. A full roster still starts
+    immediately, a lobby never starts with one player, languages stay isolated,
+    and 1v1 has short-handed starts disabled entirely (fillWait zero), proven
+    by waiting ten times the timeout with one player queued and then confirming
+    normal pairing. Pairing also runs from the server's periodic sweep now:
+    without that the timeout was unreachable in exactly the case it exists for,
+    a lobby that stopped receiving arrivals. Clock is injected, so the 6 new
+    tests are deterministic and sleep-free.
+  - >-
+    Batch 31B (M2, PR #40, merged d5881f2): broadcast frames are encoded ONCE
+    per frame instead of once per subscriber, addressing the fan-out constraint
+    batch 30F identified. A canonical snapshot is byte-for-byte identical for
+    every seat, yet the transport re-rendered and re-marshalled it per
+    connection, multiplying identical work by the roster size. matchroom.
+    SharedPayload is a lazily encoded sync.Once box attached to each frame; all
+    subscribers receive the same pointer, the first writer pays, and the room
+    stays protocol-agnostic (it carries the box, the transport supplies the
+    encoder). MEASURED on a 60-seat fan-out: ~906 us / 8 280 allocs ->
+    ~15 us / 139 allocs, about 60x cheaper, recorded in docs/LOAD-BASELINE.md.
+    Guarded by a RATIO test (>=10x in both time and allocations) so it does not
+    depend on host speed and a revert to per-connection encoding fails CI.
+    Safe under -race with 60 concurrent subscribers; a nil box still encodes.
+    NOTE this cuts CPU and garbage, NOT bandwidth - each subscriber still
+    receives the full snapshot.
   - >-
     Batch 31A (M2, PR #39, merged 735467d): the owner delegated Q9 and Q10 on
     2026-09-14, so both are now DECIDED, documented (docs/M2-ROYALE-RULES.md,
@@ -1565,9 +1597,9 @@ workers:
   - >-
     OCI local LLM qwen2.5 micro-workers available again (load ~6); use only for small deterministic
     drafting tasks with hard timeouts
-last_commit: 735467d
+last_commit: 9524588
 last_verified_commit: "c2add29 on main (pending its Unity build+device run): CI + Container smoke green on every merge of batch 27/28 (9078943, 7179143, 0b4edc2, 7968137, c2add29). Server code unchanged since 97a2414 (verified by diff), so the live OCI service still runs exactly main's server behavior - no promotion needed. LIVE RE-VERIFIED on the systemd service 2026-09-13 ~15:07Z: infra/smoke.sh 27 passed / 0 failed with SMOKE_EXPECT_STORAGE=postgres, headless-bot exit gate 3/3 PASS (seeds 1512/1513/1517, scores 43:45 / 37:60 / 44:40, terminal_snapshots_equal + client_streams_equal all true). Go suite green locally (12/12 packages, sandbox go1.27.1). Unity build of the integrated client: first two integrated attempts failed on our own C# (34763722090: 27B Unity 6 shim; 34764363334: 28a Color32), both fixed (140701b, 1e14264); run c2add29 verifies the build plus the 27A swipe coordinates and the 28c diagonal swipe on a real device."
-resume_from: "M1 COMPLETE (8/8). M2: batches 30A-30F and 31A merged - the 60-player row now has COMPLETE RULES. The server is seat-count agnostic end to end (simulation, room, matchmaker, transport), proven at three layers, cost-characterized, and both product decisions are implemented: Q9 per-wave cull to two thirds of the active roster (60 -> 40 -> 26, floor 2, no culling below 4 seats, ties across the cut line keep everyone, eliminated seats are logged-but-rejected spectators) and Q10 a roster-scaled board (12 cells at 1v1, two per seat above that, capped at a 6x10 grid of 60, with cell i letter-stable across rosters so 1v1 is bit-identical). Rules are written up in docs/M2-ROYALE-RULES.md; the register entries Q9/Q10 are marked DECIDED. Two hidden 1v1 bounds were found and fixed by actually exercising large rosters: seats above 1 could not submit at all (30D, Room.SubmitWithSeq) and could not steal or be stolen from (31A, Seat(1-seat) in the rules engine) - the lesson is that roster changes need an end-to-end leg, not just unit tests one layer up. DO NOT re-open roster plumbing or re-decide Q9/Q10. NEXT WORK, in order: (1) delta or interest-scoped snapshots - the blocking item before Royale can be publicly reachable, since a 60-seat match currently sends every one of 60 subscribers a snapshot containing 60 players and up to 60 cells (see docs/LOAD-BASELINE.md batch 30F for the measurements that justify this); (2) a lobby policy for an incomplete Royale roster - the matchmaker can form an N-player lobby but nothing decides how long it waits or whether bots backfill, which ties into the bot disclosure roadmap row; (3) only then expose a seats parameter on the HTTP surface, which is deliberately still absent. Note protoc is NOT available in the sandbox, so proto changes cannot be regenerated locally - the Royale board needed no proto change because cells and players are already repeated. OPS: the Q8 quick-tunnel URL is EPHEMERAL - repo variable WORDS_SERVER_URL must be refreshed after a tunnel restart or the scheduled device run skips the 28b full-match leg. Q8 stage 2 (stable domain) and B2 (uk dictionary licence) remain owner items. RECOVERY: the sandbox home is wiped between turns - git init + remote add + fetch + reset --hard origin/main inside the leftover dir (clone refuses a non-empty dir), re-set git identity (Word Arena Agent / agent@jotalbot.local), re-download Go to /home/user/go, chmod 600 the OCI key. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials (also gh auth is logged in there as JoTalbot)."
+resume_from: "M1 COMPLETE (8/8). M2: batches 30A-30F and 31A merged - the 60-player row now has COMPLETE RULES. The server is seat-count agnostic end to end (simulation, room, matchmaker, transport), proven at three layers, cost-characterized, and both product decisions are implemented: Q9 per-wave cull to two thirds of the active roster (60 -> 40 -> 26, floor 2, no culling below 4 seats, ties across the cut line keep everyone, eliminated seats are logged-but-rejected spectators) and Q10 a roster-scaled board (12 cells at 1v1, two per seat above that, capped at a 6x10 grid of 60, with cell i letter-stable across rosters so 1v1 is bit-identical). Rules are written up in docs/M2-ROYALE-RULES.md; the register entries Q9/Q10 are marked DECIDED. Two hidden 1v1 bounds were found and fixed by actually exercising large rosters: seats above 1 could not submit at all (30D, Room.SubmitWithSeq) and could not steal or be stolen from (31A, Seat(1-seat) in the rules engine) - the lesson is that roster changes need an end-to-end leg, not just unit tests one layer up. DO NOT re-open roster plumbing or re-decide Q9/Q10. Batches 31B and 31C are ALSO merged and closed the two operational blockers: fan-out is encoded once per frame (~60x cheaper, matchroom.SharedPayload) and a partial lobby starts short-handed after 20 s measured from its oldest entry. NEXT WORK, in order: (1) delta or interest-scoped snapshots to cut the BYTES on the wire - 31B cut CPU and allocation, not bandwidth, and each of 60 subscribers still receives a full 60-player snapshot; this REQUIRES a proto change and protoc is NOT installed in the sandbox, so the generated Go has to be regenerated via CI or on the OCI host (which has the toolchain); (2) bot backfill for under-filled lobbies - still a product question, tied to the bot disclosure roadmap row, so do not invent a policy; (3) only then expose a seats parameter on the HTTP surface, which is deliberately still absent. Note protoc is NOT available in the sandbox, so proto changes cannot be regenerated locally - the Royale board needed no proto change because cells and players are already repeated. OPS: the Q8 quick-tunnel URL is EPHEMERAL - repo variable WORDS_SERVER_URL must be refreshed after a tunnel restart or the scheduled device run skips the 28b full-match leg. Q8 stage 2 (stable domain) and B2 (uk dictionary licence) remain owner items. RECOVERY: the sandbox home is wiped between turns - git init + remote add + fetch + reset --hard origin/main inside the leftover dir (clone refuses a non-empty dir), re-set git identity (Word Arena Agent / agent@jotalbot.local), re-download Go to /home/user/go, chmod 600 the OCI key. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials (also gh auth is logged in there as JoTalbot)."
 
 
 
@@ -1575,4 +1607,4 @@ resume_from: "M1 COMPLETE (8/8). M2: batches 30A-30F and 31A merged - the 60-pla
 
 
 
-updated_at: "2026-09-14 (M2 batch 31A merged: Q9 elimination and Q10 board sizing decided and implemented; Royale RULES are complete, remaining work is snapshot fan-out and lobby policy)"
+updated_at: "2026-09-14 (M2 batches 31B and 31C merged: fan-out encoded once per frame ~60x, and partial Royale lobbies start short-handed; remaining is wire bytes via a proto change, and the bot-backfill product question)"
