@@ -1,0 +1,64 @@
+id: M2-batch31c-lobby-fill
+title: Short-handed Royale lobby starts so a partial roster is not stuck
+owner: gameplay-core
+priority: high
+complexity: medium
+status: in_review
+risk: medium
+escalation: none
+
+inputs:
+  - M2-batch30c-nway-room-matchmaker (newMatchmakerWithSeats)
+  - M2-batch31a-royale-rules
+  - server/cmd/game/matchmaking.go, server/cmd/game/api.go
+
+outputs:
+  - server/cmd/game/matchmaking.go (lobbyFillWait, fillWait, injectable clock, shortHandedSizeLocked, tryFormLobbies)
+  - server/cmd/game/api.go (queueRoomFactory; the periodic sweep attempts lobby formation)
+  - server/cmd/game/lobby_fill_test.go (new, 6 tests)
+  - docs/M2-ROYALE-RULES.md (lobby formation section)
+
+acceptance:
+  - >-
+    A Royale lobby no longer requires the whole roster to queue at once. Once
+    the LONGEST-WAITING player has waited lobbyFillWait (20 s), the lobby starts
+    with whoever is present. Without this a 30- or 60-seat queue would simply
+    expire everyone at queueTTL and the mode would never be playable outside a
+    load test.
+  - >-
+    The wait is measured from the oldest entry, not the newest, which is what
+    bounds an individual player's wait: keying off the newest arrival would let
+    a trickle of joins postpone the start indefinitely. Asserted directly.
+  - >-
+    A FULL roster still starts immediately - the timeout applies only to a
+    partial one - and a lobby never starts with a single player.
+  - >-
+    1v1 IS UNTOUCHED: short-handed starts are disabled for a two-seat
+    matchmaker (fillWait is zero), asserted by a test that waits ten times the
+    timeout with one player queued and then confirms normal pairing still works
+    when the opponent arrives.
+  - >-
+    Pairing is attempted both on enqueue AND from the server's periodic sweep.
+    Without the sweep the timeout would be unreachable in exactly the case it
+    exists for - a lobby that stopped receiving arrivals - because pairing only
+    ever ran on enqueue.
+  - >-
+    Queues stay isolated per language, and the fill timeout is tested with an
+    injected clock rather than sleeps, so the suite stays fast and
+    deterministic.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./cmd/game ./internal/matchroom : ok"
+
+file_ownership:
+  - server/cmd/game/matchmaking.go
+  - server/cmd/game/api.go
+  - server/cmd/game/lobby_fill_test.go
+  - docs/M2-ROYALE-RULES.md
+
+notes: >-
+  Human-only fallback by design. Whether an under-filled lobby is topped up
+  with BOTS remains open and belongs with the bot disclosure roadmap row; this
+  batch makes the mode playable without needing that answer.
