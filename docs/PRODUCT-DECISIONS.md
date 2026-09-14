@@ -40,10 +40,76 @@ Do not use a client-provided timestamp as competitive authority. The server shou
 Trajectory heuristics should be treated as risk signals, not proof. False-positive cost is high. Automatic isolation should require multiple independent signals and preferably a review/reversal path.
 
 ### Q5 — Simulated players
-Bots should not silently impersonate human players in ranked competition. Their use needs an explicit product policy, especially for ratings, rewards and player disclosure.
+
+**Status: DECIDED 2026-09-14 (owner delegated the choice to the agent).**
+**Implemented in M2 batch 32D** — see `docs/M2-BOT-POLICY.md` for the design
+note, the wire contract and the tests.
+
+The original framing: bots should not silently impersonate human players in
+ranked competition; their use needs an explicit policy covering ratings,
+rewards and disclosure. The decision resolves it in three clauses, each chosen
+because its opposite is a product failure that no later feature can undo:
+
+1. **A bot is DECLARED, never inferred.** A seat is played by a simulated
+   player only when the server was told so, explicitly and at the seat level.
+   "No profile" is *not* bot-ness: anonymous humans, tooling seats and
+   load-test seats all exist and are not bots. Consequence: the server never
+   guesses, so it can never mislabel a human as a bot (insulting and
+   stats-corrupting) or a bot as a human (the masquerade Q5 forbids).
+
+2. **The declaration is DISCLOSED on every surface, permanently.** A declared
+   bot is marked in every snapshot every seat receives (and in deltas, in the
+   debug state view, in telemetry, and in the finished result). Disclosure is
+   not a client's rendering choice: the client cannot clear the flag, because
+   there is no request field that clears it — a declaration only ever *adds* a
+   disclosure. Consequence: a player can always know whether they played a
+   person.
+
+3. **A match that involved a bot is never rating- or reward-eligible.** The
+   authoritative result carries the bot seats, a `bot_present` flag and
+   `rating_eligible`. Ratings and rewards do not exist yet (M3), so this is
+   the rule made *enforceable now*: the disqualifying fact is in the durable
+   row, not in someone's memory of which queue the match came from. The main
+   abuse path this closes is farming: a rating that can be gained against a
+   bot is not a rating.
+
+Consequences that follow and are NOT open questions:
+
+- **Under-filled lobbies are never topped up with silent opponents.** The
+  human-only short-handed start from batch 31C stays the answer to low
+  population: a small honest match beats a full dishonest one. The server
+  never *creates* a bot to fill a seat.
+- **Bots that a client operates must declare themselves.** The QA/device path
+  (`headless-bot -partner`, the M1 device smoke) joins through the queue, so
+  the declaration is part of that call. This makes an existing flow
+  policy-compliant rather than leaving the one real masquerade path in the
+  product.
+- **Declaring seats is gated per deployment** (`WORDARENA_ALLOW_BOT_SEATS`,
+  default off): it is a QA/practice capability, not something an arbitrary
+  caller asserts about a match.
+- **A bot may not bind a human's profile.** A bot accruing a human's lifetime
+  stats is the same abuse in a different shape, and the combination is refused
+  rather than half-honoured.
+
+What this decision does NOT settle (and should not be read as settling):
+whether a *labelled* bot mode (practice, casual, or an explicitly bot-filled
+non-ranked lobby) should exist, whether bots get their own rating pool, and
+what a bot's in-match difficulty should be. Those are feature decisions that
+the disclosure and eligibility rules above make *safe to take later*.
+
 
 ### Q6 — Cross-language LPI
 The proposed LPI needs empirical calibration against actual dictionaries/corpora. A formula based only on mean word length, alphabet size and frequency can create unintended advantages. Validate with simulation before tying rewards to it.
+
+### B2 — uk dictionary licence (owner item, 2026-09-14)
+
+The owner confirmed the uk dictionary licence exists and will be provided
+later. Recorded so it stops being tracked as a blocker for M2/M3: the
+development snapshot in `dictionary/` stays as-is (it is canonical-locked by
+test, so no code depends on its size), and swapping in the licensed corpus is a
+data update that the versioned-snapshot design (PD-004) already supports. No
+engineering work is waiting on it; the only rule is that the licensed data must
+not be committed before it arrives, which is already true.
 
 ### Q7 — Soft-launch geography
 The proposed Poland/Canada/Australia cohort should be treated as a hypothesis. Region selection should consider payment support, language coverage, UA costs, platform review requirements and legal/privacy readiness.

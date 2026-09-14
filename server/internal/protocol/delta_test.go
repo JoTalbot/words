@@ -392,6 +392,10 @@ func TestDeltaDetectsEveryVisibleChange(t *testing.T) {
 		{"cell owner", func(s *match.Snapshot) { s.Cells[0].OwnerSeat = 3 }, 0, 1},
 		{"cell lock", func(s *match.Snapshot) { s.Cells[0].IsLocked = !s.Cells[0].IsLocked }, 0, 1},
 		{"cell lock remaining", func(s *match.Snapshot) { s.Cells[0].LockRemainingMs++ }, 0, 1},
+		// Q5 bot disclosure is wire-visible, so a change to it must reach a
+		// receiver. It is fixed at match construction in practice, which is
+		// exactly why an omission here would be invisible rather than loud.
+		{"bot disclosure", func(s *match.Snapshot) { s.Players[0].IsBot = !s.Players[0].IsBot }, 1, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

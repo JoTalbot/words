@@ -422,10 +422,24 @@ type queueEntryView struct {
 	Seed    uint64 `json:"seed"`
 	Token   string `json:"token"`
 	UserID  uint64 `json:"user_id"`
+	// IsBot echoes the declaration. A run that received false here was served
+	// by a deployment that did not record it, which is worth failing loudly
+	// over rather than discovering from a rating later.
+	IsBot bool `json:"is_bot"`
 }
 
+// queueEnqueue enqueues this bot and DECLARES it a bot (M2 batch 32D, Q5).
+//
+// The declaration is not optional and there is no flag to suppress it: this
+// program is a simulated player, and a simulated player that joins without
+// saying so is exactly the impersonation Q5 forbids. The consequence is
+// operational and deliberate - a deployment that hosts a bot-driven leg
+// (the exit gate, the device-smoke partner) must set
+// WORDARENA_ALLOW_BOT_SEATS=true, and the matches it produces are recorded as
+// bot matches and are not rating-eligible. That is the honest description of
+// what these runs are.
 func queueEnqueue(addr, lang string) (queueEntryView, error) {
-	body := fmt.Sprintf(`{"language":%q}`, lang)
+	body := fmt.Sprintf(`{"language":%q,"bot":true}`, lang)
 	resp, err := http.Post(addr+"/v1/queue", "application/json", strings.NewReader(body))
 	if err != nil {
 		return queueEntryView{}, err

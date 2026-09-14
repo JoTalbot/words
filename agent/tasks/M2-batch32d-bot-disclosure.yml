@@ -1,0 +1,77 @@
+id: M2-batch32d-bot-disclosure
+title: >-
+  Q5 decided and implemented - declared simulated players, disclosed everywhere,
+  never rating eligible
+owner: orchestrator (gameplay/product lane, decision delegated by the owner)
+priority: critical
+complexity: large
+status: merged_green
+inputs:
+  - docs/PRODUCT-DECISIONS.md Q5 (bots must not silently impersonate humans)
+  - docs/ROADMAP.md M2 row "bot strategy and disclosure policy"
+  - docs/M2-ROYALE-RULES.md (the short-handed start that replaces backfill)
+  - server/cmd/game/matchmaking.go (the queue the headless partner joins)
+  - server/cmd/game/store_pg.go + infra/migrations (durable result row)
+dependencies:
+  - M2-batch31c-lobby-fill
+  - M2-batch32b-seats-parameter
+outputs:
+  - docs/M2-BOT-POLICY.md - the design note
+  - docs/PRODUCT-DECISIONS.md - Q5 DECIDED with the three clauses
+  - proto/wordarena/v1/match.proto - PlayerState.is_bot (field 6)
+  - server/internal/match - PlayerState.IsBot, PlayerView.IsBot,
+    Config.BotSeats, Match.BotSeats/HasBot, fingerprint participation
+  - server/internal/matchroom - Config.BotSeats, Room.BotSeats/HasBot
+  - server/internal/protocol - disclosure through snapshots, deltas and the
+    change-set comparison
+  - server/cmd/game - bot_seats on create (gated), bot on enqueue (gated),
+    bots/bot_present/rating_eligible in the result, is_bot in the state view,
+    bot seats in telemetry
+  - infra/migrations/004_match_results_bots.sql + pgSchema + read/write paths
+  - server/cmd/game/botpolicy_test.go, server/internal/match/botseats_test.go,
+    protocol delta coverage
+acceptance:
+  - A seat is a bot only because the server was told so; no code path infers
+    bot-ness from a missing profile, an anonymous seat or an absent token.
+  - Every observer of a match sees the declaration, on every surface a client
+    can read - anchor snapshot, periodic snapshots, deltas, the HTTP state view,
+    telemetry and the finished result - and no request field can clear it.
+  - A match containing a declared bot is recorded as rating-ineligible, durably,
+    so a future rating or reward job can exclude it with one predicate.
+  - The server never creates a bot to fill a lobby; a human lobby pairs into a
+    bot-free match and an under-filled Royale lobby starts short-handed.
+  - A bot may not bind a human profile, and declaring bot seats is off by
+    default with a refusal that names the deployment switch.
+  - The declaration is part of Match.Fingerprint, so a substituted opponent
+    cannot replay equal.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./cmd/game/ -run 'Bot|Queue' -v
+  - cd server && go test ./internal/match/ ./internal/protocol/ ./internal/matchroom/ -v
+  - cd server && go test ./cmd/migrate/ (baseline-schema drift gate over 004)
+  - cd server && go test ./... && go test -race ./...
+file_ownership:
+  - docs/M2-BOT-POLICY.md, docs/PRODUCT-DECISIONS.md, docs/WIRE-PROTOCOL.md,
+    docs/ROADMAP.md
+  - proto/**, server/gen/**
+  - server/internal/match/**, server/internal/matchroom/room.go,
+    server/internal/protocol/**
+  - server/cmd/game/**
+  - infra/migrations/004_match_results_bots.sql
+risk: medium
+escalation: none
+notes: >-
+  The owner delegated this decision on 2026-09-14 and it is recorded as decided
+  rather than as a recommendation, because the three clauses each protect
+  against a failure no later feature can undo: a mislabelled human, a bot that
+  can pass for one, and a rating farmable against bots. Two choices are worth
+  naming. First, the policy decides AGAINST backfill rather than deferring it:
+  the answer to an under-filled lobby is the short-handed start that already
+  ships (31C), which keeps the 60-player row honest instead of papering over
+  population with invented opponents. Second, the disclosure is durable (a
+  migration, not a flag in memory) because its whole purpose is to be read by a
+  rating job that runs later, possibly in another process, possibly after a
+  restart; a fact that only exists while the room is alive could not do that job
+  on the one day it matters. The batch also made the existing QA/device flow
+  policy-compliant: the headless partner now declares itself at the queue, so
+  the device leg exercises disclosure instead of bypassing it.

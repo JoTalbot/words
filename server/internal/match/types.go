@@ -119,6 +119,13 @@ type PlayerState struct {
 	// culled, or -1 while it is still playing (Q9). Elimination is a pure
 	// function of logged state at a wave boundary, so it replays exactly.
 	EliminatedAtWave int
+	// IsBot marks a seat the server declared to be played by a simulated
+	// player (M2 batch 32D, Q5). It is set once at construction from an
+	// explicit declaration and never inferred: an anonymous human seat and a
+	// tooling seat are not bots. Because it is part of the canonical state it
+	// is hashed into Fingerprint, so a seat that declared itself a bot cannot
+	// replay equal to one that did not.
+	IsBot bool
 }
 
 // Event is one immutable log record (accepted or rejected intent).
@@ -168,6 +175,10 @@ type PlayerView struct {
 	IsEliminated bool
 	Combo        int
 	ComboMult    float64
+	// IsBot discloses a simulated seat to every observer (Q5). It is part of
+	// the public view on purpose: disclosure that a client could forget to
+	// render would not be disclosure.
+	IsBot bool
 }
 
 // CellView is the client-facing cell state.
@@ -202,6 +213,13 @@ type Config struct {
 	// AntiSnowball enables the opt-in catch-up rule (docs/M2-ANTI-SNOWBALL.md).
 	// Default false: M0 behaviour, existing baselines and replays unchanged.
 	AntiSnowball bool
+	// BotSeats declares which seats are played by simulated players, indexed
+	// by seat (M2 batch 32D, Q5). Nil or short means "no declaration", so the
+	// zero value keeps every existing caller bot-free. A declaration is the
+	// ONLY way a seat becomes a bot: nothing in the server infers bot-ness
+	// from an absent profile, and a position that is true here is disclosed
+	// to every seat, in the state view and in the finished result.
+	BotSeats []bool
 }
 
 // WordValidator is the dictionary capability the match needs.

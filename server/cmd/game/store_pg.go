@@ -65,7 +65,15 @@ CREATE TABLE IF NOT EXISTS match_results (
     -- Nullable: rows written before migration 003 have neither, and the service
     -- refuses a capability-gated read of such a row rather than inventing one.
     match_code      TEXT,
-    read_capability TEXT
+    read_capability TEXT,
+    -- Simulated-player disclosure (M2 batch 32D, Q5). bot_present is the
+    -- cheapest possible form of the fact, so a future rating or reward job can
+    -- exclude bot matches with one predicate instead of parsing JSON; bots
+    -- carries the seats themselves for audit. Rows written before migration
+    -- 004 default to no bots, which is the correct reading: those matches were
+    -- created before a bot could be declared at all.
+    bot_present     BOOLEAN NOT NULL DEFAULT false,
+    bots            JSONB   NOT NULL DEFAULT '[]'::jsonb
 );
 `
 
@@ -164,7 +172,8 @@ type pgResultStore struct {
 // rather than an empty value.
 const resultColumns = `match_id::text, seed::text, language, over, winner_seat, is_tie,
        score0, score1, state_version, server_tick, events, recorded_at,
-       COALESCE(match_code, ''), COALESCE(read_capability, '')`
+       COALESCE(match_code, ''), COALESCE(read_capability, ''),
+       bot_present, COALESCE(bots::text, '[]')`
 
 // scanResult reads the resultColumns projection. Every field the caller cares
 // about is filled here so the two read paths stay identical by construction.
@@ -172,10 +181,17 @@ func scanResult(row *sql.Row) (matchResult, []byte, error) {
 	var res matchResult
 	var rawID, rawSeed string
 	var evJSON []byte
+	var rawBots string
 	err := row.Scan(
 		&rawID, &rawSeed, &res.Language, &res.Over, &res.WinnerSeat,
 		&res.IsTie, &res.Scores[0], &res.Scores[1], &res.StateVer,
-		&res.ServerTick, &evJSON, &res.recordedAt, &res.Code, &res.ReadCap)
+		&res.ServerTick, &evJSON, &res.recordedAt, &res.Code, &res.ReadCap,
+		&res.BotPresent, &rawBots)
+	if err == nil && rawBots != "" {
+		if jerr := json.Unmarshal([]byte(rawBots), &res.Bots); jerr != nil {
+			return matchResult{}, nil, fmt.Errorf("postgres: bots column is not JSON: %w", jerr)
+		}
+	}
 	if err != nil {
 		return matchResult{}, nil, err
 	}
@@ -193,20 +209,24 @@ func (p *pgResultStore) Put(res matchResult) error {
 	if err != nil {
 		return fmt.Errorf("postgres: marshal events: %w", err)
 	}
+	botJSON, err := json.Marshal(res.Bots)
+	if err != nil {
+		return fmt.Errorf("postgres: marshal bots: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO match_results
 			(match_id, seed, language, over, winner_seat, is_tie,
 			 score0, score1, state_version, server_tick, events, recorded_at,
-			 match_code, read_capability)
+			 match_code, read_capability, bot_present, bots)
 		VALUES ($1::numeric,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-		        NULLIF($13, ''), NULLIF($14, ''))
+		        NULLIF($13, ''), NULLIF($14, ''), $15, $16::jsonb)
 		ON CONFLICT (match_id) DO NOTHING`,
 		u64Param(res.MatchID), u64Param(res.Seed), res.Language, res.Over,
 		res.WinnerSeat, res.IsTie,
 		res.Scores[0], res.Scores[1], res.StateVer, res.ServerTick, evJSON,
-		res.recordedAt, res.Code, res.ReadCap); err != nil {
+		res.recordedAt, res.Code, res.ReadCap, res.BotPresent, botJSON); err != nil {
 		return fmt.Errorf("postgres: put result: %w", err)
 	}
 	return nil

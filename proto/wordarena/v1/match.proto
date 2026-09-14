@@ -72,6 +72,13 @@ message PlayerState {
   uint32 rank_position = 3;
   bool is_eliminated = 4;
   float combo_multiplier = 5;
+  // is_bot marks a seat the SERVER has declared to be played by a simulated
+  // player (M2 batch 32D, product decision Q5). It is set only from an
+  // explicit server-side declaration - never inferred from a missing profile,
+  // never sent by a client - and it is delivered to every observer, so a bot
+  // can never pass for a human in a snapshot, in the HTTP state view or in the
+  // finished result. See docs/M2-BOT-POLICY.md.
+  bool is_bot = 6;
 }
 
 // MatchStateDelta is the bandwidth-shaped spelling of MatchStateSnapshot

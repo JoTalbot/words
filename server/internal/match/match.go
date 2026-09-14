@@ -72,6 +72,12 @@ func New(cfg Config) (*Match, error) {
 	m.players = make([]PlayerState, seats)
 	for i := range m.players {
 		m.players[i].Seat = Seat(i)
+		// Q5: bot-ness is declared, never inferred. A declaration beyond the
+		// roster is ignored rather than panicking, so a caller that supplies a
+		// longer slice than it has seats cannot take the service down.
+		if i < len(cfg.BotSeats) {
+			m.players[i].IsBot = cfg.BotSeats[i]
+		}
 	}
 	m.boardCells = BoardCells(seats)
 	m.cells = generateWave(cfg.Seed, cfg.Lang, 0, m.boardCells)
@@ -131,6 +137,32 @@ func (m *Match) Players() []PlayerState { return m.players }
 
 // Seats returns the roster size of this match (2 for the 1v1 modes).
 func (m *Match) Seats() int { return len(m.players) }
+
+// BotSeats returns the seats this match declared to be simulated players, in
+// seat order (Q5). It is derived from the canonical player state rather than
+// from the config that built it, so it stays correct for a replayed or
+// restored match.
+func (m *Match) BotSeats() []int {
+	var out []int
+	for i := range m.players {
+		if m.players[i].IsBot {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// HasBot reports whether any seat of this match is a declared simulated
+// player. A match that contains one is not rating- or reward-eligible
+// (docs/M2-BOT-POLICY.md).
+func (m *Match) HasBot() bool {
+	for i := range m.players {
+		if m.players[i].IsBot {
+			return true
+		}
+	}
+	return false
+}
 
 // Combo returns current combo count for a seat.
 func (m *Match) Combo(s Seat) int { return m.players[s].Combo }
@@ -504,6 +536,7 @@ func (m *Match) Snapshot() Snapshot {
 			IsEliminated: p.EliminatedAtWave >= 0,
 			Combo:        p.Combo,
 			ComboMult:    comboMultOf(p),
+			IsBot:        p.IsBot,
 		}
 	}
 	for _, c := range m.cells {
@@ -581,6 +614,16 @@ func (m *Match) Fingerprint() string {
 	// seats must not compare equal (Q9).
 	for _, p := range m.players {
 		h.addI64(int64(p.EliminatedAtWave))
+	}
+	// Bot disclosure is part of the canonical record (Q5): a replay in which a
+	// seat was a bot must not compare equal to one in which it was not, or a
+	// silently substituted opponent could replay as the same match.
+	for _, p := range m.players {
+		if p.IsBot {
+			h.addI64(1)
+		} else {
+			h.addI64(0)
+		}
 	}
 	for _, c := range m.cells {
 		h.addByte(byte(c.Letter))

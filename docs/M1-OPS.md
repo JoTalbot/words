@@ -181,3 +181,27 @@ decision) awaits the owner-provided domain.
 - Public exposure is the Q8 stage-1 quick tunnel above (ephemeral URL).
 - Single process; no horizontal scale-out yet (M1 scope; see
   docs/M1-ARCH-PREP.md).
+
+## Promotion note: WORDARENA_ALLOW_BOT_SEATS (M2 batch 32D, 2026-09-14)
+
+The built-in QA legs are bot-driven and now declare themselves (product
+decision Q5, `docs/M2-BOT-POLICY.md`): `headless-bot -via-queue` enqueues both
+seats as bots, and the device-smoke partner enqueues itself as a bot. A
+deployment that hosts either must therefore set:
+
+```
+WORDARENA_ALLOW_BOT_SEATS=true
+```
+
+Without it the enqueue is refused with a message naming the switch, so the
+failure is immediate and self-explanatory rather than silent. A production
+deployment should leave it unset (the default), because the capability exists
+for QA and practice, not for arbitrary callers.
+
+Two consequences worth knowing before a promotion:
+
+- Matches created by those legs are recorded as bot matches with
+  `rating_eligible=false`. This is correct and intended: they were played by a
+  bot. The exit-gate baselines remain valid as a physics regression, but they
+  are no longer mistakable for ranked results.
+- `infra/smoke.sh` does not enqueue, so it is unaffected.

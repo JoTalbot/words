@@ -70,7 +70,13 @@ func playerChanged(a, b match.PlayerView) bool {
 	return a.Score != b.Score ||
 		a.RankPosition != b.RankPosition ||
 		a.IsEliminated != b.IsEliminated ||
-		a.ComboMult != b.ComboMult
+		a.ComboMult != b.ComboMult ||
+		// Bot disclosure is wire-visible, so a receiver that is told about it
+		// must be able to receive the change. In practice the declaration is
+		// fixed at match construction and never flips, which is exactly why
+		// leaving it out would have been an invisible correctness hole rather
+		// than an optimisation.
+		a.IsBot != b.IsBot
 }
 
 func cellChanged(a, b match.CellView) bool {

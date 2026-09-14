@@ -113,6 +113,13 @@ type API struct {
 	// trustProxy enables X-Forwarded-For based caller identity. It must only
 	// be set when the service sits behind a proxy that overwrites the header.
 	trustProxy bool
+	// allowBotSeats permits a caller to DECLARE seats as simulated players
+	// (M2 batch 32D, Q5). Default false: declaring a bot is a QA/tooling and
+	// practice capability, not something an arbitrary caller should be able to
+	// assert about a match. It cannot be used to hide a human either - the
+	// declaration only ever ADDS a disclosure, and no request field can clear
+	// one. See docs/M2-BOT-POLICY.md.
+	allowBotSeats bool
 	// maxSeats caps the roster size a client may request through
 	// POST /v1/matches. Batch 32B: the Royale roster path exists and is
 	// tested, but a 60-seat match created through an unauthenticated endpoint
@@ -158,6 +165,20 @@ type matchResult struct {
 	StateVer   int           `json:"state_version"`
 	ServerTick int           `json:"server_tick"`
 	Events     []replayEvent `json:"events,omitempty"`
+
+	// Bots lists the seats played by declared simulated players, and
+	// BotPresent is the same fact in the cheapest possible form
+	// (M2 batch 32D, Q5). They are recorded in the authoritative result, not
+	// only in the live stream, because the disclosure has to outlive the room:
+	// a rating or a reward is computed from this row, possibly days later.
+	Bots       []int `json:"bots,omitempty"`
+	BotPresent bool  `json:"bot_present"`
+	// RatingEligible is false for any match that involved a declared bot.
+	// Ratings and rewards do not exist yet (M3), so this field is the rule
+	// made enforceable now instead of a promise: when they arrive, the
+	// disqualifying fact is already in the durable row rather than in
+	// somebody's memory of which queue a match came from.
+	RatingEligible bool `json:"rating_eligible"`
 
 	// Code is the unguessable 128-bit handle clients present instead of the
 	// sequential match id (docs/SECURITY-REVIEW-M1.md S-2). Safe to echo:
@@ -264,6 +285,7 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		trustProxy:        envBool("WORDARENA_TRUST_PROXY_HEADERS", false),
 		allowExplicitSeed: envBool("WORDARENA_ALLOW_EXPLICIT_SEED", true),
 		maxSeats:          envInt("WORDARENA_MAX_SEATS", match.MinSeats),
+		allowBotSeats:     envBool("WORDARENA_ALLOW_BOT_SEATS", false),
 		maxBodyBytes:      int64(envInt("WORDARENA_MAX_BODY_BYTES", 16<<10)),
 	}
 	go a.runReaper()
@@ -448,6 +470,10 @@ type createMatchRequest struct {
 	// bounded by match.MaxSeats and, more tightly, by the deployment's own
 	// WORDARENA_MAX_SEATS - see API.maxSeats for why the default is 2.
 	Seats int `json:"seats,omitempty"`
+	// BotSeats declares seats played by simulated players (M2 batch 32D, Q5).
+	// Gated by WORDARENA_ALLOW_BOT_SEATS (default false). Only a declaration
+	// can make a seat a bot; there is no field that makes one stop being one.
+	BotSeats []int `json:"bot_seats,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
@@ -663,11 +689,15 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	botSeats, ok := a.resolveBotSeats(w, req.BotSeats, seats)
+	if !ok {
+		return
+	}
 	var pids []uint64
 	if req.PlayerIDs != nil {
 		pids = []uint64{req.PlayerIDs[0], req.PlayerIDs[1]}
 	}
-	info, err := a.createRoomN(lang, req.Seed, pids, seats, req.SuddenDeath)
+	info, err := a.createRoomNBots(lang, req.Seed, pids, botSeats, seats, req.SuddenDeath)
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
@@ -712,6 +742,40 @@ func (a *API) createRoom(lang string, seed *uint64, playerIDs *[2]uint64, sudden
 		info.Access, nil
 }
 
+// resolveBotSeats validates a caller's simulated-player declaration and turns
+// it into the seat-indexed form the domain wants (M2 batch 32D, Q5).
+//
+// Three rules, each of which is a way the feature could otherwise be misused:
+// the deployment has to offer the capability at all; a declared seat has to
+// exist in the roster being created; and duplicate declarations are refused
+// rather than silently deduplicated, because a caller that says the same seat
+// twice has a bug and should hear about it. It reports the HTTP error itself
+// and returns ok=false when the request must not proceed.
+func (a *API) resolveBotSeats(w http.ResponseWriter, declared []int, seats int) ([]bool, bool) {
+	if len(declared) == 0 {
+		return nil, true
+	}
+	if !a.allowBotSeats {
+		httpError(w, http.StatusBadRequest, "declaring bot seats is not enabled on this deployment (WORDARENA_ALLOW_BOT_SEATS)")
+		return nil, false
+	}
+	out := make([]bool, seats)
+	seen := make(map[int]bool, len(declared))
+	for _, seat := range declared {
+		if seat < 0 || seat >= seats {
+			httpError(w, http.StatusBadRequest, fmt.Sprintf("bot seat %d is outside the %d-seat roster", seat, seats))
+			return nil, false
+		}
+		if seen[seat] {
+			httpError(w, http.StatusBadRequest, fmt.Sprintf("bot seat %d is declared twice", seat))
+			return nil, false
+		}
+		seen[seat] = true
+		out[seat] = true
+	}
+	return out, true
+}
+
 // roomInfo is the join info of a freshly provisioned room, for any roster
 // size. Tokens and UserIDs are indexed by seat.
 type roomInfo struct {
@@ -720,6 +784,12 @@ type roomInfo struct {
 	Tokens  []string
 	UserIDs []uint64
 	Access  matchAccess
+	// BotSeats carries the simulated-player declaration that created this
+	// room (Q5). It is part of the join info so a caller - the matchmaker, a
+	// test, a practice-mode client - can disclose it without going back to
+	// the room, and so the queue can refuse to hand a bot seat a human seat's
+	// credential expectations.
+	BotSeats []int
 }
 
 // createRoomN provisions a room with `seats` seats. playerIDs, when
@@ -727,6 +797,17 @@ type roomInfo struct {
 // leaves that seat synthetic). seats must be within the simulation's bounds;
 // anything else is rejected before allocating.
 func (a *API) createRoomN(lang string, seed *uint64, playerIDs []uint64, seats int, suddenDeath bool) (roomInfo, error) {
+	return a.createRoomNBots(lang, seed, playerIDs, nil, seats, suddenDeath)
+}
+
+// createRoomNBots is the roster-shaped provisioner with an explicit
+// simulated-player declaration (M2 batch 32D, Q5). createRoomN is its
+// no-bots spelling, so there is still exactly one provisioning path and no
+// existing caller changed.
+func (a *API) createRoomNBots(lang string, seed *uint64, playerIDs []uint64, botSeats []bool, seats int, suddenDeath bool) (roomInfo, error) {
+	if len(botSeats) > seats {
+		return roomInfo{}, fmt.Errorf("bot_seats has %d entries for %d seats", len(botSeats), seats)
+	}
 	if seats < match.MinSeats || seats > match.MaxSeats {
 		return roomInfo{}, fmt.Errorf("seats %d out of range [%d,%d]", seats, match.MinSeats, match.MaxSeats)
 	}
@@ -791,6 +872,7 @@ func (a *API) createRoomN(lang string, seed *uint64, playerIDs []uint64, seats i
 		SeatTokens:  tokens,
 		SuddenDeath: suddenDeath,
 		TokenTTL:    a.tokenTTL,
+		BotSeats:    botSeats,
 	})
 	if err != nil {
 		return roomInfo{}, err
@@ -814,9 +896,13 @@ func (a *API) createRoomN(lang string, seed *uint64, playerIDs []uint64, seats i
 		Seed:        s,
 		Language:    lang,
 		SuddenDeath: suddenDeath,
+		// Disclosing the declaration in telemetry as well as on the wire: an
+		// operator should be able to answer "was a bot in this match?" from
+		// the event stream without reading the board.
+		BotSeats: room.BotSeats(),
 	})
 	go a.runRoomTicker(id, room)
-	return roomInfo{ID: id, Seed: s, Tokens: tokens, UserIDs: userIDs, Access: access}, nil
+	return roomInfo{ID: id, Seed: s, Tokens: tokens, UserIDs: userIDs, Access: access, BotSeats: room.BotSeats()}, nil
 }
 
 // runRoomTicker advances a room at 30 Hz until shortly after match end.
@@ -1126,6 +1212,12 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Language string `json:"language"`
 		PlayerID uint64 `json:"player_id"`
+		// Bot declares this queue entry as a simulated player (M2 batch 32D,
+		// Q5). It is the bot's own, explicit statement about itself; without
+		// it the server would have to guess, and a guess is exactly the
+		// silent impersonation Q5 rules out. Gated by
+		// WORDARENA_ALLOW_BOT_SEATS.
+		Bot bool `json:"bot"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid json body")
@@ -1141,6 +1233,17 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "language must be en, ru or uk")
 		return
 	}
+	if req.Bot && !a.allowBotSeats {
+		httpError(w, http.StatusBadRequest, "declaring a bot queue entry is not enabled on this deployment (WORDARENA_ALLOW_BOT_SEATS)")
+		return
+	}
+	if req.Bot && req.PlayerID != 0 {
+		// A bot must not accrue a human's lifetime stats. Refusing the
+		// combination is better than accepting it and quietly doing one of the
+		// two things the caller asked for.
+		httpError(w, http.StatusBadRequest, "a bot queue entry cannot bind a player_id")
+		return
+	}
 	if req.PlayerID != 0 {
 		if !profileIDInRange(req.PlayerID) {
 			httpError(w, http.StatusBadRequest, "player_id must be within the signed 64-bit range")
@@ -1154,7 +1257,7 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	e := a.mm.enqueue(lang, req.PlayerID, a.queueRoomFactory())
+	e := a.mm.enqueueBot(lang, req.PlayerID, req.Bot, a.queueRoomFactory())
 	writeJSON(w, http.StatusAccepted, e)
 }
 
@@ -1162,8 +1265,8 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 // pairing attempt. The roster size is len(pids), so the same factory serves
 // 1v1 and a short-handed Royale lobby alike.
 func (a *API) queueRoomFactory() createRoomFn {
-	return func(l string, pids []uint64) (roomInfo, error) {
-		return a.createRoomN(l, nil, pids, len(pids), false)
+	return func(l string, pids []uint64, bots []bool) (roomInfo, error) {
+		return a.createRoomNBots(l, nil, pids, bots, len(pids), false)
 	}
 }
 
@@ -1259,6 +1362,7 @@ func (a *API) recordResult(room *matchroom.Room) {
 	if r.IsTie {
 		winner = -1
 	}
+	botSeats := room.BotSeats()
 	res := matchResult{
 		MatchID:    m.ID,
 		Seed:       m.Seed,
@@ -1269,7 +1373,15 @@ func (a *API) recordResult(room *matchroom.Room) {
 		Scores:     [2]int64{m.Score(0), m.Score(1)},
 		StateVer:   snap.StateVersion,
 		ServerTick: snap.ServerTick,
-		recordedAt: time.Now(),
+		// Q5: the disclosure is recorded with the authoritative outcome, not
+		// only streamed while the match was live. A rating or a reward is
+		// computed from this row, possibly after a restart and days later, so
+		// a flag that lived only in the room would be worthless exactly when
+		// it mattered.
+		Bots:           botSeats,
+		BotPresent:     len(botSeats) > 0,
+		RatingEligible: len(botSeats) == 0,
+		recordedAt:     time.Now(),
 	}
 	// Carry the handle pair into the durable row so the read stays possible
 	// after a restart, when the in-memory matchCaps entry is gone. This is the
@@ -1298,6 +1410,7 @@ func (a *API) recordResult(room *matchroom.Room) {
 		Seed:         res.Seed,
 		Language:     res.Language,
 		WinnerSeat:   telemetryInt(res.WinnerSeat),
+		BotSeats:     res.Bots,
 		IsTie:        telemetryBool(res.IsTie),
 		Score0:       telemetryInt64(res.Scores[0]),
 		Score1:       telemetryInt64(res.Scores[1]),
@@ -1387,6 +1500,10 @@ func playersToJSON(ps []*wordarenav1.PlayerState) []map[string]any {
 		out = append(out, map[string]any{
 			"user_id": p.UserId, "score": p.Score, "rank": p.RankPosition,
 			"combo_mult": p.ComboMultiplier,
+			// Q5: the debug/tooling state view discloses simulated seats too.
+			// A disclosure that only one surface carries is a disclosure a
+			// client can accidentally bypass.
+			"is_bot": p.IsBot,
 		})
 	}
 	return out
