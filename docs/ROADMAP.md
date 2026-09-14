@@ -160,7 +160,20 @@ Exit gate: two remote clients can complete repeated matches with identical final
   in the simulation. Ships behind `WORDARENA_ALLOW_BOT_SEATS` (default off), 1v1
   only, and polite by default (3-4 letter words, 1.5 s between them, never
   steals). REMAINING: difficulty selection and any tutorial framing.
-- [ ] guild foundation
+- [x] guild foundation - **batch 32G** (docs/M2-GUILDS.md): guilds, rosters and
+  the identity primitive they need, because the server had no durable way to
+  say who a caller is. `POST /v1/players` now returns a per-profile owner token
+  (128 bits, stored as a SHA-256 hash only) and every guild mutation
+  authenticates with it, so a caller never supplies a player id and cannot act
+  as anyone else. Invariants, each a test: one guild per player; case-insensitive
+  unique names and tags; exactly one owner, with ownership passing to the
+  earliest-joined member and a guild dissolving when its last member leaves;
+  rosters public to read, mutations member-only. Durable through migration 005
+  (guilds, guild_members, players.owner_token_hash) with the migration drift
+  gate extended to understand tables introduced by later migrations. REMAINING
+  (deliberately out of the first slice, each needs product input): guild chat
+  and its moderation obligations, invite-only join, co-owners, the roster cap
+  number, guild-vs-guild matchmaking and rewards.
 - [x] infrastructure load testing - **batch 32F** (docs/M2-LOAD-TESTING.md). A
   harness (`server/cmd/loadtest`) plus an isolation script
   (`tools/loadtest-isolated.sh`) that measures one instance from outside, over

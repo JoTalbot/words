@@ -1,0 +1,93 @@
+id: M2-batch32g-guild-foundation
+title: >-
+  Guild foundation - guilds, rosters, and the identity primitive they cannot be
+  built without
+owner: orchestrator (gameplay/product lane, Q12 settled as part of this batch)
+priority: high
+complexity: large
+status: merged_pending_ci
+inputs:
+  - docs/ROADMAP.md M2 row "guild foundation" (flagged as needing a design note
+    first)
+  - docs/ARCHITECTURE.md (server-authoritative model, durable storage split)
+  - server/cmd/game/profile.go (anonymous profiles - the gap this batch closes)
+  - server/cmd/game/store_pg.go + infra/migrations (durable schema, drift gate)
+  - docs/M1-OPS.md and docs/SECURITY-REVIEW-M1.md (the capability-token
+    precedent this follows)
+dependencies:
+  - M1-durable-storage
+  - M2-batch32f-load-testing
+outputs:
+  - docs/M2-GUILDS.md - the design note (model, invariants, endpoints, abuse
+    analysis, and what is deliberately excluded)
+  - docs/PRODUCT-DECISIONS.md Q12 - guild identity and membership rules decided,
+    with the open product questions named rather than silently assumed
+  - server/cmd/game/guild.go - Guild/GuildRepo, validation, the in-memory store
+    and its invariants
+  - server/cmd/game/guild_api.go - the HTTP surface, owner-token
+    authentication, refusals that name their rule
+  - server/cmd/game/store_pg.go - the Postgres guild store, owner-token storage
+    and the unique indexes the invariants rest on
+  - infra/migrations/005_guilds.sql - guilds, guild_members,
+    players.owner_token_hash
+  - server/cmd/game/guild_test.go, server/cmd/migrate/main_test.go - the
+    invariant tests and the drift gate learning about tables added by migrations
+  - docs/ROADMAP.md - the row closed
+acceptance:
+  - A guild is durable (migration 005) and consistent across restarts, with the
+    Postgres path wired whenever a DSN is configured.
+  - Guild mutations authenticate with a per-profile owner token; no endpoint
+    trusts a caller-supplied player id, so impersonation is impossible by
+    construction.
+  - The token is returned exactly once, stored only as a SHA-256 hash, and is
+    not readable from any profile response.
+  - One guild per player, enforced by a unique index as well as by the store.
+  - Names and tags are unique case-insensitively, with a documented character
+    policy and a refusal that names it.
+  - A guild always has exactly one owner; ownership transfers to the
+    earliest-joined member when the owner leaves, and the guild is dissolved
+    when its last member leaves, freeing the name.
+  - The roster is capped so a guild cannot become an unbounded fan-out target.
+  - Reading a guild needs no token; every mutation does.
+  - Profiles created before this batch cannot use guilds, and no endpoint mints
+    an owner token on demand.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./cmd/game/ -run 'Guild|OwnerToken|Legacy' -v
+  - cd server && go test ./cmd/migrate/ -v
+  - cd server && go test ./... && go test -race ./...
+file_ownership:
+  - server/cmd/game/guild.go, server/cmd/game/guild_api.go,
+    server/cmd/game/guild_test.go
+  - server/cmd/game/profile.go, server/cmd/game/store_pg.go,
+    server/cmd/game/api.go, server/cmd/game/telemetry.go
+  - server/cmd/migrate/main_test.go
+  - infra/migrations/005_guilds.sql
+  - docs/M2-GUILDS.md, docs/PRODUCT-DECISIONS.md, docs/ROADMAP.md
+risk: medium
+escalation: none
+notes: >-
+  The row was flagged "needs a design note first - it touches persistence and
+  identity", and reading the code proved it: the server had two kinds of durable
+  state, match results (protected by unguessable per-match capability tokens)
+  and anonymous profiles, and nothing that could answer "who is asking". A guild
+  roster built on a caller-supplied player_id would let anyone manage any guild
+  as anyone, and that abuse would already be in the data by the time a
+  permission check was added - so the note had to decide the identity question
+  rather than defer it, and the batch ships the smallest primitive that makes
+  the model enforceable (a per-profile owner token, hashed at rest, presented as
+  a bearer credential). It deliberately stops there: no sessions, no rotation,
+  no recovery, and legacy profiles simply cannot use guilds, because minting a
+  token for an existing id would be exactly the hole being closed. The model is
+  chosen so that no state a guild can be in is broken by construction rather
+  than by a check: one row per player via a unique index, exactly one owner who
+  transfers on departure, dissolution when the roster empties so a dead guild
+  cannot squat on a name, and a roster cap so a guild never becomes an unbounded
+  broadcast target for whatever is built on it next. Guild chat was left out on
+  purpose - storing messages creates moderation, retention and reporting
+  obligations, which are product and safety decisions, not engineering defaults
+  - and the same applies to invite-only join and matchmaking effects. The
+  migration drift gate had to grow with the schema: it understood columns added
+  by later migrations but not tables, so 005 would have failed it; teaching it
+  to fold in CREATE TABLE is part of this batch, with both directions pinned by
+  tests so the guard cannot quietly become a test that always passes.

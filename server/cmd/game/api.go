@@ -114,6 +114,10 @@ type API struct {
 	// trustProxy enables X-Forwarded-For based caller identity. It must only
 	// be set when the service sits behind a proxy that overwrites the header.
 	trustProxy bool
+	// guilds is the guild registry (M2 batch 32G): memory by default, Postgres
+	// when a DSN is set. Guild mutations authenticate with a profile owner
+	// token, never with a caller-supplied player id.
+	guilds GuildRepo
 	// pve maps a match id to the server-driven opponent playing one of its
 	// seats (M2 batch 32E). Empty for every match that is not a practice match.
 	pveMu sync.Mutex
@@ -231,6 +235,10 @@ func NewAPIWithPostgres(dsn string) (*API, error) {
 		return nil, err
 	}
 	a := newAPI(&pgProfileStore{db: db}, &pgResultStore{db: db}, db)
+	// Guilds and owner tokens share the pool. Without this the Postgres
+	// deployment would keep guilds in memory and lose them on restart, which is
+	// exactly the failure this batch exists to prevent.
+	a.guilds = newPgGuildStore(db)
 	// Resume match ids from the durable store before serving anyone. This is
 	// fatal on purpose: continuing at 1 would silently alias finished
 	// matches, which is worse than not starting (docs/ARCHITECTURE.md keeps
@@ -293,6 +301,11 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		maxSeats:          envInt("WORDARENA_MAX_SEATS", match.MinSeats),
 		allowBotSeats:     envBool("WORDARENA_ALLOW_BOT_SEATS", false),
 		maxBodyBytes:      int64(envInt("WORDARENA_MAX_BODY_BYTES", 16<<10)),
+	}
+	// Guilds default to memory so a deployment without a DSN still has the
+	// feature; NewAPIWithPostgres replaces this with the durable backend.
+	if a.guilds == nil {
+		a.guilds = newMemGuildStore()
 	}
 	go a.runReaper()
 	return a
@@ -524,6 +537,13 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/queue/{id}", a.handleQueuePoll)
 	mux.HandleFunc("POST /v1/players", a.handlePlayerCreate)
 	mux.HandleFunc("GET /v1/players/{id}", a.handlePlayerGet)
+	// Guilds (M2 batch 32G, docs/M2-GUILDS.md). Reads are public; every
+	// mutation authenticates with X-Player-Token.
+	mux.HandleFunc("POST /v1/guilds", a.handleGuildCreate)
+	mux.HandleFunc("GET /v1/guilds/{id}", a.handleGuildGet)
+	mux.HandleFunc("POST /v1/guilds/{id}/members", a.handleGuildJoin)
+	mux.HandleFunc("DELETE /v1/guilds/{id}/members/{player_id}", a.handleGuildMemberDelete)
+	mux.HandleFunc("GET /v1/players/{id}/guild", a.handlePlayerGuild)
 	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	mux.HandleFunc("GET /metrics/prometheus", a.handlePrometheusMetrics)
 	return requestLogger(mux)
@@ -1454,8 +1474,20 @@ func (a *API) handlePlayerCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "profile store error")
 		return
 	}
+	// Mint the profile's owner token (M2 batch 32G). It is returned exactly
+	// once and stored only as a hash: guild mutations authenticate with it, so
+	// a response body can never be replayed as another player.
+	token, err := randomHex(16)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+	if err := a.profiles.SetOwnerToken(p.ID, hashOwnerToken(token)); err != nil {
+		httpError(w, http.StatusInternalServerError, "profile store error")
+		return
+	}
 	a.publishTelemetry(telemetryEvent{Type: "profile_created", UserID: p.ID, Language: p.Language})
-	writeJSON(w, http.StatusCreated, p)
+	writeJSON(w, http.StatusCreated, profileCreateResponse{Profile: p, OwnerToken: token})
 }
 
 // handlePlayerGet serves one player profile plus lifetime stats.
