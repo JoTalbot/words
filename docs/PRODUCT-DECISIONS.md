@@ -77,43 +77,67 @@ security changes document abuse cases, infrastructure changes carry
 capacity and rollback notes).
 
 ### Q9 — Royale elimination rule
-**Status: OPEN — blocks M2 Royale gameplay. Engineering is ready and waiting.**
-As of 2026-09-14 the whole server stack (simulation, room, matchmaker,
-transport) is seat-count agnostic and verified at up to 60 seats, but
-`PlayerView.IsEliminated` is always false because nobody has decided what
-elimination means. The plausible shapes, with their consequences:
-1. **No elimination, pure scoring.** Simplest, already works today; every
-   player plays the full three waves and rank is by score. Risk: a player who
-   falls behind early has no reason to stay for 100 seconds.
-2. **Per-wave last-place cull.** Classic battle-royale tension; needs a rule
-   for ties at the cut line and a spectator mode for the culled, otherwise
-   most of the lobby is staring at a dead screen for two thirds of the match.
-3. **Score floor per wave.** Players below a threshold drop out; keeps
-   agency (you know the number you must hit) but the threshold has to be
-   tuned per language, because the dictionary changes how scoreable a board is.
-Whichever is chosen must stay deterministic and replayable: elimination has to
-be a function of logged state at a tick, since replay equality is an existing
-invariant (`Match.Fingerprint`, roster replay tests).
+**Status: DECIDED 2026-09-14 (owner delegated the choice to the agent).
+Implemented in M2 batch 31A.**
+
+**Decision: per-wave cull with a survivor share of two thirds, floored, with
+ties resolved in the players' favour.** At every wave boundary the lowest
+scorers are eliminated until two thirds of the still-active seats remain
+(`SurvivorsNumerator/SurvivorsDenominator`), never below `MinSurvivors` (2).
+A 60-seat lobby therefore goes 60 -> 40 -> 26 across the three waves.
+
+Why this over the alternatives:
+- **Pure scoring** (no elimination) was rejected: a player who falls behind in
+  wave 1 has no reason to keep playing for another 100 seconds, and the mode
+  would be indistinguishable from 60 people playing solitaire on one board.
+- **A score floor** was rejected because the threshold has to be retuned per
+  language and per dictionary - the same number means different things in `en`
+  and `uk` - which makes it a balancing liability rather than a rule.
+- A **share-based cull** needs no tuning constant that depends on content, and
+  the tension curve is the same in every language.
+
+Guarantees that fall out of the implementation:
+- **Rosters below `EliminationMinSeats` (4) never cull**, so 1v1 and small
+  lobbies are exactly what M0/M1 shipped.
+- **Deterministic and replayable**: the cut is by score descending, ties by
+  seat index, computed only from logged state at a wave boundary, and
+  `EliminatedAtWave` is folded into `Match.Fingerprint` so a replay that culled
+  a different set cannot compare equal.
+- **A tie across the cut line keeps everyone**: losing a Royale on your seat
+  number would be indefensible, so the roster shrinks more slowly instead.
+- **An eliminated seat becomes a spectator**: its intents are still logged
+  (the replay sees them) but are rejected with `blocked_by_rule` and cannot
+  mutate competitive state.
 
 ### Q10 — Board sizing for a large roster
-**Status: OPEN — blocks M2 Royale gameplay.**
-`CellsPerWave` is 12 (a 4-column grid), sized for two players. Sixty players
-contesting twelve cells is not a game. The decision is what the board becomes
-as the roster grows: a fixed larger board, a board that scales with the
-roster, or per-player/regional sub-boards. Constraints from the code and from
-measurement (docs/LOAD-BASELINE.md, M2 batch 30F):
-- Wave generation must stay deterministic per `(seed, language, wave)` and
-  must NOT depend on the roster - a test now pins that boards are identical
-  at 2..60 seats, because a client renders the board before the lobby fills.
-- Tick cost does not scale with the roster (tens of ns, board-dominated), so
-  a larger board is affordable; snapshot cost does scale, ~3x from 2 to 60
-  seats, and per-subscriber fan-out is the real constraint: 60 subscribers
-  each receiving a 60-player snapshot is ~30x the bytes of a 1v1. A bigger
-  board multiplies that again, which is an argument for delta or
-  interest-scoped snapshots as part of whatever sizing is chosen.
-- `MaxPathCells` is 12 and adjacency is 8-way; both are board-shape
-  assumptions that a resize has to revisit.
+**Status: DECIDED 2026-09-14 (owner delegated the choice to the agent).
+Implemented in M2 batch 31A.**
 
+**Decision: the board scales with the roster.** `match.BoardCells(seats)`
+returns `CellsPerWave` (12) for two seats and otherwise
+`seats * BoardCellsPerSeat` (2 cells per player) rounded up to whole rows of
+`BoardColumnsLarge` (6), capped at `MaxCellsPerWave` (60). A full 60-seat lobby
+plays a 6x10 board - one cell per player, which is the intended Royale
+contention - and a 1v1 match keeps the exact 4x3 M0 board.
+
+Constraints this respects:
+- **Wave generation stays a pure function of `(seed, language, wave)`.** The
+  letter at cell *i* does not depend on the roster: a bigger board is a
+  prefix-compatible extension of a smaller one, drawn from the same shuffle.
+  So a 1v1 board is bit-identical to M0/M1 forever, and a client can render
+  before the lobby has filled. (Pinned by
+  `TestBoardGenerationIsPrefixStableAcrossRosters`; this replaces the older
+  "identical board at every roster" rule, which Q10 deliberately retires.)
+- **Grid width is part of the board contract, not a rendering detail.** The
+  server exposes `match.BoardColumns(seats)` (4 small / 6 large) and the Unity
+  client derives the same value from the cell count, because the 8-way
+  adjacency gesture rules and the renderer must agree or swipes would not
+  match what the player sees.
+- **`MaxPathCells` stays 12.** A longer board does not mean longer words; the
+  cap is about word length, not geometry.
+- **Fan-out remains the real cost** (docs/LOAD-BASELINE.md, batch 30F): a
+  bigger board multiplies snapshot bytes on top of the roster factor, which is
+  why delta or interest-scoped snapshots are the next Royale work item.
 
 ## Rules for future changes
 

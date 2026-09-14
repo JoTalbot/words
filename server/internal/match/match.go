@@ -2,6 +2,7 @@ package match
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/JoTalbot/words/server/internal/dictionary"
 	"github.com/JoTalbot/words/server/internal/scoring"
@@ -34,6 +35,9 @@ type Match struct {
 	// divergent simulation.
 	players []PlayerState
 	log     []Event
+	// boardCells is the roster-derived board size (Q10); fixed at
+	// construction so every wave of a match has the same shape.
+	boardCells int
 }
 
 // New creates a fresh match and generates wave 0.
@@ -66,7 +70,11 @@ func New(cfg Config) (*Match, error) {
 	for i := range m.players {
 		m.players[i].Seat = Seat(i)
 	}
-	m.cells = generateWave(cfg.Seed, cfg.Lang, 0)
+	m.boardCells = BoardCells(seats)
+	m.cells = generateWave(cfg.Seed, cfg.Lang, 0, m.boardCells)
+	for i := range m.players {
+		m.players[i].EliminatedAtWave = -1
+	}
 	return m, nil
 }
 
@@ -191,7 +199,98 @@ func (m *Match) endWaveByTimeout() {
 		m.stateVer++
 		return
 	}
+	m.cullAtWaveBoundary()
 	m.startWave(m.wave + 1)
+}
+
+// --- Q9: Royale elimination (docs/PRODUCT-DECISIONS.md) ---
+
+// IsEliminated reports whether a seat has been culled out of the match.
+func (m *Match) IsEliminated(seat Seat) bool {
+	if seat < 0 || int(seat) >= len(m.players) {
+		return false
+	}
+	return m.players[seat].EliminatedAtWave >= 0
+}
+
+// activeCount is how many seats are still playing.
+func (m *Match) activeCount() int {
+	n := 0
+	for i := range m.players {
+		if m.players[i].EliminatedAtWave < 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// survivorTarget is how many seats may continue past a wave boundary: two
+// thirds of those still playing, never below MinSurvivors.
+func survivorTarget(active int) int {
+	n := active * SurvivorsNumerator / SurvivorsDenominator
+	if n < MinSurvivors {
+		n = MinSurvivors
+	}
+	if n > active {
+		n = active
+	}
+	return n
+}
+
+// cullAtWaveBoundary eliminates the lowest-scoring seats at the end of a wave
+// (Q9, "per-wave cull with a survivor share").
+//
+// Determinism and fairness rules, both of which matter for replay equality:
+//   - rosters below EliminationMinSeats never cull, so 1v1 and small lobbies
+//     behave exactly as they did in M0/M1;
+//   - the cut is by score ascending, ties broken by seat index ascending, so
+//     the outcome is a pure function of logged state;
+//   - a tie ACROSS the cut line is resolved in the survivors' favour: if
+//     keeping everyone level with the last survivor would exceed the target,
+//     they all stay rather than being separated by seat number alone. Losing
+//     a Royale on your seat index would be indefensible, so the roster
+//     shrinks more slowly instead.
+func (m *Match) cullAtWaveBoundary() {
+	if len(m.players) < EliminationMinSeats {
+		return
+	}
+	active := m.activeCount()
+	if active <= MinSurvivors {
+		return
+	}
+	target := survivorTarget(active)
+	if target >= active {
+		return
+	}
+
+	order := make([]Seat, 0, active)
+	for i := range m.players {
+		if m.players[i].EliminatedAtWave < 0 {
+			order = append(order, Seat(i))
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		pa, pb := &m.players[order[a]], &m.players[order[b]]
+		if pa.Score != pb.Score {
+			return pa.Score > pb.Score // best first
+		}
+		return order[a] < order[b]
+	})
+
+	// The score of the worst seat that survives on rank alone; everyone
+	// level with it is kept too.
+	cutoff := m.players[order[target-1]].Score
+	culled := false
+	for _, seat := range order[target:] {
+		if m.players[seat].Score == cutoff {
+			continue // tie with the last survivor: keep
+		}
+		m.players[seat].EliminatedAtWave = m.wave
+		culled = true
+	}
+	if culled {
+		m.stateVer++
+	}
 }
 
 // startSuddenDeath begins the opt-in tiebreak wave (docs/M1-SUDDEN-DEATH.md).
@@ -199,7 +298,7 @@ func (m *Match) endWaveByTimeout() {
 func (m *Match) startSuddenDeath() {
 	m.wave++
 	m.waveStart = m.tick
-	m.cells = generateWave(m.Seed, m.Lang, m.wave)
+	m.cells = generateWave(m.Seed, m.Lang, m.wave, m.boardCells)
 	m.inSuddenDeath = true
 	m.phase = "sudden_death"
 	m.stateVer++
@@ -227,7 +326,7 @@ func (m *Match) isTied() bool {
 func (m *Match) startWave(w int) {
 	m.wave = w
 	m.waveStart = m.tick
-	m.cells = generateWave(m.Seed, m.Lang, w)
+	m.cells = generateWave(m.Seed, m.Lang, w, m.boardCells)
 	m.stateVer++
 }
 
@@ -250,6 +349,13 @@ func (m *Match) evaluate(ev Event) Event {
 		ev.WordResultString = "match_not_active"
 		return ev
 	}
+	// An eliminated seat is a spectator: its intents are logged (so the
+	// replay still sees them) but can never change competitive state.
+	if m.IsEliminated(seat) {
+		ev.Result = ResultBlockedByRule
+		ev.WordResultString = "blocked_by_rule"
+		return ev
+	}
 	if err := validatePath(m.cells, ev.CellIDs); err != nil {
 		ev.Result = ResultInvalidInput
 		ev.WordResultString = "invalid_input"
@@ -263,18 +369,22 @@ func (m *Match) evaluate(ev Event) Event {
 	}
 
 	// Cell availability analysis (M0-MATCH-RULES §3).
-	var fresh []int   // free or opponent-unlocked cells (scoring cells)
-	var stealOf []int // indices among fresh that belong to the opponent
-	opp := Seat(1 - seat)
+	var fresh []int   // free or rival-unlocked cells (scoring cells)
+	var stealOf []int // indices among fresh that belong to some rival
+	// Batch 31A: "the opponent" is any seat other than this one. The old
+	// Seat(1-seat) spelling silently made every seat above 1 unable to steal
+	// (and immune to being stolen from) in a roster larger than two.
 	blockedLocked := false
 	for _, id := range ev.CellIDs {
 		c := m.cells[id]
 		switch {
 		case c.State == CellFree:
 			fresh = append(fresh, id)
-		case c.Owner == opp && c.State == CellOwnedLocked:
+		case c.Owner == seat:
+			// Own cell: contributes letters but never scores again.
+		case c.State == CellOwnedLocked:
 			blockedLocked = true
-		case c.Owner == opp: // unlocked -> stealable
+		default: // owned by a rival and unlocked -> stealable
 			fresh = append(fresh, id)
 			stealOf = append(stealOf, id)
 		}
@@ -307,8 +417,9 @@ func (m *Match) evaluate(ev Event) Event {
 	isSteal := len(stealOf) > 0
 	for _, id := range fresh {
 		c := &m.cells[id]
-		if isSteal && c.Owner == opp {
-			m.players[opp].Score -= int64(c.CreditedValue)
+		if c.State != CellFree && c.Owner != seat {
+			// Debit the actual victim, whichever seat that is.
+			m.players[c.Owner].Score -= int64(c.CreditedValue)
 		}
 		credited := scoring.CellCreditedValue(scoring.LetterValue(dictionary.Language(m.Lang), c.Letter), mult)
 		c.Owner = seat
@@ -379,7 +490,7 @@ func (m *Match) Snapshot() Snapshot {
 			Seat:         seat,
 			Score:        p.Score,
 			RankPosition: m.rankOf(seat),
-			IsEliminated: false, // M0 has no elimination
+			IsEliminated: p.EliminatedAtWave >= 0,
 			Combo:        p.Combo,
 			ComboMult:    comboMultOf(p),
 		}
@@ -454,6 +565,11 @@ func (m *Match) Fingerprint() string {
 	}
 	for _, p := range m.players {
 		h.addI64(int64(p.Combo))
+	}
+	// Elimination is competitive state: a replay that culled different
+	// seats must not compare equal (Q9).
+	for _, p := range m.players {
+		h.addI64(int64(p.EliminatedAtWave))
 	}
 	for _, c := range m.cells {
 		h.addByte(byte(c.Letter))

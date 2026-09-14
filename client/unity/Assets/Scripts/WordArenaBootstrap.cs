@@ -645,7 +645,7 @@ namespace Words.Client
 
         private void DrawBoard()
         {
-            var columns = 4;
+            var columns = BoardColumns;
             var rows = Mathf.CeilToInt(cells.Count / (float)columns);
             var captureRects = Event.current == null || Event.current.type != EventType.Layout;
             var captured = new List<Rect>();
@@ -878,10 +878,23 @@ namespace Words.Client
         // drag extension follows eight-way adjacency, bridges a single
         // skipped cell when the pointer moves too fast, backtracks when the
         // pointer returns to the previous cell, and enforces a hard path cap.
-        private const int BoardColumns = 4;
+        // Q10 (M2): the board grows with the roster, so the grid width is no
+        // longer a constant. A 12-cell 1v1 board stays 4 columns - the exact
+        // M0/M1 geometry the device smoke asserts - and every larger Royale
+        // board is 6 columns, matching match.BoardColumns on the server. The
+        // gesture rules and the renderer MUST use the same value, otherwise
+        // adjacency would disagree with what the player sees.
+        private const int BoardColumnsSmall = 4;
+        private const int BoardColumnsLarge = 6;
+        private const int SmallBoardCells = 12;
         private const int MaxPathCells = 12;
 
-        private static void GridPosition(int index, out int row, out int col)
+        private int BoardColumns
+        {
+            get { return cells.Count <= SmallBoardCells ? BoardColumnsSmall : BoardColumnsLarge; }
+        }
+
+        private void GridPosition(int index, out int row, out int col)
         {
             if (index < 0)
             {
@@ -894,7 +907,7 @@ namespace Words.Client
             col = index % BoardColumns;
         }
 
-        private static bool CellsAdjacent(int indexA, int indexB)
+        private bool CellsAdjacent(int indexA, int indexB)
         {
             if (indexA < 0 || indexB < 0 || indexA == indexB)
             {

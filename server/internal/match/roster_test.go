@@ -144,3 +144,79 @@ func TestSubmitScoresTheSubmittingSeatOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestStealWorksBetweenAnyTwoSeats pins the batch 31A fix. The rules engine
+// used to compute the opponent as Seat(1-seat), so in a roster larger than two
+// every seat above 1 could neither steal nor be stolen from: cells owned by
+// seat 5 looked like nobody's cells to seat 7, and the victim was never
+// debited. Cross-steal is the core competitive interaction, so in a Royale
+// match this was the difference between a game and parallel solitaire.
+func TestStealWorksBetweenAnyTwoSeats(t *testing.T) {
+	m, err := NewWithBoard(Config{MatchID: 1, Seed: 1, Lang: "en", Seats: 8}, "catdogfunrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := findCells(m, 5, "cat")
+	if path == nil {
+		t.Fatal("fixture board must contain cat")
+	}
+
+	if ev := m.Submit(5, path); ev.Result != ResultAccepted {
+		t.Fatalf("seat 5 claim: %v", ev.WordResultString)
+	}
+	claimed := m.Score(5)
+	if claimed <= 0 {
+		t.Fatalf("seat 5 scored %d", claimed)
+	}
+
+	// While locked, a distant seat is blocked - not silently allowed.
+	if ev := m.Submit(7, path); ev.Result != ResultBlockedByRule {
+		t.Fatalf("seat 7 beat the lock of seat 5: %v", ev.WordResultString)
+	}
+
+	m.AdvanceTicks(LockTicks + 1)
+	ev := m.Submit(7, path)
+	if ev.Result != ResultAccepted {
+		t.Fatalf("seat 7 steal from seat 5: %v", ev.WordResultString)
+	}
+	if !ev.IsSteal {
+		t.Fatal("taking cells owned by seat 5 was not reported as a steal")
+	}
+	if m.Score(5) != 0 {
+		t.Fatalf("victim seat 5 kept %d points; the steal debited the wrong seat", m.Score(5))
+	}
+	if m.Score(7) <= 0 {
+		t.Fatalf("thief seat 7 scored %d", m.Score(7))
+	}
+	for _, id := range path {
+		if m.cells[id].Owner != 7 {
+			t.Fatalf("cell %d still owned by seat %d", id, m.cells[id].Owner)
+		}
+	}
+}
+
+// TestOwnCellsDoNotRescore guards the other half of the same rewrite: a seat
+// re-using its own unlocked cells must not be paid twice for them.
+func TestOwnCellsDoNotRescore(t *testing.T) {
+	m, err := NewWithBoard(Config{MatchID: 1, Seed: 1, Lang: "en", Seats: 6}, "catdogfunrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := findCells(m, 3, "cat")
+	if path == nil {
+		t.Fatal("fixture board must contain cat")
+	}
+	if ev := m.Submit(3, path); ev.Result != ResultAccepted {
+		t.Fatalf("first claim: %v", ev.WordResultString)
+	}
+	first := m.Score(3)
+	m.AdvanceTicks(LockTicks + 1)
+
+	ev := m.Submit(3, path)
+	if ev.Result != ResultBlockedByRule {
+		t.Fatalf("replaying a word on cells it already owns returned %v, want blocked", ev.WordResultString)
+	}
+	if m.Score(3) != first {
+		t.Fatalf("score moved from %d to %d by re-claiming own cells", first, m.Score(3))
+	}
+}

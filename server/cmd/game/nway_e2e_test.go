@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 
 	wordarenav1 "github.com/JoTalbot/words/server/gen/wordarena/net/v1"
+	"github.com/JoTalbot/words/server/internal/match"
 )
 
 // Batch 30D: the roster work of 30A-30C is only real if a large roster survives
@@ -43,15 +44,19 @@ func TestNWayEndToEndSharedBoard(t *testing.T) {
 	}
 
 	// 1. Every seat receives the same deterministic board as seat 0, and the
-	//    board is the one the 1v1 e2e test pins for this seed - the roster
-	//    must not perturb wave generation.
+	//    board is a prefix-compatible extension of the 1v1 board this seed
+	//    pins (Q10: the board grows with the roster, but the letter at cell
+	//    i never depends on how many players are seated).
 	first := clients[0].readSnapshot(t)
 	board := ""
 	for _, c := range first.Cells {
 		board += c.Letter
 	}
-	if board != "taandsvtgcod" {
-		t.Fatalf("seed %d board %q changed with an %d-seat roster", e2eSeed, board, seats)
+	if want := match.BoardCells(seats); len(first.Cells) != want {
+		t.Fatalf("%d-seat board has %d cells, want %d", seats, len(first.Cells), want)
+	}
+	if !strings.HasPrefix(board, "taandsvtgcod") {
+		t.Fatalf("seed %d board %q is not an extension of the 1v1 board for this seed", e2eSeed, board)
 	}
 	for i := 1; i < seats; i++ {
 		snap := clients[i].readSnapshot(t)

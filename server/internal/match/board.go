@@ -15,21 +15,61 @@ func boardRNG(matchSeed uint64, lang string, wave int) *prng.Source {
 	return prng.NewFromKey(matchSeed, langCode(lang), uint64(wave), 0x57415645) // "WAVE"
 }
 
-// generateWave samples CellsPerWave letters without replacement from the
-// weighted per-language pool (data v1), then shuffles them onto the cell
-// grid. Deterministic for a given (seed, language, wave).
-func generateWave(matchSeed uint64, lang string, wave int) []Cell {
+// BoardCells is the board size for a roster (Q10, docs/PRODUCT-DECISIONS.md).
+//
+// Two seats keep exactly the M0 board, so 1v1 is bit-identical forever. Above
+// that the board grows with the roster - twelve cells shared by sixty players
+// is not a game - at BoardCellsPerSeat cells per seat, rounded up to a whole
+// row of BoardColumnsLarge and capped at MaxCellsPerWave.
+//
+// It depends ONLY on the seat count, never on live match state, so it stays a
+// pure function of (seed, language, wave, seats).
+func BoardCells(seats int) int {
+	if seats <= 2 {
+		return CellsPerWave
+	}
+	n := seats * BoardCellsPerSeat
+	if r := n % BoardColumnsLarge; r != 0 {
+		n += BoardColumnsLarge - r
+	}
+	if n < CellsPerWave {
+		n = CellsPerWave
+	}
+	if n > MaxCellsPerWave {
+		n = MaxCellsPerWave
+	}
+	return n
+}
+
+// BoardColumns is the grid width for a roster; the client lays cells out row
+// major, so this is part of the board contract, not a rendering detail.
+func BoardColumns(seats int) int {
+	if seats <= 2 {
+		return BoardColumnsSmall
+	}
+	return BoardColumnsLarge
+}
+
+// generateWave samples cells letters without replacement from the weighted
+// per-language pool (data v1), then shuffles them onto the cell grid.
+// Deterministic for a given (seed, language, wave, size).
+//
+// The letter stream is drawn from a shuffle that does not depend on the board
+// size, so a larger board is a PREFIX-COMPATIBLE extension of a smaller one:
+// cell i holds the same letter whatever the roster. That is what lets the
+// 1v1 board stay bit-identical while Royale boards grow.
+func generateWave(matchSeed uint64, lang string, wave, cells int) []Cell {
 	rng := boardRNG(matchSeed, lang, wave)
 	pool := weightedPool(lang)
 	for i := len(pool) - 1; i > 0; i-- {
 		j := rng.Intn(i + 1)
 		pool[i], pool[j] = pool[j], pool[i]
 	}
-	cells := make([]Cell, CellsPerWave)
-	for i := 0; i < CellsPerWave; i++ {
-		cells[i] = Cell{ID: i, Letter: pool[i]}
+	out := make([]Cell, cells)
+	for i := 0; i < cells; i++ {
+		out[i] = Cell{ID: i, Letter: pool[i]}
 	}
-	return cells
+	return out
 }
 
 // weightedPool materializes each alphabet letter Weight times (data v1).
