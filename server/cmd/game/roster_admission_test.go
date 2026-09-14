@@ -118,7 +118,7 @@ func TestMatchmakerFormsAnNWayLobby(t *testing.T) {
 	const seats = 5
 	mm := newMatchmakerWithSeats(seats)
 	var created int
-	mk := func(_ string, pids []uint64) (roomInfo, error) {
+	mk := func(_ string, pids []uint64, _ []bool) (roomInfo, error) {
 		if len(pids) != seats {
 			t.Fatalf("factory received %d player ids, want %d (its length is the roster size)", len(pids), seats)
 		}
@@ -171,7 +171,7 @@ func TestMatchmakerLeavesPlayersQueuedWhenTheFactoryUnderdelivers(t *testing.T) 
 	// A factory that returns fewer seats than requested must not hand out
 	// seats that do not exist; the players stay queued for the next attempt.
 	mm := newMatchmakerWithSeats(4)
-	mk := func(string, []uint64) (roomInfo, error) {
+	mk := func(_ string, _ []uint64, _ []bool) (roomInfo, error) {
 		return roomInfo{ID: 1, Tokens: []string{"a", "b"}, UserIDs: []uint64{1, 2}}, nil
 	}
 	for i := 0; i < 4; i++ {

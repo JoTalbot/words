@@ -28,7 +28,10 @@ const lobbyFillWait = 20 * time.Second
 // Batch 30C: playerIDs is seat-indexed and its LENGTH is the roster size, so
 // the same matchmaker forms 1v1 matches and larger lobbies. A zero entry
 // means that seat stays synthetic (anonymous).
-type createRoomFn func(lang string, playerIDs []uint64) (roomInfo, error)
+// botSeats is the simulated-player declaration the matchmaker passes to the
+// factory, indexed by seat (M2 batch 32D, Q5). It is nil for a lobby of
+// humans, and the factory discloses whatever it receives.
+type createRoomFn func(lang string, playerIDs []uint64, botSeats []bool) (roomInfo, error)
 
 // queueEntry is one waiting player and, once matched, their join info.
 type queueEntry struct {
@@ -39,10 +42,17 @@ type queueEntry struct {
 	// (0 = anonymous). When both seats have profiles, the match folds its
 	// outcome into their lifetime stats on completion.
 	PlayerID uint64 `json:"player_id,omitempty"`
-	MatchID  uint64 `json:"match_id,omitempty"`
-	Seed     uint64 `json:"seed,omitempty"`
-	Token    string `json:"token,omitempty"`
-	UserID   uint64 `json:"user_id,omitempty"`
+	// IsBot records that this queue entry declared itself a simulated player
+	// (M2 batch 32D, Q5). It is echoed back to the caller and carried into the
+	// room, where it becomes the disclosure every other seat sees. A bot that
+	// does not declare itself is the exact masquerade Q5 forbids, which is why
+	// the declaration is a required field of the bot's own queue call rather
+	// than something the server tries to detect.
+	IsBot   bool   `json:"is_bot,omitempty"`
+	MatchID uint64 `json:"match_id,omitempty"`
+	Seed    uint64 `json:"seed,omitempty"`
+	Token   string `json:"token,omitempty"`
+	UserID  uint64 `json:"user_id,omitempty"`
 	// MatchCode and ReadCapability are the unguessable handles for the result
 	// and replay endpoints. A queued player learns them here, exactly once,
 	// because the matchmaker - not the client - is what created the match.
@@ -106,6 +116,12 @@ func newMatchmakerWithSeats(seats int) *matchmaker {
 // the same profile cannot wait in the same language queue twice — the
 // existing entry is returned instead (idempotent re-enqueue).
 func (mm *matchmaker) enqueue(lang string, playerID uint64, create createRoomFn) *queueEntry {
+	return mm.enqueueBot(lang, playerID, false, create)
+}
+
+// enqueueBot is enqueue with an explicit simulated-player declaration; enqueue
+// is its human spelling, so every existing caller and test is unchanged.
+func (mm *matchmaker) enqueueBot(lang string, playerID uint64, isBot bool, create createRoomFn) *queueEntry {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
@@ -130,6 +146,7 @@ func (mm *matchmaker) enqueue(lang string, playerID uint64, create createRoomFn)
 		Language:  lang,
 		Status:    "waiting",
 		PlayerID:  playerID,
+		IsBot:     isBot,
 		CreatedAt: now,
 		deadline:  now.Add(mm.ttl),
 	}
@@ -188,10 +205,20 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 		// playerIDs is always seats long: its length tells the room factory
 		// the roster size, and a zero entry keeps that seat anonymous.
 		pids := make([]uint64, size)
+		var bots []bool
 		for i, e := range group {
 			pids[i] = e.PlayerID
+			// Q5: the declaration follows the seat into the room. A lobby is
+			// never implicitly bot-free and never implicitly bot-filled - only
+			// what the entries declared.
+			if e.IsBot {
+				if bots == nil {
+					bots = make([]bool, size)
+				}
+				bots[i] = true
+			}
 		}
-		info, err := create(lang, pids)
+		info, err := create(lang, pids, bots)
 		if err != nil {
 			return
 		}

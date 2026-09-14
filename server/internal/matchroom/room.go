@@ -36,6 +36,10 @@ type Config struct {
 	// AntiSnowball enables the opt-in catch-up rule for this room
 	// (docs/M2-ANTI-SNOWBALL.md). Default false.
 	AntiSnowball bool
+	// BotSeats declares simulated-player seats for this room, indexed by seat
+	// (M2 batch 32D, Q5). Nil means no seat is a bot, which is what every
+	// existing caller gets. See docs/M2-BOT-POLICY.md.
+	BotSeats []bool
 	// TokenTTL bounds seat-token lifetime. Zero (default) disables expiry
 	// (M0 behaviour: tokens last the whole match). When positive, a token
 	// minted or rotated at time T stops authenticating after T+TokenTTL;
@@ -146,6 +150,7 @@ func New(cfg Config) (*Room, error) {
 		SuddenDeath:  cfg.SuddenDeath,
 		Seats:        len(userIDs),
 		AntiSnowball: cfg.AntiSnowball,
+		BotSeats:     cfg.BotSeats,
 	})
 	if err != nil {
 		return nil, err
@@ -367,6 +372,16 @@ func (r *Room) broadcastSnapshotLocked(snap match.Snapshot) {
 		}
 	}
 }
+
+// BotSeats returns the seats of this room played by declared simulated
+// players, in seat order (Q5). A transport reads it to disclose bots; nothing
+// derives it from a missing profile.
+func (r *Room) BotSeats() []int { return r.match.BotSeats() }
+
+// HasBot reports whether any seat of this room is a declared simulated player.
+// A match containing one is rating- and reward-ineligible
+// (docs/M2-BOT-POLICY.md).
+func (r *Room) HasBot() bool { return r.match.HasBot() }
 
 // DeltaSnapshots reports whether this room hands out per-frame delta bases.
 // Batch 32A: true for rosters larger than 1v1, so a transport can decide

@@ -41,6 +41,10 @@ type telemetryEvent struct {
 	IsTie          *bool     `json:"is_tie,omitempty"`
 	Score0         *int64    `json:"score0,omitempty"`
 	Score1         *int64    `json:"score1,omitempty"`
+	// BotSeats discloses the declared simulated-player seats of a match
+	// (M2 batch 32D, Q5). An operator should be able to answer "was a bot in
+	// this match?" from the event stream instead of reconstructing it.
+	BotSeats []int `json:"bot_seats,omitempty"`
 }
 
 type telemetryStats struct {

@@ -57,6 +57,11 @@ Two bounds apply, and they are deliberately different things:
 `player_ids` is positional and 1v1-only in this release; sending it together
 with a roster larger than two is refused rather than half-honoured.
 
+`bot_seats` (M2 batch 32D, Q5) declares seats played by simulated players. It is
+gated by `WORDARENA_ALLOW_BOT_SEATS` (**default off**) and is validated against
+the roster; see [Simulated players](#simulated-players-m2-batch-32d) and
+`docs/M2-BOT-POLICY.md`.
+
 ## 2. Live play
 
 ```
@@ -346,6 +351,48 @@ follow-up that replaces sequential ids with unguessable match codes.
 - Frame payloads are protobuf v3; proto3 scalars default to zero values.
 - Field numbers are never reused; breaking changes need a version
   transition and compatibility window (docs/ARCHITECTURE.md).
+
+## Simulated players (M2 batch 32D)
+
+Product decision Q5 is implemented as a disclosure requirement, and the wire
+carries it in the one place a client already reads about players:
+
+```protobuf
+message PlayerState {
+  uint64 user_id = 1;
+  uint32 score = 2;
+  uint32 rank_position = 3;
+  bool is_eliminated = 4;
+  float combo_multiplier = 5;
+  bool is_bot = 6;   // declared simulated player (Q5)
+}
+```
+
+Rules a client can rely on:
+
+- `is_bot` is set only from an explicit server-side declaration. An anonymous
+  human seat is **not** a bot, and a client must not infer one from a missing
+  profile.
+- The flag appears everywhere `PlayerState` does: in the anchor snapshot, in
+  every periodic snapshot, in `MatchStateDelta.players` when it changes (it is
+  fixed at match construction and in practice never changes after), in the HTTP
+  state view (`GET /v1/match/{id}/snapshot`, `is_bot` per player), and in
+  telemetry.
+- There is no request field that clears it. A client cannot un-declare a bot.
+- The finished result carries the same fact durably:
+
+```json
+{ "bots": [1, 3], "bot_present": true, "rating_eligible": false }
+```
+
+`rating_eligible` is false for any match that involved a declared bot. It is
+recorded with the outcome (migration 004) rather than derived later, because a
+rating or a reward is computed from the stored row, possibly after a restart.
+
+`POST /v1/queue` accepts `"bot": true`, which is how the QA/device path
+(`headless-bot -partner`) declares the opponent it supplies. A bot queue entry
+may not bind a `player_id`, and the whole capability is behind
+`WORDARENA_ALLOW_BOT_SEATS`.
 
 ## State deltas (M2 batch 32A)
 

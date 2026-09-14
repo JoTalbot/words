@@ -125,7 +125,7 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 	mm.ttl = 20 * time.Millisecond
 
 	// A waiting entry that is never polled must not leak.
-	e := mm.enqueue("en", 0, func(string, []uint64) (roomInfo, error) {
+	e := mm.enqueue("en", 0, func(_ string, _ []uint64, _ []bool) (roomInfo, error) {
 		return roomInfo{}, errRoomCapacity
 	})
 	if e.Status != "waiting" {
@@ -148,7 +148,7 @@ func TestMatchmakerReaperPurgesAbandonedWaiting(t *testing.T) {
 func TestMatchmakerReaperPurgesMatchedUnpolled(t *testing.T) {
 	mm := newMatchmaker()
 	mm.ttl = 30 * time.Millisecond
-	mk := func(string, []uint64) (roomInfo, error) {
+	mk := func(_ string, _ []uint64, _ []bool) (roomInfo, error) {
 		return roomInfo{
 			ID: 7, Seed: 99,
 			Tokens:  []string{"a", "b"},
@@ -401,7 +401,7 @@ func TestReplayEndpointAfterMatch(t *testing.T) {
 // then never be able to read its result once the read is gated.
 func TestMatchmakerHandsBothSeatsTheSameReadHandle(t *testing.T) {
 	mm := newMatchmaker()
-	mk := func(string, []uint64) (roomInfo, error) {
+	mk := func(_ string, _ []uint64, _ []bool) (roomInfo, error) {
 		return roomInfo{
 			ID: 7, Seed: 99,
 			Tokens:  []string{"a", "b"},

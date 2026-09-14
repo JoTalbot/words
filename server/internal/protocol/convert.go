@@ -116,6 +116,9 @@ func PlayerViewToProto(p match.PlayerView, userIDs []uint64) *wordarenav1.Player
 		RankPosition:    uint32(p.RankPosition),
 		IsEliminated:    p.IsEliminated,
 		ComboMultiplier: float32(p.ComboMult),
+		// Q5: bot disclosure travels with the player row, so every observer
+		// of a snapshot, a delta and the HTTP state view sees it for free.
+		IsBot: p.IsBot,
 	}
 }
 

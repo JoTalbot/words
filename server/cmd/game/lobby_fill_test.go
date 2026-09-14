@@ -18,7 +18,7 @@ func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
 func stubFactory(t *testing.T, created *int) createRoomFn {
 	t.Helper()
-	return func(_ string, pids []uint64) (roomInfo, error) {
+	return func(_ string, pids []uint64, _ []bool) (roomInfo, error) {
 		*created++
 		n := len(pids)
 		tokens := make([]string, n)

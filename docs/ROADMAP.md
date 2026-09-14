@@ -125,7 +125,19 @@ Exit gate: two remote clients can complete repeated matches with identical final
   remaining wire saving, if ever worth taking, is replacing the per-second lock
   countdown with a stable lock field (~27 % of the delta), which is a
   client-contract change rather than a server optimisation.
-- [ ] bot strategy and disclosure policy
+- [x] bot strategy and disclosure policy - **Q5 decided 2026-09-14** (owner
+  delegated the choice) and implemented in batch 32D
+  (docs/M2-BOT-POLICY.md): a bot is DECLARED by the server and never inferred,
+  the declaration is DISCLOSED to every seat in every snapshot, in deltas, in
+  the HTTP state view, in telemetry and in the finished result, and any match
+  containing one is recorded as rating- and reward-ineligible
+  (`bots` / `bot_present` / `rating_eligible`, durable via migration 004).
+  The decision also closes the backfill question negatively: under-filled
+  lobbies are never topped up with silent opponents, so the human-only
+  short-handed start from 31C remains the answer to low population. The QA and
+  device path declares itself at the queue, which is the one place a bot really
+  appears today. Deliberately still open as *features* (not policy): a labelled
+  practice/casual bot mode, a separate bot rating pool, and bot difficulty.
 - [~] anti-snowball mechanics - the catch-up rule is implemented as an
   **opt-in** server rule (batch 32C, docs/M2-ANTI-SNOWBALL.md): a seat at least
   `CatchUpGap`=25 points behind the leader earns half again on an accepted word,
