@@ -80,28 +80,24 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M2 — Alpha Core
 
-- [~] 60-player mode — foundation in progress. Merged 2026-09-13: batch 30A
-  (the simulation is seat-count agnostic, `Config.Seats`, bounds 2..60, rank /
-  tie / result / fingerprint expressed over the roster, 1v1 bit-identical) and
-  batch 30B (roster-shaped room via `SeatUserIDs`/`SeatTokens`, seat-indexed
-  `SnapshotToProto`) and batch 30C (`createRoomN` mints a token and a non-zero
-  user id per seat, `newMatchmakerWithSeats(n)` forms an N-player lobby in FIFO
-  seat order; the 1v1 path stays byte-identical) and batch 30D (an 8-seat
-  end-to-end run over the real HTTP + WebSocket surface, which caught a
-  leftover 1v1 bound in `Room.SubmitWithSeq` that would have left every player
-  except the first two unable to play a word) and batch 30E (replay
-  determinism at 3/5/8/16 seats rebuilt from the event log alone, and an
-  identical board at 2..60 seats so the roster cannot leak into wave
-  generation) and batch 30F (cost model measured at 2..60 seats: tick cost is
-  roster-independent, snapshot cost grows ~3x, and per-subscriber fan-out is
-  the real constraint). The ENGINEERING half of this row is done; what remains
-  is product, now formalized as Q9 (elimination rule) and Q10 (board sizing)
-  in docs/PRODUCT-DECISIONS.md. The server stack is now
-  seat-count agnostic from the simulation up to queue admission, and no HTTP
-  endpoint exposes a seats knob yet, because Royale gameplay itself is
-  BLOCKED ON TWO PRODUCT DECISIONS: the elimination rule (`IsEliminated` is still always false)
-  and board sizing for a large roster (`CellsPerWave` is 12, sized for two);
-  anti-snowball and bot disclosure depend on both.
+- [~] 60-player mode - **rules now decided and implemented**; remaining work is
+  snapshot fan-out, not gameplay. Merged 2026-09-13/14: batches 30A-30F made the
+  whole server stack seat-count agnostic (simulation, room, matchmaker,
+  transport), proved it at three layers (8-seat end-to-end over the real
+  WebSocket surface, replay determinism at 3/5/8/16 seats) and characterized its
+  cost (tick cost is roster-independent; snapshot cost grows ~3x from 2 to 60
+  seats). Two hidden 1v1 bounds were found and fixed along the way: seats above
+  1 could not submit a word at all (30D), and could neither steal nor be stolen
+  from (31A). Batch 31A then implemented the two product decisions the owner
+  delegated on 2026-09-14 - **Q9** per-wave cull to two thirds of the roster
+  (60 -> 40 -> 26, never below 4 seats, ties across the cut line keep everyone,
+  eliminated seats become logged-but-rejected spectators) and **Q10** a board
+  that scales with the roster (12 cells at 1v1 up to a 6x10 grid, with the
+  letter at cell i still a function of (seed, language, wave) alone so the 1v1
+  board is bit-identical and a client can render before the lobby fills). Rules
+  in docs/M2-ROYALE-RULES.md. REMAINING before the mode is publicly reachable:
+  delta or interest-scoped snapshots (a 60-seat match sends every subscriber a
+  60-player snapshot), and a lobby policy for an incomplete Royale roster.
 - [ ] bot strategy and disclosure policy
 - [ ] anti-snowball mechanics
 - [ ] first PvE content
