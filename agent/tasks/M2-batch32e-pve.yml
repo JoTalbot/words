@@ -1,0 +1,73 @@
+id: M2-batch32e-pve
+title: >-
+  First PvE content - a practice match one player can play alone, against an
+  opponent the server drives
+owner: orchestrator (gameplay/product lane, Q11 settled as part of this batch)
+priority: high
+complexity: medium
+status: merged_pending_ci
+inputs:
+  - docs/ROADMAP.md M2 row "first PvE content"
+  - docs/M2-BOT-POLICY.md and docs/PRODUCT-DECISIONS.md Q5 (the disclosure rules
+    that make a labelled bot mode safe to ship)
+  - server/cmd/game/api.go (create-room path, room ticker, telemetry)
+  - server/internal/matchroom (Room.Submit, Room.Snapshot - the validated door)
+  - server/internal/dictionary (the same dictionary the simulation validates
+    against)
+  - server/cmd/game/botpolicy_test.go (the harness and the disclosure tests this
+    batch reuses)
+dependencies:
+  - M2-batch32d-bot-disclosure
+  - M2-batch31c-short-handed-start
+outputs:
+  - server/internal/pve/opponent.go - the deterministic opponent and its policy
+  - server/internal/pve/opponent_test.go - determinism, legality, politeness
+  - server/cmd/game/api.go - createMatchRequest.PvE, startPvE, tickPvEOpponent,
+    discardRoom, the pve seat map and its teardown
+  - server/cmd/game/pve_api_test.go - end-to-end practice match over the API
+  - docs/M2-PVE.md - the design note
+  - docs/WIRE-PROTOCOL.md - the pve field, the refusals, the wire contract
+  - docs/PRODUCT-DECISIONS.md - Q11 (what the first practice mode is)
+  - docs/ROADMAP.md - first PvE content row closed
+acceptance:
+  - POST /v1/matches with pve true creates a 1v1 against a server-driven
+    opponent, so a single player can play a real match with no second client.
+  - The opponent's intent is a pure function of snapshot, tick, dictionary and
+    policy; two runs over the same seed produce identical intents.
+  - The opponent submits through Room.Submit, so it holds no privilege the
+    simulation does not also give a human and cannot bypass validation.
+  - The 32D disclosure chain applies unchanged - the opponent is labelled on
+    every surface and the match is recorded as never rating-eligible.
+  - The default policy takes free cells only and never steals from a player.
+  - pve with any roster other than 1v1 is refused, and pve without
+    WORDARENA_ALLOW_BOT_SEATS is refused by naming that switch.
+  - No room is created when the opponent cannot be built; a practice match whose
+    opponent could never move is not a valid outcome.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./internal/pve/ -v
+  - cd server && go test ./cmd/game/ -run 'PvE' -v
+  - cd server && go test ./...
+  - cd server && go test -race ./...
+file_ownership:
+  - server/internal/pve/**
+  - server/cmd/game/api.go, server/cmd/game/pve_api_test.go
+  - docs/M2-PVE.md, docs/WIRE-PROTOCOL.md, docs/PRODUCT-DECISIONS.md,
+    docs/ROADMAP.md
+risk: low
+escalation: none
+notes: >-
+  The batch exists because "a player cannot play alone" is the shortest path
+  between a working build and a game someone can actually try, and because Q5
+  made such a mode safe by construction: the opponent is declared, disclosed and
+  never rating-eligible, so shipping it changed none of the policy. Two design
+  choices are worth naming. First, the opponent is a CLIENT of the room rather
+  than part of the simulation: it submits through the same validated path a
+  human uses, so there is no second rule set to keep in sync, and a bug in it
+  costs a word instead of producing an illegal board. Second, it is deterministic
+  by construction - sorted candidate words, id-ordered cells, no clock and no
+  RNG - which is what makes a practice match replayable and testable at all.
+  One bug was found by the tests rather than by review: the aggressive policy
+  variant produced paths over cells it already owned, which the simulation
+  correctly rejected, so the usable-cell rule now mirrors the game's own
+  availability rule (unlocked and not already this seat's).

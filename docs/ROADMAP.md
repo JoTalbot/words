@@ -148,7 +148,18 @@ Exit gate: two remote clients can complete repeated matches with identical final
   larger change than a score bonus. REMAINING: the board-side levers (leader
   lock duration, steal economics), a combo cap, exposing the option per match,
   and calibration of the constants against playtest rather than this guess.
-- [ ] first PvE content
+- [x] first PvE content - **batch 32E** (docs/M2-PVE.md): `POST /v1/matches`
+  with `"pve": true` creates a 1v1 against an opponent the SERVER drives, so a
+  single player can play a real match with no second client and no external
+  tooling. The opponent is a declared bot, so the whole 32D disclosure chain
+  applies unchanged (labelled on the wire, in the HTTP state view, in deltas, in
+  telemetry, in the durable result) and the match is never rating-eligible. Its
+  intent is a pure function of `(snapshot, tick, dictionary, policy)` and it
+  submits through `Room.Submit`, the same validated door a human uses - so a
+  practice match replays like any other and the opponent has no privileged path
+  in the simulation. Ships behind `WORDARENA_ALLOW_BOT_SEATS` (default off), 1v1
+  only, and polite by default (3-4 letter words, 1.5 s between them, never
+  steals). REMAINING: difficulty selection and any tutorial framing.
 - [ ] guild foundation
 - [ ] infrastructure load testing
 
