@@ -1,0 +1,89 @@
+id: M2-batch32a-delta-snapshots
+title: >-
+  State deltas: cut the snapshot bytes on the wire for large rosters, and
+  measure whether they were the blocker the roadmap assumed
+owner: orchestrator (protocol/architecture lane)
+priority: critical
+complexity: large
+status: merged_pending_device_leg_untouched
+inputs:
+  - proto/wordarena/v1/match.proto (MatchStateSnapshot, ServerEnvelope)
+  - server/internal/protocol/convert.go (SnapshotToProto)
+  - server/internal/matchroom/room.go (SnapshotFrame, broadcastSnapshotLocked)
+  - server/cmd/game/api.go (per-connection snapshot writer)
+  - docs/LOAD-BASELINE.md (roster scaling from batch 30F)
+  - agent/state/current.yml resume point naming wire bytes as the remaining
+    60-player work after batches 31B and 31C
+dependencies:
+  - M2-batch31a-royale-rules
+  - M2-batch31b-shared-fanout
+  - M2-batch31c-lobby-fill
+outputs:
+  - proto/wordarena/v1/match.proto — MatchStateDelta + ServerEnvelope
+    snapshot_delta arm
+  - server/gen/wordarena/net/v1/match.pb.go — regenerated (protoc 3.21.12 +
+    protoc-gen-go v1.36.5, byte-identical before the change, so the diff is
+    the change)
+  - server/internal/protocol/delta.go — DiffSnapshots, DeltaToProto,
+    ApplyDelta, DeltaEnvelope
+  - server/internal/protocol/convert.go — PlayerViewToProto/CellViewToProto
+    extracted so both encodings share one converter
+  - server/internal/matchroom/room.go — per-frame delta base, scoped to
+    rosters larger than two seats
+  - server/cmd/game/api.go — encodeSnapshotFrame decides delta vs full per
+    connection
+  - server/internal/protocol/delta_test.go, server/internal/matchroom/
+    delta_scope_test.go, server/cmd/game/delta_transport_test.go
+  - docs/WIRE-PROTOCOL.md, docs/LOAD-BASELINE.md
+acceptance:
+  - A delta carries only the players and cells that differ from its base;
+    applying it to a receiver holding the base yields a value that is
+    proto.Equal (including element order) to the full snapshot of the same
+    frame, verified at every frame of a driven 60-seat match.
+  - A connection that is not in sync - missed frames, reconnect, late join,
+    first frame - receives a full snapshot and returns to deltas on the
+    following frame with no client cooperation and no resync request.
+  - A 1v1 connection can only ever be sent a full MatchStateSnapshot, so the
+    M0/M1 two-seat wire contract is unchanged.
+  - Applying deltas over the real WebSocket surface reconstructs a board that
+    agrees with the independently delivered word events.
+  - The measured per-client wire cost at 60 seats at 1 Hz is reported as an
+    absolute number, not only as a ratio, and the test asserts an absolute
+    byte budget so a revert to full-snapshot fan-out fails CI.
+  - The batch records honestly whether the wire bytes were the 60-player
+    blocker, including the measured churn breakdown that bounds what a delta
+    can save.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./... (12/12 packages green)
+  - cd server && go test -race ./... (0 races; the delta path is shared
+    between the room goroutine and one writer goroutine per connection)
+  - cd server && go test ./internal/protocol/ -run TestDeltaStream -v
+    (prints the byte table and the churn breakdown quoted in
+    docs/LOAD-BASELINE.md)
+  - cd server && go test ./cmd/game/ -run 'OneVsOneWire|RosterWire|EncodeSnapshotFrame' -v
+  - protoc --proto_path=proto --go_out=. --go_opt=module=github.com/JoTalbot/words/server
+    proto/wordarena/v1/match.proto reproduces server/gen byte-identically
+file_ownership:
+  - proto/**
+  - server/gen/**
+  - server/internal/protocol/**
+  - server/internal/matchroom/room.go
+  - server/cmd/game/api.go
+  - server/cmd/game/api_test.go (one additive arm in readEnvelope)
+  - docs/WIRE-PROTOCOL.md, docs/LOAD-BASELINE.md
+risk: medium
+escalation: none
+notes: >-
+  The roadmap carried "delta or interest-scoped snapshots to cut the BYTES" as
+  the remaining work on the 60-player row. Interest scoping cannot help - every
+  seat needs the whole board and the whole scoreboard - and the measurement
+  changes the picture on deltas: at a realistic claim rate roughly half of all
+  entries change between two 1 Hz frames, so ~2x is the ceiling for this
+  schema rather than the 10x the framing implied. The absolute cost is
+  ~0.6-0.9 KB/s per client, i.e. ~50 KB/s for a full lobby, which is why the
+  row's remaining blocker is recorded as the bot-backfill product question plus
+  exposing the seats parameter, not bandwidth. The largest known remaining
+  saving is replacing the lock countdown with a stable lock field (~27 % of the
+  delta); it was NOT taken here because it changes a field the M1 client reads
+  and belongs in a client-contract change, not hidden inside a bandwidth batch.

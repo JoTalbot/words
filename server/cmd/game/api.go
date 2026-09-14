@@ -1382,13 +1382,23 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	sub := room.Subscribe(seat)
 	ctx := r.Context()
 
+	// lastSentVersion is the canonical state version this connection is known
+	// to hold, and is the whole of the per-connection delta state (batch
+	// 32A). It is written by sendSnapshot below on this goroutine before the
+	// writer goroutine starts, and afterwards only by that goroutine, so it
+	// needs no lock. It must stay that way: a second caller of sendSnapshot
+	// after the goroutine starts would be a data race.
+	lastSentVersion := 0
+
 	// Immediate canonical snapshot anchors the client (resume semantics:
 	// the client reconciles against this snapshot regardless of prior state).
 	sendSnapshot := func() {
 		userIDs := room.UserIDs()
 		snap := protocol.SnapshotToProto(room.Snapshot(), userIDs)
 		env := protocol.SnapshotEnvelope(id, snap)
-		_ = wsWriteProto(ctx, conn, env)
+		if err := wsWriteProto(ctx, conn, env); err == nil {
+			lastSentVersion = int(snap.StateVersion)
+		}
 	}
 	sendSnapshot()
 
@@ -1417,13 +1427,13 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case sf := <-sub.Snapshots:
-				// The canonical snapshot is identical for every
-				// seat, so it is rendered and marshalled once per
-				// frame regardless of roster size.
-				b, err := sf.Encoded.Bytes(func() ([]byte, error) {
-					pb := protocol.SnapshotToProto(sf.Snapshot, room.UserIDs())
-					return proto.Marshal(protocol.SnapshotEnvelope(id, pb))
-				})
+				// Batch 32A: a connection that already holds this
+				// frame's base is served the delta; one that does not
+				// (first frame, dropped frame, reconnect) gets the
+				// full snapshot and re-syncs by itself. Either way the
+				// payload is rendered and marshalled once per frame for
+				// the whole roster, not once per connection.
+				b, err := encodeSnapshotFrame(id, room, sf, &lastSentVersion)
 				if err != nil {
 					return
 				}
@@ -1588,6 +1598,39 @@ func wsWriteProto(ctx context.Context, conn *websocket.Conn, msg *wordarenav1.Se
 // between connections (see matchroom.SharedPayload), so it is read-only here.
 func wsWriteBytes(ctx context.Context, conn *websocket.Conn, b []byte) error {
 	return conn.Write(ctx, websocket.MessageBinary, b)
+}
+
+// encodeSnapshotFrame renders one snapshot frame for one connection (batch
+// 32A). A delta is used only when the connection is provably in sync - it
+// holds exactly the frame's base version - and a full snapshot otherwise, so a
+// dropped frame or a late join can never leave a client reconstructing a
+// delta onto the wrong state. lastSentVersion is advanced to the version this
+// call just handed to the client.
+//
+// Both encodings are shared boxes owned by the frame, so the roster pays for
+// each of them at most once per frame no matter how many connections read
+// them.
+func encodeSnapshotFrame(id uint64, room *matchroom.Room, sf matchroom.SnapshotFrame, lastSentVersion *int) ([]byte, error) {
+	if sf.Base != nil && sf.EncodedDelta != nil && *lastSentVersion == sf.Base.StateVersion {
+		b, err := sf.EncodedDelta.Bytes(func() ([]byte, error) {
+			d := protocol.DeltaToProto(*sf.Base, sf.Snapshot, room.UserIDs())
+			return proto.Marshal(protocol.DeltaEnvelope(id, d))
+		})
+		if err != nil {
+			return nil, err
+		}
+		*lastSentVersion = sf.Snapshot.StateVersion
+		return b, nil
+	}
+	b, err := sf.Encoded.Bytes(func() ([]byte, error) {
+		pb := protocol.SnapshotToProto(sf.Snapshot, room.UserIDs())
+		return proto.Marshal(protocol.SnapshotEnvelope(id, pb))
+	})
+	if err != nil {
+		return nil, err
+	}
+	*lastSentVersion = sf.Snapshot.StateVersion
+	return b, nil
 }
 
 func parseID(s string) (uint64, error) {

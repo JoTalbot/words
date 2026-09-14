@@ -126,3 +126,65 @@ subscribers still receives the full snapshot over its own socket. Cutting the
 bytes on the wire needs delta or interest-scoped snapshots, which require a
 protocol change (`protoc` is not available in the dev sandbox) and are
 therefore tracked separately.
+
+## Snapshot wire cost and state deltas (M2 batch 32A, measured 2026-09-14)
+
+Measured by `TestDeltaStreamReconstructsEveryFrame` in
+`server/internal/protocol` on the dev sandbox: a 60-seat match driven through a
+real room for its whole lifetime (180 frames at 1 Hz), with every submission
+and every cell change produced by the simulation rather than by a fixture. The
+test asserts that applying each consecutive delta to the receiver's state
+reproduces the full snapshot exactly at every frame, so these byte counts
+describe a stream that is also proven correct.
+
+Two load profiles, because a delta can only save what did not change:
+
+| Profile | Submissions accepted | Full snapshot | Delta | Reduction |
+|---|---|---|---|---|
+| saturated (20 attempts / 15 ticks) | 1 040 in 180 s (~5.8 / s) | ~1 463 B/frame | ~869 B/frame | 1.7x |
+| typical (4 attempts / 30 ticks) | 720 in 180 s (~4 / s) | ~1 316 B/frame | ~603 B/frame | 2.2x |
+
+Per client at the 1 Hz snapshot rate that is **0.6–0.9 KB/s**, down from
+1.3–1.5 KB/s, and the full frame carries the entire 60-player roster and the
+60-cell board in both profiles.
+
+### Where the bytes actually go
+
+The saturated run's churn, attributed to the field that caused each changed
+entry (179 delta frames):
+
+| Channel | Entries | Share of the change set |
+|---|---|---|
+| board: ownership change | 3 455 | 19 / frame |
+| board: lock state change | 3 288 | 18 / frame |
+| board: lock countdown only | 3 400 | 19 / frame |
+| players: score change | 2 011 | 11 / frame |
+| players: rank change | 127 | 0.7 / frame |
+| board: wave letter change | 8 | — |
+
+This is the number that matters for planning, and it is not the one the roadmap
+hypothesis assumed. At a realistic claim rate most of the board is moving
+between frames, so ~2x is the honest ceiling for a delta over this schema, not
+the 10x the "cut the bytes" framing implied. Options that would go further, and
+why they were not taken in this batch:
+
+- **Replace `lock_remaining_ms` with a stable lock start/dispatch field.** The
+  countdown is ~19 changed cells per frame (~27 % of the delta) purely because a
+  display-only value is re-sent every second while the client has to interpolate
+  it locally anyway. This is the single largest remaining win and it is a clean
+  change, but it alters a field the M1 client reads, so it is a client-contract
+  change rather than a server optimisation. Recorded as a follow-up, not done
+  silently inside a bandwidth batch.
+- **Interest-scoped snapshots.** Not applicable: every seat needs the whole
+  board and the whole scoreboard in this mode, so scoping would cut nothing.
+- **Lower the snapshot rate above some roster size.** Halves the bytes and
+  doubles convergence latency; a product trade-off, not a free win.
+
+### What this means for the 60-player row
+
+The mode's wire cost is now characterized rather than assumed: ~0.6–0.9 KB/s
+per client at 60 seats, i.e. roughly 50 KB/s of aggregate egress for a full
+lobby, after the ~2x reduction this batch delivers. Bandwidth is not a
+capacity blocker at this scale, so the remaining work on the row is the
+product question about bot backfill and exposing the seats parameter on the
+HTTP surface - not further byte shaving.

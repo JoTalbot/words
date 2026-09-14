@@ -94,36 +94,49 @@ func SnapshotToProto(s match.Snapshot, userIDs []uint64) *wordarenav1.MatchState
 		Over:            s.Phase == "over",
 	}
 	for _, p := range s.Players {
-		uid := seatUser(userIDs, int(p.Seat))
-		if uid == 0 {
-			uid = uint64(p.Seat) + 1
-		}
-		out.Players = append(out.Players, &wordarenav1.PlayerState{
-			UserId:          uid,
-			Score:           uint32(max64(0, p.Score)),
-			RankPosition:    uint32(p.RankPosition),
-			IsEliminated:    p.IsEliminated,
-			ComboMultiplier: float32(p.ComboMult),
-		})
+		out.Players = append(out.Players, PlayerViewToProto(p, userIDs))
 	}
 	for _, c := range s.Cells {
-		owner := uint64(0)
-		if c.OwnerSeat >= 0 {
-			uid := seatUser(userIDs, c.OwnerSeat)
-			if uid == 0 {
-				uid = uint64(c.OwnerSeat) + 1
-			}
-			owner = uid
-		}
-		out.Cells = append(out.Cells, &wordarenav1.BoardCell{
-			CellId:          uint32(c.ID),
-			Letter:          c.Letter,
-			OwnerUserId:     owner,
-			IsLocked:        c.IsLocked,
-			LockRemainingMs: uint32(c.LockRemainingMs),
-		})
+		out.Cells = append(out.Cells, CellViewToProto(c, userIDs))
 	}
 	return out
+}
+
+// PlayerViewToProto renders one player. Batch 32A: the delta path reuses this
+// exact function, so a changed player is byte-identical to the same player in
+// a full snapshot and reconstruction cannot drift between the two encodings.
+func PlayerViewToProto(p match.PlayerView, userIDs []uint64) *wordarenav1.PlayerState {
+	uid := seatUser(userIDs, int(p.Seat))
+	if uid == 0 {
+		uid = uint64(p.Seat) + 1
+	}
+	return &wordarenav1.PlayerState{
+		UserId:          uid,
+		Score:           uint32(max64(0, p.Score)),
+		RankPosition:    uint32(p.RankPosition),
+		IsEliminated:    p.IsEliminated,
+		ComboMultiplier: float32(p.ComboMult),
+	}
+}
+
+// CellViewToProto renders one board cell; see PlayerViewToProto for why the
+// delta path shares it.
+func CellViewToProto(c match.CellView, userIDs []uint64) *wordarenav1.BoardCell {
+	owner := uint64(0)
+	if c.OwnerSeat >= 0 {
+		uid := seatUser(userIDs, c.OwnerSeat)
+		if uid == 0 {
+			uid = uint64(c.OwnerSeat) + 1
+		}
+		owner = uid
+	}
+	return &wordarenav1.BoardCell{
+		CellId:          uint32(c.ID),
+		Letter:          c.Letter,
+		OwnerUserId:     owner,
+		IsLocked:        c.IsLocked,
+		LockRemainingMs: uint32(c.LockRemainingMs),
+	}
 }
 
 // seatUser reads a seat's user id defensively: an out-of-range seat yields 0,
