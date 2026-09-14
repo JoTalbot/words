@@ -1,22 +1,71 @@
 status: >-
-  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13; M2_IN_PROGRESS with TWO
-  ROWS CLOSED: the 60-player row (engineering 32A/32B + policy 32D) and first
-  PvE content (32E). Merged 2026-09-14: 32A state deltas (11c1ad6), 32B seats on
-  the HTTP surface (229f1bd), 32C opt-in anti-snowball (547243f), 32D bot
-  disclosure / Q5 (dbcd8e0), 32E practice opponent (1ce9aba). Q5 WAS DECIDED BY
-  THE AGENT on owner delegation: a bot is DECLARED and never inferred, DISCLOSED
-  on every surface permanently, and any match containing one is NEVER rating- or
+  M1_COMPLETE_all_eight_roadmap_rows_closed_2026_09_13; M2_IN_PROGRESS with
+  THREE ROWS CLOSED: the 60-player row (32A/32B/32D), first PvE content (32E) and
+  infrastructure load testing (32F). ONE M2 ROW REMAINS: guild foundation, which
+  needs a design note before code. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd,
+  32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798. Q5 WAS DECIDED BY THE
+  AGENT on owner delegation: a bot is DECLARED and never inferred, DISCLOSED on
+  every surface permanently, and any match containing one is NEVER rating- or
   reward-eligible (durable, migration 004); 32E is the first feature built ON
-  that decision rather than around it. Q11 was settled with it: the first
-  practice mode is a plain 1v1 against a server-driven, polite-by-default
-  opponent, explicitly not a difficulty ladder or a tutorial. OWNER ITEMS: B2
-  (uk dictionary licence) is CONFIRMED to exist and arrive later - non-blocking,
-  nothing waits on it; Q8 stage 2 (stable domain) still waits on a domain from
-  the owner. REMAINING M2 ROWS: guild foundation (needs a design note),
-  infrastructure load testing (independent; isolated instance only),
-  anti-snowball follow-ups.
+  that decision. Q11 settled with it: the first practice mode is a plain 1v1
+  against a server-driven, polite-by-default, deterministic opponent. 32F
+  replaced assumptions with numbers (0.6-0.9 KB/s per lobby client, 0.28 ms CPU
+  per room per second, ~270 KB RSS per room, drain 180.2 s) and found the first
+  real admission ceiling (WORDARENA_MUTATIONS_PER_MIN, default 120/min per
+  caller). OWNER ITEMS: B2 (uk dictionary licence) is CONFIRMED to exist and
+  arrive later - non-blocking, nothing waits on it; Q8 stage 2 (stable domain)
+  still waits on a domain from the owner.
 
 completed_tasks:
+  - >-
+    Batch 32F (M2, PR #47, merged 4477798): INFRASTRUCTURE LOAD TESTING - the
+    row is closed and the useful output is not a capacity number (that depends
+    entirely on the box) but the ceilings that measurement found. Deliverables:
+    server/cmd/loadtest (creates matches over the real HTTP surface, drives one
+    WebSocket client per seat, submits DICTIONARY WORDS over free cells on a
+    cadence, and reports create/intent latency percentiles, per-kind frame and
+    byte accounting, server CPU and RSS from /proc, the intent-outcome
+    histogram, and every reason the load fell short - skips, 429 throttles, dial
+    errors - with run() split from flag parsing so CI can drive it);
+    tools/loadtest-isolated.sh (the safe path: its own port, in-memory storage,
+    drive, drain, tear down, never the live service);
+    server/cmd/loadtest/loadtest_test.go (three-second CI run against a real
+    server process, so the tool cannot rot); docs/M2-LOAD-TESTING.md
+    (methodology, isolation rule, measurement table, what is deliberately not
+    measured). MEASUREMENTS on a 4 vCPU box, 30 s stages, generator on the same
+    box so latency and CPU are upper bounds: 8x2/16 clients -> create p95 15 ms,
+    intent p95 3.0 ms, 163 B/s per client, 1.7 % of a core; 3x60/180 clients ->
+    intent p95 56 ms, 900 B/s per client, 158 KB/s total, 4.7 % of a core;
+    120x2/240 clients -> intent p95 32 ms, 10.3 % of a core, 53.3 MB RSS;
+    300x2/600 clients -> intent p95 67 ms, 12.7 % of a core, 94.0 MB RSS;
+    400 rooms with NO clients for 60 s -> 6.6 CPU-seconds (0.28 ms CPU per room
+    per second) and 107.6 MB (about 270 KB per live room). Zero room leaks,
+    dropped frames, failed creates (with the admission limit opened) or
+    unhealthy states in any stage. THE 32A BUDGET IS NOW CONFIRMED FROM OUTSIDE:
+    1v1 clients cost 163-178 B/s and a full-lobby client about 900 B/s, the top
+    of the predicted 0.6-0.9 KB/s band. TWO CEILINGS FOUND BY MEASURING RATHER
+    THAN PREDICTING: (1) the first thing anyone meets is an admission control,
+    not capacity - a 400-room burst failed every create after room 121 with 429
+    'too many requests from this caller', because WORDARENA_MUTATIONS_PER_MIN
+    defaults to 120 per caller per minute, so a burst of N lobbies takes at
+    least N/120 minutes however idle the box is; the harness now honours
+    Retry-After, counts throttles in its report and can pace with -create-rate,
+    and the capacity stages above were run with that limit raised on the
+    isolated instance ON PURPOSE (recorded, not hidden). (2) Rooms OUTLIVE their
+    clients by design: measured drain after every client left was 180.2 s, the
+    full match length, so capacity is a product (creations/s x 180 s) and the
+    state to plan for is a box full of abandoned rooms - which is why the
+    no-client stage exists and why MEMORY (about 270 KB per room), not CPU, is
+    the first resource to watch. FINDING THAT MATTERS MOST FOR M3: a full
+    lobby's cost is FRAMES, not bytes - 90 intents/s across 60 seats produced
+    162 000 word_event frames in 30 s (5 400 frames/s) because every evaluated
+    intent is broadcast to every seat, and word events are only about 29 bytes
+    each, so an optimisation that lowers bytes without lowering frames has not
+    addressed it. Verified: gofmt/vet clean, go test ./... 13/13 packages,
+    go test -race ./... 0 races, hygiene 241/0, test-assets 6/0, monitoring 11/0,
+    task-yaml 61/0, CI 6/6 green (the first run failed in 'Build image and smoke
+    the compose stack' on a Docker Hub connection reset while pulling
+    postgres:16-alpine - infrastructure, not code; re-ran the job and it passed).
   - >-
     Batch 32E (M2, PR #46, merged 1ce9aba): FIRST PvE CONTENT - the M2 row is
     closed. POST /v1/matches now takes "pve": true and creates a 1v1 in which
@@ -1150,38 +1199,37 @@ failed_tasks:
     completed success, so treat 34437012338 as runner/emulator flake unless it recurs
 next_tasks:
   - >-
-    M2 "infrastructure load testing" - the next row, independent and unblocked.
-    The 32A measurement supplies the per-connection byte budget (0.6-0.9 KB/s
-    per client at 60 seats, ~50 KB/s for a full lobby) and tick cost is
-    roster-independent per 30F, so the open question is not the wire but the
-    box: how many concurrent matches, intents/second and sockets one instance
-    holds, and where it breaks first. Run load ONLY against an isolated
-    instance, never the live systemd service, and report absolute numbers plus
-    the failure mode rather than a percentage.
-  - >-
-    M2 "guild foundation" - unblocked but needs a design note first: it touches
-    persistence and identity, i.e. the M2 auth scope, so it is not a
-    weekend-sized rules change. A guild that cannot survive a restart or a
-    second process is not a foundation, and the note must say which tables,
-    which endpoints and which capability checks it adds.
+    M2 "guild foundation" - the last open M2 row and it needs a DESIGN NOTE
+    first: it touches persistence and identity (the M2 auth scope), so the note
+    must fix the model, the tables, the endpoints and the capability checks
+    before code exists. A guild that cannot survive a restart or a second
+    process is not a foundation. Deliberately out of scope for the first slice
+    unless the note argues otherwise: guild chat (moderation is a
+    product/safety decision, not an engineering one), guild-vs-guild
+    matchmaking, and rewards.
   - >-
     Anti-snowball follow-ups (own batches, each needs evidence): leader lock
     duration, steal economics against a leader, a combo cap, per-match exposure
     of the rule, and calibration of CatchUpGap/divisor/cap against playtest or
     simulation rather than a guess.
   - >-
-    PROTOCOL-VERSION DEBT, created by 32A and 32D and NOT reduced by 32E (the
-    pve field is HTTP-only, but is_bot and snapshot_delta both ride the binary
-    protocol): two additive fields and NO version negotiation. An old M1 client
-    is fine today because proto3 skips unknown fields, but a client that needs
-    a delta cannot ask for one and cannot say it cannot apply one. Before any
-    external client ships, add the handshake (a protocol version on the connect
-    path or in the envelope) - recorded so it is a decision, not an accident.
+    PROTOCOL-VERSION DEBT, created by 32A and 32D and NOT reduced by 32E/32F:
+    two additive binary fields (snapshot_delta, is_bot) and still NO version
+    negotiation. An old M1 client is fine today because proto3 skips unknown
+    fields, but a client that needs a delta cannot ask for one and cannot say it
+    cannot apply one. Before any external client ships, add the handshake (a
+    protocol version on the connect path or in the envelope) - a decision, not
+    an accident.
   - >-
     PvE follow-ups, deliberately left by 32E: difficulty selection, practice
-    rewards, tutorial framing, and whether practice is reachable from the
-    ranked path - each needs evidence, and Q5 clause 3 already answers that
-    such a match stays non-rating-eligible either way.
+    rewards, tutorial framing, and whether practice is reachable from the ranked
+    path - each needs evidence, and Q5 clause 3 already answers that such a
+    match stays non-rating-eligible either way.
+  - >-
+    Load-testing follow-ups from 32F: a Postgres-backed stage on a throwaway
+    database, a latency run with the generator OFF the target box (the numbers
+    so far are upper bounds because both share four vCPUs), and a stage that
+    pushes the per-seat intent limit rather than the per-caller mutation limit.
 
-last_verified_commit: "1ce9aba on main (batch 32E). CI 6/6 green on a14a25c (the 32E branch), including the migration job and the container smoke. Locally on 32E: go build/vet/gofmt clean, go test ./... 12/12 packages, go test -race ./... 0 races, hygiene 236/0, test-assets 6/0, monitoring 11/0, task-yaml 60/0. PREVIOUS SESSION MERGES 11c1ad6 (32A), 229f1bd (32B), 547243f (32C), dbcd8e0 (32D) all 6/6. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 and was not touched by this session. NOTE FOR THE NEXT PROMOTION: 32D makes the QA legs declare themselves (headless-bot sends bot:true on every queue call) and 32E adds the pve field, so a deployment hosting the exit gate, the device smoke or a practice mode must set WORDARENA_ALLOW_BOT_SEATS=true; without it their pve/enqueue calls are refused by name (docs/M1-OPS.md)."
-resume_from: "M1 COMPLETE (8/8). M2: the 60-player row is FULLY CLOSED (32A/32B engineering + 32D policy) and FIRST PvE CONTENT IS DONE (32E, docs/M2-PVE.md: POST /v1/matches with pve=true puts a deterministic, unprivileged, declared bot on seat 1 so one player can play alone; never rating-eligible; behind WORDARENA_ALLOW_BOT_SEATS). Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba. Q5/Q9/Q10/Q11 are DECIDED - do NOT re-open any of them. FIVE FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, not 10x, and the absolute cost is 0.6-0.9 KB/s per client / ~50 KB/s per lobby; interest-scoped snapshots are useless because every seat needs the whole board and scoreboard. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy) - keep both properties or the mode stops being replayable and stops being testable. NEXT WORK, in order: (a) M2 'infrastructure load testing' - isolated instance only, never the live systemd service; report absolute numbers and the first failure mode, using the 32A byte budget (0.6-0.9 KB/s per client) rather than rediscovering it; (b) M2 'guild foundation' - design note first, it touches persistence and identity; (c) anti-snowball follow-ups; (d) PROTOCOL-VERSION DEBT - two additive binary fields (snapshot_delta, is_bot) and still no version negotiation, which must be a decision before an external client ships; (e) PvE follow-ups (difficulty, rewards, tutorial framing) left deliberately open by 32E. OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, re-install Go to /home/user/go-toolchain, and USE A FRESH GOMODCACHE (/home/user/go/pkg/mod): the persisted module cache is truncated by the workspace snapshot and produces 'no required module provides package ...' errors that look like a go.mod problem but are not. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
+last_verified_commit: "4477798 on main (batch 32F). CI 6/6 green on both 32E (a14a25c) and 32F (6b1cf93): the 32F first run failed in 'Build image and smoke the compose stack' because Docker Hub reset the connection while pulling postgres:16-alpine - infrastructure, not code - and the re-run of that job passed. Locally on 32F: go build/vet/gofmt clean, go test ./... 13/13 packages, go test -race ./... 0 races, hygiene 241/0, test-assets 6/0, monitoring 11/0, task-yaml 61/0. PREVIOUS SESSION MERGES 11c1ad6 (32A), 229f1bd (32B), 547243f (32C), dbcd8e0 (32D), 1ce9aba (32E) all 6/6. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 and was not touched by this session. NOTE FOR THE NEXT PROMOTION: 32D makes the QA legs declare themselves (headless-bot sends bot:true on every queue call) and 32E adds the pve field, so a deployment hosting the exit gate, the device smoke or practice must set WORDARENA_ALLOW_BOT_SEATS=true; without it those calls are refused by name (docs/M1-OPS.md). The 32F harness must never be pointed at the live service."
+resume_from: "M1 COMPLETE (8/8). M2: the 60-player row is FULLY CLOSED (32A/32B/32D), FIRST PvE CONTENT IS DONE (32E) and INFRASTRUCTURE LOAD TESTING IS DONE (32F). Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798. Q5/Q9/Q10/Q11 are DECIDED - do NOT re-open any of them. SIX FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, not 10x - and the cost is now MEASURED from outside: 163-178 B/s per 1v1 client, about 900 B/s per client in a full 60-seat lobby, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy) - keep both properties. (6) A full lobby's real cost is FRAMES not bytes (intents x seats, 5 400 frames/s measured at 60 seats) - a byte-only optimisation has not addressed it; and rooms OUTLIVE their clients (measured drain 180.2 s), so capacity is creations/s x 180 s and memory (~270 KB per room) is the first resource to watch, after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min, which answers a burst with 429 long before the box does). NEXT WORK, in order: (a) M2 'guild foundation' - the last open M2 row, design note FIRST because it touches persistence and identity; keep guild chat, guild matchmaking and rewards out of the first slice; (b) anti-snowball follow-ups; (c) PROTOCOL-VERSION DEBT (snapshot_delta + is_bot, no version negotiation) which must be a decision before an external client ships; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, re-install Go to /home/user/go-toolchain, and USE A FRESH GOMODCACHE (/home/user/go/pkg/mod): the persisted module cache is truncated by the workspace snapshot and produces 'no required module provides package ...' errors that look like a go.mod problem but are not. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
