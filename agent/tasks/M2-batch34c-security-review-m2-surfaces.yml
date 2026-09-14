@@ -1,0 +1,64 @@
+id: M2-batch34c-security-review-m2-surfaces
+title: >-
+  Security review of the surfaces M2 added - owner token, guild endpoints,
+  the PvE field, and the protocol handshake
+owner: orchestrator (security lane)
+priority: high
+complexity: medium
+status: validated_local_ci_pending
+inputs:
+  - server/cmd/game/guild_api.go, guild.go, profile.go, store_pg.go (the 32G
+    identity + guild surface)
+  - infra/migrations/005_guilds.sql (the indexes the invariants rest on)
+  - server/cmd/game/api.go (pve gating 32E, bot fields 32D, handshake 33,
+    allowMutation budget 21A)
+  - docs/SECURITY-REVIEW-M1.md (the register this extends - S-1..S-9)
+  - docs/SECURITY-EXPOSURE.md (the Q8 stage-1 abuse review)
+dependencies:
+  - M2-batch32g-guild-foundation
+  - M2-batch32e-pve
+  - M2-batch33-protocol-version
+outputs:
+  - docs/SECURITY-REVIEW-M1.md - new section "M2 surface review (batch 34C)"
+    with findings S-10..S-14
+  - this task file
+acceptance:
+  - Every surface M2 added is reviewed against code, not against the state
+    file's description of it, and each claim names the file/function or the
+    test that pins it.
+  - The owner-token lifecycle (mint, at-rest form, overwrite refusal on BOTH
+    backends, indexed lookup, oracle-free refusals, leak paths) is verified
+    end to end; the profile-read leak check is additionally re-verified LIVE
+    during the batch 34A promotion.
+  - Guild mutations are confirmed to run draining-check, per-caller mutation
+    budget and token authentication in that order, with identity taken only
+    from the token.
+  - The PvE field is confirmed gated (WORDARENA_ALLOW_BOT_SEATS), bounded
+    (mutation budget + MAX_ROOMS), goroutine-leak-free (opponent runs inside
+    the room ticker; the pve map is cleaned on BOTH teardown paths), and
+    rating-safe (Q5 durable ineligibility).
+  - The protocol handshake is confirmed to sit behind seat-token auth, origin
+    policy and the WS read limit, to be honoured only on the first message,
+    and to never serve a delta before negotiation. The v2 echo debt is
+    recorded in writing so it is found by reading, not by incident.
+  - Any residual or inherited exposure (shared mutation budget behind the
+    stage-1 tunnel; enumerable public guild reads) is recorded with its
+    disposition rather than silently accepted.
+validation:
+  - go test ./cmd/game -run 'Guild|Token|PvE|Bot|Protocol' -count=1 (the 32G
+    refusal suite, 32E pve suite, 32D bot-policy suite, batch-33 handshake
+    tests) - PASS locally 2026-09-14
+  - live re-verification during batch 34A promotion - guild create/get with a
+    real owner token, token absent from the profile read, pve match created
+    with WORDARENA_ALLOW_BOT_SEATS=true
+  - python3 tools/check-task-yaml.py agent/tasks (schema gate)
+risk: low
+escalation: none
+notes: >-
+  No new HIGH or MEDIUM defect was found; the M2 surfaces were built with
+  their refusal tests already attached (32G shipped 9, mostly refusals), and
+  the review confirmed the properties instead of discovering their absence.
+  The two recorded notes (S-13 v2 echo, S-14 shared budget) are future-work
+  markers, not fixes owed now. Findings deliberately extend the existing
+  register (docs/SECURITY-REVIEW-M1.md) rather than starting a second
+  document, per the resume-state instruction.

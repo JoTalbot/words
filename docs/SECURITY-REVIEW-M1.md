@@ -188,3 +188,122 @@ go build -o /tmp/wa ./cmd/game
 WORDARENA_ADDR=127.0.0.1:18181 /tmp/wa &
 infra/smoke.sh http://127.0.0.1:18181     # 22 passed / 0 failed on 2026-09-10
 ```
+
+## M2 surface review (batch 34C, 2026-09-14)
+
+Scope: the surfaces M2 added after the review above — the per-profile OWNER
+TOKEN and guild endpoints (batch 32G, migration 005), the PvE field on match
+creation (batch 32E), the bot-declaration fields (batch 32D) and the
+protocol-version handshake on the connect path (batch 33). Method is unchanged:
+read every route, enumerate what an unauthenticated or malicious caller can
+cause, and confirm each claim against code and tests rather than against the
+state file's description of it. No new HIGH or MEDIUM defect was found; the
+findings below record what was verified, and the two places where the posture
+is deliberately narrower than it looks.
+
+### S-10 — Owner token lifecycle (32G): verified sound
+
+The owner token is the only durable "who is asking" credential the server has,
+so its whole lifecycle was re-read rather than sampled:
+
+- **Minting**: `randomHex(16)` = 128 bits from `crypto/rand` (the same
+  generator as seat tokens and match codes), minted inside
+  `handlePlayerCreate` and returned exactly once in the creation response.
+- **At rest**: only `SHA-256(token)` is stored. For a 128-bit random secret a
+  fast hash is appropriate (there is no low-entropy space to dictionary
+  attack), and a database read cannot be replayed as a player.
+- **No overwrite, either backend**: `memProfileStore.SetOwnerToken` refuses a
+  profile that already has a hash; the Postgres form is
+  `UPDATE ... WHERE owner_token_hash IS NULL` with a `RowsAffected` check. A
+  re-mint path (which would make a leaked token indistinguishable from a
+  legitimate one) does not exist, matching the Q12 decision that pre-32G
+  profiles deliberately cannot use guilds.
+- **Lookup**: `players_owner_token_hash_key` is a UNIQUE partial index, so an
+  authentication attempt is an index probe, not a seq scan — a flood of bad
+  tokens cannot be turned into database CPU amplification. The query carries
+  the 5 s statement timeout of every other store call.
+- **No oracle**: `authenticatePlayer` answers malformed and unknown tokens
+  with the identical 401 ("invalid player token"); the 32-char length
+  pre-check rejects junk before any hashing or query work.
+- **No leak**: the token never appears in a profile GET (unexported
+  `ownerTokenHash` field, never serialized; pinned by the 32G test and
+  re-verified LIVE during the batch 34A promotion), in telemetry
+  (`profile_created` carries id/language only), or in the request log
+  (method/path/status/bytes only — headers are not logged, so
+  `X-Player-Token` never lands in the journal).
+- **Brute force**: 2^128 space at the per-caller mutation budget (120/min)
+  is not a feasible attack; the budget applies to every guild mutation.
+
+### S-11 — Guild endpoints (32G): mutations gated, reads public by decision
+
+All four mutating routes (`POST /v1/guilds`, `POST /v1/guilds/{id}/members`,
+`DELETE /v1/guilds/{id}/members/{player_id}`) run `rejectIfDraining` →
+`allowMutation` (the S-5 per-caller budget) → `authenticatePlayer` in that
+order, and take the acting player ONLY from the token — no route reads a
+caller-supplied player id for identity, so impersonation is impossible by
+construction rather than by a check. `decodeJSON` (16 KiB cap + unknown-field
+rejection) covers every body. Storage invariants are enforced where races
+would otherwise live: unique indexes on `guilds.name_key` / `guilds.tag`, and
+the one-guild-per-player unique index; the roster cap (50) bounds a guild's
+fan-out; dissolution on last-member-leave frees the name, so a dead guild
+cannot squat. READS (`GET /v1/guilds/{id}`, `GET /v1/players/{id}/guild`) are
+unauthenticated **by product decision** (Q12: rosters are public social data,
+and secrecy would make moderation harder). Consequence accepted and recorded:
+sequential guild ids are enumerable and pair a public player id with a public
+nickname — the same exposure class as the already-accepted public profile read
+(S-5 disposition), not a new one.
+
+### S-12 — PvE creation field (32E): gated, bounded, no privileged path
+
+`"pve": true` is refused with a 400 that names `WORDARENA_ALLOW_BOT_SEATS` on
+a deployment without it (default OFF), and refused for any roster but 1v1.
+Creation flows through the same per-caller mutation budget and `MAX_ROOMS`
+cap as every other match, which also bounds the per-create dictionary load
+(`pve.New`) an abuser can induce. The opponent runs inside the room's own
+ticker goroutine — there is no per-PvE-match goroutine to leak — and the
+`a.pve` map entry is deleted on BOTH teardown paths (`discardRoom` and the
+ticker's post-match cleanup), verified by reading both. The opponent submits
+through `Room.Submit`, the same validated door a human uses; a rejected
+intent is telemetry (`pve_intent_rejected`) and never a crash path. Bot
+matches are durably `rating_eligible=false` (Q5, migration 004), so PvE
+volume cannot pollute ratings.
+
+### S-13 — Protocol handshake (33): authenticated, first-message-only
+
+`ClientHello` is read only AFTER the WebSocket upgrade has passed the seat
+token check, the origin policy and `SetReadLimit`, so the handshake adds no
+unauthenticated surface. Only the FIRST binary message is interpreted as a
+hello; later `hello` payloads fall through to the intent path and are ignored
+(`GetSubmitWord() == nil` → continue), so a client cannot re-negotiate
+mid-match. `useDelta` starts false and a negotiated client cannot receive a
+delta before its own negotiation — the pre-33 unilateral decision is gone.
+NOTE for the next protocol version: `ServerHello` always echoes
+`serverProtocolVersion` (the "graceful downgrade" is capability-based, not
+version-based). That is exact while v1 is the only version; when a v2 exists,
+the echo must become `min(client, server)` or a v1 client will be told "v2"
+while receiving v1 frames. Recorded here so the debt is found by reading, not
+by incident.
+
+### S-14 — Shared mutation budget behind the stage-1 tunnel (informational, pre-existing)
+
+Not new to M2, but the guild and PvE endpoints inherit it: the per-caller
+mutation budget keys on the peer address, and every request through the Q8
+stage-1 Cloudflare tunnel arrives from the local `cloudflared` process, so ALL
+public callers share ONE 120/min budget (`WORDARENA_TRUST_PROXY_HEADERS` is
+correctly unset — `cloudflared` does not overwrite `X-Forwarded-For`, and
+trusting client-supplied headers would let anyone evade the limiter by
+spoofing). One abuser can therefore starve everyone's creation traffic long
+before the box itself is stressed (32F measured exactly this ceiling). Per-IP
+limiting at a real edge is already a Q8 stage-2 condition
+(docs/SECURITY-EXPOSURE.md); nothing in M2 makes it more urgent, but the
+shared budget now covers more endpoints.
+
+### Validation (batch 34C)
+
+The claims above were confirmed against the code paths named, plus:
+`go test ./cmd/game -run 'Guild|Token|PvE|Bot|Protocol' -count=1` (the 32G
+refusal suite, 32E pve suite, 32D bot-policy suite and the batch-33
+protocol-version tests), and LIVE re-verification during the batch 34A
+promotion: guild create/get over the real deployment with a real owner token,
+token absent from the profile read, PvE match created with
+`WORDARENA_ALLOW_BOT_SEATS=true`.
