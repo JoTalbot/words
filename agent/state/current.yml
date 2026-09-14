@@ -1,4 +1,45 @@
 status: >-
+  2026-09-14 LATE STATE. 34C MERGED (PR #49, main e08ff85): security review of
+  the M2 surfaces (owner token, guild rate limits, pve, protocol handshake) as
+  S-10..S-14 in docs/SECURITY-REVIEW-M1.md; wire-protocol docs updated.
+  34B (ANTI-SNOWBALL CALIBRATION, PD-007) IN FLIGHT on branch
+  feat/m2-batch34b-antisnowball-calibration (worktree /home/user/wt-34b):
+  server code + 4 HTTP-surface tests + docs are done; the calibration sweep
+  (24 seeds x rosters 2/8/30/60 x sets default,gap15,gap40,div3,cap10,cap20 =
+  576 configs, single-threaded) has been running since 20:07 UTC as background
+  process calibration-sweep-9b76bc18 and writes JSON only at exit to
+  /home/user/artifacts-34b/sweep-full.json. ON COMPLETION: extract the report
+  (jq 'del(.pairs)'), fill CALIBRATION_RESULTS_PLACEHOLDER in
+  docs/M2-ANTI-SNOWBALL.md, flip the ROADMAP anti-snowball row, run full
+  go test ./... + race subset while the CPU is idle (cmd/loadtest is
+  timing-flaky under sweep load), delete the server/calibrate binary, rebase
+  onto main, PR.
+  34D (DEVICE SMOKE FIXES) IN FLIGHT on branch
+  fix/m2-batch34d-smoke-death-recovery (PR #50, worktree /home/user/wt-34d):
+  three measured failure modes, all fixed. (1) INSTALL/LAUNCH RACE - scheduled
+  run 34889290062: adb install printed Success while PackageManager
+  post-processing was still running; the launched app was KILLED 5 s later
+  ("ApplicationInfo updating" -> "has died: fg TOP") and the pre-swipe gate
+  misdiagnosed the corpse as a first-run sheet; fix = bounded post-install
+  settle + pidof liveness check with cold relaunch (sheet taps only for a
+  live-but-covered app). (2) STALE WORDS_SERVER_URL - the recorded tunnel URL
+  is dead and the GitHub variables API 404s with the current PAT (repo AND
+  orgs endpoints; JoTalbot is a user, not an org - do NOT retry variables);
+  fix = self-contained full-match leg: when the configured URL fails /healthz
+  or is unset, build+run the SAME-COMMIT server on the runner
+  (127.0.0.1:18080, WORDARENA_ALLOW_BOT_SEATS=true, in-memory), client via the
+  AOSP host alias 10.0.2.2, partner via 127.0.0.1, trap-EXIT cleanup.
+  (3) ANDROID CLEARTEXT BLOCK - verification run 34906844282 proved fixes
+  1+2 on-device (gesture legs green: TAAN row + TSO diagonal; resolver picked
+  source=runner-local; partner enqueued) but the client's UnityWebRequest
+  enqueue threw "Insecure connection not allowed" (targetSdk 35, no manifest
+  exception); fix = custom main manifest + scoped network_security_config:
+  cleartext denied globally (unchanged posture), permitted ONLY for
+  10.0.2.2/localhost/127.0.0.1 (loopback-like automation hosts, not routable
+  on real devices). Verification run 34910227019 (b3986df) dispatched 23:44
+  UTC; expected signature: PARTNER-GATE PASS + [WORDS_MATCH_COMPLETE]
+  source=result-endpoint with source=runner-local. MERGE PR #50 BEFORE the
+  03:17 UTC scheduled run so it carries the fixes.
   BATCH 34A (OPS, LIVE PROMOTION) COMPLETE 2026-09-14: the live OCI service was
   promoted from the 97a2414-era binary (Sep 12) to main 22fb7af - seven batches
   of drift closed (27B/27E/27H/27I/28x device chain, 29A tunnel, 30-32 M2 rows,
@@ -1172,24 +1213,28 @@ completed_tasks:
 
 active_tasks:
   - >-
-    Unity Android run on main 07aa6e6 (dispatched 2026-09-13 ~16:05 UTC):
-    the EXPECTED GREEN run. Both device-leg root causes are now fixed:
-    (1) the coordinate defect (27A - swipe started left of the board,
-    40 px area inset dropped) and (2) the Awake NullReferenceException
-    (27E - GetEnvironmentVariable returns null at Android runtime where
-    the reference assembly declares a span; the env channel is now
-    #if !UNITY_ANDROID-only, file channel is the Android automation
-    path). 27D instrumentation stays in for the first runs after this.
-    Expected signature: build green; device leg prints "board rect from
-    the client (screen px)" within ~1 s of ready (the healthy 08:15Z run
-    logged it within 0.14 s), [WORDS_SWIPE] cells=4 word=TAAN (or DSVT
-    on the fallback row), a second "diagonal marker" with cells>=3 and
-    word != TAAN (WORDS_DIAGONAL_SMOKE_OK), and finally
-    WORDS_SWIPE_SMOKE_OK. If a leg still fails, the artifacts now carry
-    logcat-full.txt (startup record) and [WORDS_DIAG] exception stacks -
-    read those before touching product code. The twice-daily schedule
-    (cron 17 3,15 UTC) keeps retrying independently; concurrency group
-    unity-android-main cancels in-progress, so check runs by head sha.
+    34B: reap the calibration sweep (background process
+    calibration-sweep-9b76bc18, output /home/user/artifacts-34b/sweep-full.json,
+    written only at exit), sanity-check the aggregates, fill
+    CALIBRATION_RESULTS_PLACEHOLDER in docs/M2-ANTI-SNOWBALL.md, flip the
+    ROADMAP anti-snowball row to calibrated constants, run the full test suite
+    + race subset in wt-34b while the CPU is idle, delete the server/calibrate
+    binary, rebase onto main, open the PR.
+  - >-
+    34D: monitor verification run 34910227019 (branch
+    fix/m2-batch34d-smoke-death-recovery @ b3986df, PR #50). Expected: gesture
+    legs green as in 34906844282, full-match leg pairs against the
+    runner-local server (cleartext to 10.0.2.2 now permitted by the scoped
+    network security config), PARTNER-GATE PASS, [WORDS_MATCH_COMPLETE]
+    source=result-endpoint, WORDS_FULL_MATCH_SMOKE_OK. If green: merge PR #50
+    BEFORE 03:17 UTC. If red: read the artifacts (logcat-fullmatch.txt,
+    partner-bot.log, local-server.log now captured in DIAG) before touching
+    anything; the dead-app relaunch path prints "app process is DEAD - cold
+    relaunch".
+  - >-
+    Monitor the 03:17 UTC scheduled unity-android run on main after PR #50
+    merges (it will use the stale repo variable URL, fail /healthz in ~20 s,
+    and fall back to source=runner-local - that is the expected 34D path).
 
 blocked_tasks:
   - B2 uk dictionary GPL-3.0+ derivative; legal review before distribution (dictionary/NOTICE.md). Real human blocker, unchanged.
@@ -1318,5 +1363,6 @@ next_tasks:
     that pushes the per-seat intent limit rather than the per-caller mutation
     limit.
 
-last_verified_commit: "0b71946 on main (batch 33 protocol-version). CI 6/6 green on 1c59fd7 (32G), including the migration job which now applies migration 005 (guilds, guild_members, players.owner_token_hash). Locally on 32G: go build/vet/gofmt clean, go test ./... 13/13 packages, go test -race ./... 0 races (run twice), cmd/game -count=3 clean, hygiene 247/0, test-assets 6/0, monitoring 11/0, task-yaml 62/0. PREVIOUS SESSION MERGES 11c1ad6 (32A), 229f1bd (32B), 547243f (32C), dbcd8e0 (32D), 1ce9aba (32E), 4477798 (32F) all 6/6. ONE FLAKE OBSERVED AND NOT REPRODUCED: a single FAIL in cmd/game appeared in a race run that was started while the previous full suite was still winding down; two full race runs and three sequential cmd/game runs after it were clean, so it is treated as resource contention rather than a real defect - if it recurs, capture the failing test name before anything else. The LIVE OCI service is UNCHANGED at /opt/words 97a2414 and was not touched by this session. NOTE FOR THE NEXT PROMOTION: 32D makes the QA legs declare themselves (headless-bot sends bot:true on every queue call) and 32E adds the pve field, so a deployment hosting the exit gate, the device smoke or practice must set WORDARENA_ALLOW_BOT_SEATS=true; 32G adds migration 005 and the owner-token column, so the migration must run before the new binary serves guild traffic."
-resume_from: "M1 COMPLETE (8/8). M2: ALL SIX ROWS ARE NOW CLOSED - the 60-player row (32A/32B/32D), first PvE content (32E), infrastructure load testing (32F) and guild foundation (32G), with anti-snowball marked [~] because its constants are deliberately uncalibrated. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798, 32G 24b87a0. Q5/Q9/Q10/Q11/Q12 are DECIDED - do NOT re-open any of them. SEVEN FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, and the cost is MEASURED: 163-178 B/s per 1v1 client, about 900 B/s per full-lobby client, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy). (6) A full lobby's real cost is FRAMES not bytes (intents x seats), and rooms OUTLIVE their clients (drain 180.2 s), so capacity is creations/s x 180 s - after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min) which answers a burst with 429 long before the box does. (7) Guild mutations authenticate with a per-profile OWNER TOKEN (returned once at profile creation, stored only as a SHA-256 hash); no endpoint trusts a caller-supplied player id; profiles created before 32G cannot use guilds and there is deliberately no way to mint a token for them. NEXT WORK, in order: (a) PROTOCOL-VERSION DEBT - CLOSED in batch 33 (0b71946, 2026-09-14): version + capabilities handshake on the connect path; (b) anti-snowball calibration by simulation rather than guess (PD-007); (c) security review of the NEW surfaces (owner token, guild rate limits, pve field) extending docs/SECURITY-REVIEW-M1.md; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, and note that a PARTIAL snapshot also strips the executable bit from toolchain binaries (chmod +x /home/user/go-toolchain/go/bin/* and /home/user/protoc21/bin/protoc and /home/user/gopath/bin/protoc-gen-go, or reinstall Go to /home/user/go-toolchain); USE A FRESH GOMODCACHE (/home/user/go/pkg/mod) because the persisted module cache is truncated and produces 'no required module provides package ...' errors that look like a go.mod problem. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
+last_verified_commit: "e08ff85 on main (34C security review merged via PR #49, CI 6/6 green). Device-side verification: run 34906844282 (branch 34D @ 2c20758) proved the gesture legs, the post-install settle and the runner-local server resolver on-device; its full-match leg failed only on the Android cleartext policy, fixed by b3986df (scoped network security config) and being verified by run 34910227019. Live OCI service unchanged at 22fb7af (34A promotion, gates 27/0 + 3/3 exit-gate PASS). Earlier: 0b71946 (batch 33), CI 6/6 on 1c59fd7 (32G) with migrations 001-005 applied live. KNOWN FLAKE (not reproduced since): a single cmd/game FAIL in a race run started while a previous suite was winding down - treat as resource contention; capture the test name if it recurs. cmd/loadtest timing tests are flaky under sweep CPU load on 2 cores - run when idle."
+
+resume_from: "RESUME POINT 2026-09-14T23:55Z: (i) 34D - check run 34910227019; if green merge PR #50 before the 03:17 UTC schedule, then monitor that scheduled run (expect source=runner-local fallback while the repo variable URL stays stale). (ii) 34B - reap sweep process calibration-sweep-9b76bc18 (output /home/user/artifacts-34b/sweep-full.json, JSON written only at exit; started 20:07 UTC, 213 CPU-min at 23:00), then placeholder/ROADMAP/tests/PR per active_tasks. (iii) Do NOT retry the GitHub variables API (404 for this PAT, user not org). (iv) Main is e08ff85. M1 COMPLETE (8/8). M2: ALL SIX ROWS ARE NOW CLOSED - the 60-player row (32A/32B/32D), first PvE content (32E), infrastructure load testing (32F) and guild foundation (32G), with anti-snowball marked [~] because its constants are deliberately uncalibrated. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798, 32G 24b87a0. Q5/Q9/Q10/Q11/Q12 are DECIDED - do NOT re-open any of them. SEVEN FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, and the cost is MEASURED: 163-178 B/s per 1v1 client, about 900 B/s per full-lobby client, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy). (6) A full lobby's real cost is FRAMES not bytes (intents x seats), and rooms OUTLIVE their clients (drain 180.2 s), so capacity is creations/s x 180 s - after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min) which answers a burst with 429 long before the box does. (7) Guild mutations authenticate with a per-profile OWNER TOKEN (returned once at profile creation, stored only as a SHA-256 hash); no endpoint trusts a caller-supplied player id; profiles created before 32G cannot use guilds and there is deliberately no way to mint a token for them. NEXT WORK, in order: (a) PROTOCOL-VERSION DEBT - CLOSED in batch 33 (0b71946, 2026-09-14): version + capabilities handshake on the connect path; (b) anti-snowball calibration by simulation rather than guess (PD-007); (c) security review of the NEW surfaces (owner token, guild rate limits, pve field) extending docs/SECURITY-REVIEW-M1.md; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, and note that a PARTIAL snapshot also strips the executable bit from toolchain binaries (chmod +x /home/user/go-toolchain/go/bin/* and /home/user/protoc21/bin/protoc and /home/user/gopath/bin/protoc-gen-go, or reinstall Go to /home/user/go-toolchain); USE A FRESH GOMODCACHE (/home/user/go/pkg/mod) because the persisted module cache is truncated and produces 'no required module provides package ...' errors that look like a go.mod problem. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
