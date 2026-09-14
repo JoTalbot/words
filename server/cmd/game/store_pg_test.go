@@ -261,5 +261,9 @@ func createMatchWithPlayers(t *testing.T, srv *httptest.Server, lang string, see
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	return out.MatchID, out.Tokens, out.UserIDs
+	if len(out.Tokens) != 2 || len(out.UserIDs) != 2 {
+		t.Fatalf("profile-bound create returned %d tokens and %d user ids, want 2 of each",
+			len(out.Tokens), len(out.UserIDs))
+	}
+	return out.MatchID, [2]string{out.Tokens[0], out.Tokens[1]}, [2]uint64{out.UserIDs[0], out.UserIDs[1]}
 }
