@@ -1,0 +1,69 @@
+id: M2-batch31b-shared-fanout
+title: Snapshot fan-out encoded once per frame instead of once per subscriber
+owner: gameplay-core
+priority: high
+complexity: medium
+status: in_review
+risk: medium
+escalation: none
+
+inputs:
+  - M2-batch30f-roster-load (identified per-subscriber fan-out as the Royale constraint)
+  - M2-batch31a-royale-rules
+  - server/internal/matchroom/room.go, server/cmd/game/api.go
+
+outputs:
+  - server/internal/matchroom/payload.go (new: SharedPayload)
+  - server/internal/matchroom/room.go (broadcast frames carry a shared encoding box)
+  - server/cmd/game/api.go (transport uses the shared encoding; wsWriteBytes)
+  - server/internal/matchroom/payload_test.go (new, 5 tests)
+  - server/internal/protocol/fanout_bench_test.go (new: 4 benchmarks + a ratio guard test)
+  - docs/LOAD-BASELINE.md (measured fan-out section)
+
+acceptance:
+  - >-
+    MEASURED 60x WIN: fanning one canonical 60-seat snapshot out to 60
+    subscribers cost ~906 us and 8 280 allocations when encoded per connection,
+    and costs ~15 us and 139 allocations now that it is encoded once per frame.
+    The saving is exactly the roster size, which is the point - the canonical
+    snapshot is byte-for-byte identical for every seat, so the old code
+    multiplied identical work by the number of players.
+  - >-
+    The room stays protocol-agnostic. matchroom.SharedPayload is a lazily
+    encoded, sync.Once-guarded box attached to each broadcast frame; the room
+    carries it, the transport supplies the encoder. Every subscriber of a frame
+    receives the same pointer, which is what makes the encoding happen once,
+    and that pointer identity is asserted across a 30-seat room.
+  - >-
+    Safe under concurrency: subscribers are separate goroutines, so the
+    once-only guarantee is tested with 60 concurrent callers and the whole
+    suite passes under -race, including the transport. The shared slice is
+    documented and treated as read-only.
+  - >-
+    Regression-guarded by a ratio test rather than an absolute threshold (so it
+    does not depend on host speed): if the transport ever reverts to encoding
+    per connection, the shared path stops being at least 10x cheaper in both
+    time and allocations and the test fails.
+  - >-
+    A nil box still encodes normally, so any caller that builds a frame without
+    one keeps working.
+
+validation:
+  - "gofmt clean; go vet ./... clean"
+  - "go test -count=1 ./... : 12/12 packages ok"
+  - "go test -race -count=1 ./cmd/game ./internal/matchroom ./internal/protocol : ok"
+
+file_ownership:
+  - server/internal/matchroom/payload.go
+  - server/internal/matchroom/payload_test.go
+  - server/internal/matchroom/room.go
+  - server/internal/protocol/fanout_bench_test.go
+  - server/cmd/game/api.go
+  - docs/LOAD-BASELINE.md
+
+notes: >-
+  This cuts CPU and garbage, NOT bandwidth: each subscriber still receives the
+  full snapshot on its own socket. Reducing the bytes on the wire needs delta
+  or interest-scoped snapshots, which require a protocol change - and protoc is
+  not available in the dev sandbox, so that work has to regenerate the
+  generated Go through CI or on the OCI host. Tracked as the next item.

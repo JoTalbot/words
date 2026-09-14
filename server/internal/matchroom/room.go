@@ -76,6 +76,9 @@ type Subscription struct {
 
 // EventFrame is a word-validation event for fan-out.
 type EventFrame struct {
+	// Encoded is the shared wire encoding of this event, filled in at
+	// broadcast time (batch 31B); see SnapshotFrame.Encoded.
+	Encoded    *SharedPayload
 	Seat       match.Seat
 	Seq        int
 	ClientSeq  uint32 // echoed client intent sequence (telemetry/ordering aid)
@@ -93,6 +96,11 @@ type EventFrame struct {
 // SnapshotFrame carries the canonical state at a tick.
 type SnapshotFrame struct {
 	Snapshot match.Snapshot
+	// Encoded is the shared wire encoding of this frame. Every subscriber
+	// receives the same pointer, so the payload is rendered and marshalled
+	// once per frame instead of once per connection (batch 31B). It may be
+	// nil, in which case callers simply encode for themselves.
+	Encoded *SharedPayload
 }
 
 // New creates a room around a fresh deterministic match.
@@ -292,6 +300,7 @@ func (r *Room) Close() {
 }
 
 func (r *Room) broadcastEventLocked(ev EventFrame) {
+	ev.Encoded = NewSharedPayload()
 	for _, s := range r.subs {
 		select {
 		case s.Events <- ev:
@@ -303,9 +312,13 @@ func (r *Room) broadcastEventLocked(ev EventFrame) {
 }
 
 func (r *Room) broadcastSnapshotLocked(snap match.Snapshot) {
+	// One box per frame, shared by every subscriber: the canonical snapshot
+	// is identical for all seats, so it is encoded at most once no matter
+	// how large the roster is.
+	frame := SnapshotFrame{Snapshot: snap, Encoded: NewSharedPayload()}
 	for _, s := range r.subs {
 		select {
-		case s.Snapshots <- SnapshotFrame{Snapshot: snap}:
+		case s.Snapshots <- frame:
 		default:
 		}
 	}
