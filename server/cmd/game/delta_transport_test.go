@@ -74,7 +74,7 @@ func TestEncodeSnapshotFrameChoosesBySyncState(t *testing.T) {
 	second := frameFor(t, room, 1)
 
 	// A room's first frame has no base, so it can only ever be sent in full.
-	if b, err := encodeSnapshotFrame(5, room, first, new(int)); err != nil {
+	if b, err := encodeSnapshotFrame(5, room, first, new(int), true); err != nil {
 		t.Fatalf("first frame: %v", err)
 	} else if env := decodeEnvelope(t, b); env.GetSnapshot() == nil {
 		t.Fatal("a frame with no base was not sent as a full snapshot")
@@ -86,7 +86,7 @@ func TestEncodeSnapshotFrameChoosesBySyncState(t *testing.T) {
 
 	// In sync: the connection holds exactly the base version.
 	inSync := second.Base.StateVersion
-	if b, err := encodeSnapshotFrame(5, room, second, &inSync); err != nil {
+	if b, err := encodeSnapshotFrame(5, room, second, &inSync, true); err != nil {
 		t.Fatalf("in sync: %v", err)
 	} else {
 		env := decodeEnvelope(t, b)
@@ -114,7 +114,7 @@ func TestEncodeSnapshotFrameChoosesBySyncState(t *testing.T) {
 	}
 	for _, stale := range stale {
 		v := stale
-		b, err := encodeSnapshotFrame(5, room, second, &v)
+		b, err := encodeSnapshotFrame(5, room, second, &v, true)
 		if err != nil {
 			t.Fatalf("out of sync (%d): %v", stale, err)
 		}
@@ -129,7 +129,7 @@ func TestEncodeSnapshotFrameChoosesBySyncState(t *testing.T) {
 
 	// Self-healing: having just been re-anchored, the same connection is back
 	// to receiving deltas.
-	if b, err := encodeSnapshotFrame(5, room, second, &inSync); err != nil {
+	if b, err := encodeSnapshotFrame(5, room, second, &inSync, true); err != nil {
 		t.Fatalf("after resync: %v", err)
 	} else if decodeEnvelope(t, b).GetSnapshotDelta() == nil {
 		t.Fatal("a re-synced connection did not return to deltas")
@@ -191,9 +191,11 @@ func TestRosterWireCarriesDeltasThatReconstructTheBoard(t *testing.T) {
 	}
 	c := dial(t, srv, info.ID, info.Tokens[0])
 	defer c.close()
+	c.sendHello(t, true)
 
 	// Anchor: the first frame a connection receives is always a full snapshot.
 	env, payload := c.readEnvelope(t)
+	_ = c.readHello(t) // negotiate deltas for this modern client
 	anchor, ok := payload.(*wordarenav1.MatchStateSnapshot)
 	if !ok {
 		t.Fatalf("first frame was %T, want a full snapshot", payload)

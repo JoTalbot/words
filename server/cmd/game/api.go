@@ -218,6 +218,12 @@ type replayEvent struct {
 // resultTTL is how long finished match results are kept in memory.
 const resultTTL = 5 * time.Minute
 
+// serverProtocolVersion is the wire protocol version this server speaks. It is
+// echoed in ServerHello during the connect handshake (M2 batch 33). A client
+// that declares a newer version than this falls back to what the server
+// supports; only one version exists today.
+const serverProtocolVersion = 1
+
 // NewAPI builds the service with in-memory storage. Limits are read from
 // environment variables (WORDARENA_MAX_ROOMS, WORDARENA_MAX_WS_BYTES) with
 // safe defaults.
@@ -1720,6 +1726,15 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	// writer goroutine starts, and afterwards only by that goroutine, so it
 	// needs no lock. It must stay that way: a second caller of sendSnapshot
 	// after the goroutine starts would be a data race.
+	// useDelta gates whether this connection may be served MatchStateDelta
+	// frames (batch 32A) after capability negotiation (M2 batch 33). It starts
+	// false: until the client's first message is read the server sends only
+	// full snapshots, so a client that negotiates supports_delta=false can
+	// never receive a delta it cannot apply. A legacy client (no ClientHello)
+	// has it set true on its first intent, preserving the pre-negotiation
+	// behaviour exactly.
+	useDelta := atomic.Bool{}
+
 	lastSentVersion := 0
 
 	// Immediate canonical snapshot anchors the client (resume semantics:
@@ -1765,7 +1780,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 				// full snapshot and re-syncs by itself. Either way the
 				// payload is rendered and marshalled once per frame for
 				// the whole roster, not once per connection.
-				b, err := encodeSnapshotFrame(id, room, sf, &lastSentVersion)
+				b, err := encodeSnapshotFrame(id, room, sf, &lastSentVersion, useDelta.Load())
 				if err != nil {
 					return
 				}
@@ -1777,6 +1792,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Reader loop: client intents.
+	first := true
 	for {
 		typ, data, err := conn.Read(r.Context())
 		if err != nil {
@@ -1788,6 +1804,39 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		var env wordarenav1.ClientEnvelope
 		if err := proto.Unmarshal(data, &env); err != nil {
 			continue
+		}
+		// M2 batch 33: the first client message may be a ClientHello that
+		// negotiates capabilities (notably whether the client can apply
+		// MatchStateDelta frames). A client that does not send one is served
+		// exactly as before.
+		if first {
+			first = false
+			if hello := env.GetHello(); hello != nil {
+				sd := true
+				if hello.Capabilities != nil {
+					sd = hello.Capabilities.SupportsDelta
+				}
+				useDelta.Store(sd)
+				helloEnv := &wordarenav1.ServerEnvelope{
+					MatchId: id,
+					Payload: &wordarenav1.ServerEnvelope_Hello{
+						Hello: &wordarenav1.ServerHello{
+							ProtocolVersion:    serverProtocolVersion,
+							ServerCapabilities: &wordarenav1.ClientCapabilities{SupportsDelta: sd},
+							UseDelta:           sd,
+						},
+					},
+				}
+				if err := wsWriteProto(ctx, conn, helloEnv); err != nil {
+					break
+				}
+				// A ClientHello carries no competitive intent; wait for the
+				// client's next message rather than misreading it as a word.
+				continue
+			}
+			// Legacy first message (an intent or resume): keep the old behaviour
+			// - deltas may be served once the connection is in sync.
+			useDelta.Store(true)
 		}
 		sw := env.GetSubmitWord()
 		if sw == nil {
@@ -1942,8 +1991,8 @@ func wsWriteBytes(ctx context.Context, conn *websocket.Conn, b []byte) error {
 // Both encodings are shared boxes owned by the frame, so the roster pays for
 // each of them at most once per frame no matter how many connections read
 // them.
-func encodeSnapshotFrame(id uint64, room *matchroom.Room, sf matchroom.SnapshotFrame, lastSentVersion *int) ([]byte, error) {
-	if sf.Base != nil && sf.EncodedDelta != nil && *lastSentVersion == sf.Base.StateVersion {
+func encodeSnapshotFrame(id uint64, room *matchroom.Room, sf matchroom.SnapshotFrame, lastSentVersion *int, useDelta bool) ([]byte, error) {
+	if useDelta && sf.Base != nil && sf.EncodedDelta != nil && *lastSentVersion == sf.Base.StateVersion {
 		b, err := sf.EncodedDelta.Bytes(func() ([]byte, error) {
 			d := protocol.DeltaToProto(*sf.Base, sf.Snapshot, room.UserIDs())
 			return proto.Marshal(protocol.DeltaEnvelope(id, d))

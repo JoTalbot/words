@@ -101,6 +101,9 @@ func (c *testClient) readEnvelope(t *testing.T) (*wordarenav1.ServerEnvelope, pr
 	if env.GetSnapshotDelta() != nil {
 		return &env, env.GetSnapshotDelta()
 	}
+	if env.GetHello() != nil {
+		return &env, env.GetHello()
+	}
 	t.Fatalf("unknown envelope %s", env.String())
 	return nil, nil
 }
@@ -389,4 +392,39 @@ func TestHealthzOnAPI(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("healthz %d", resp.StatusCode)
 	}
+}
+
+// sendHello sends a ClientHello on the WebSocket (M2 batch 33, protocol-version
+// debt). supportsDelta advertises whether this client can apply MatchStateDelta
+// frames; a client that cannot must pass false.
+func (c *testClient) sendHello(t *testing.T, supportsDelta bool) {
+	t.Helper()
+	env := &wordarenav1.ClientEnvelope{
+		Payload: &wordarenav1.ClientEnvelope_Hello{
+			Hello: &wordarenav1.ClientHello{
+				ProtocolVersion: 1,
+				Capabilities:    &wordarenav1.ClientCapabilities{SupportsDelta: supportsDelta},
+			},
+		},
+	}
+	b, err := proto.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.conn.Write(ctx, websocket.MessageBinary, b); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+}
+
+// readHello reads one ServerHello from the server.
+func (c *testClient) readHello(t *testing.T) *wordarenav1.ServerHello {
+	t.Helper()
+	_, payload := c.readEnvelope(t)
+	sh, ok := payload.(*wordarenav1.ServerHello)
+	if !ok {
+		t.Fatalf("expected ServerHello, got %T", payload)
+	}
+	return sh
 }

@@ -46,6 +46,43 @@ message WordValidatedEvent {
   uint64 user_id = 12;
 }
 
+// ClientHello is the first message a client MAY send immediately after the
+// WebSocket upgrade (M2 batch 33, protocol-version debt). It names the wire
+// protocol version the client speaks and the optional capabilities it
+// supports, so the server stops deciding unilaterally whether to send state
+// deltas (batch 32A added deltas with no negotiation: an older client
+// tolerates them only by luck, because proto3 silently skips unknown fields).
+// A client that never sends a ClientHello is served exactly as before (the
+// legacy path): the server streams a full snapshot on connect and may send
+// deltas when the connection is in sync.
+message ClientCapabilities {
+  // supports_delta lets the server send MatchStateDelta frames (batch 32A)
+  // instead of full MatchStateSnapshot frames. A client that cannot apply a
+  // delta MUST set this false; absent (a ClientHello with no capabilities) or
+  // an unset field defaults to true so sending a hello never downgrades a
+  // capable client.
+  bool supports_delta = 1;
+}
+
+message ClientHello {
+  uint32 protocol_version = 1;
+  ClientCapabilities capabilities = 2;
+}
+
+// ServerHello is the server's reply to a ClientHello. It is sent ONLY when the
+// client sent a ClientHello; legacy clients receive no ServerHello and are
+// served exactly as before. It echoes the negotiated protocol version and the
+// delta decision so the client knows what it will receive before the first
+// state frame.
+message ServerHello {
+  uint32 protocol_version = 1;
+  ClientCapabilities server_capabilities = 2;
+  // use_delta is the server's final decision: deltas are sent iff this is
+  // true AND the connection is in sync. A client that set supports_delta=false
+  // sees this false and must never receive a delta frame.
+  bool use_delta = 3;
+}
+
 message ResumeRequest {
   uint64 match_id = 1;
   bytes session_resume_token = 2;
@@ -133,6 +170,7 @@ message ClientEnvelope {
   oneof payload {
     SubmitWordIntent submit_word = 2;
     ResumeRequest resume = 3;
+    ClientHello hello = 4;
   }
 }
 
@@ -145,5 +183,6 @@ message ServerEnvelope {
     // connection that is already in sync at delta.base_version; a
     // connection that is not in sync receives snapshot instead.
     MatchStateDelta snapshot_delta = 4;
+    ServerHello hello = 5;
   }
 }
