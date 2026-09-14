@@ -100,11 +100,24 @@ Exit gate: two remote clients can complete repeated matches with identical final
   than once per subscriber (measured ~60x less CPU and allocation on a 60-seat
   fan-out), and a partial Royale lobby starts short-handed once its
   longest-waiting player has waited 20 s instead of expiring at the queue TTL.
-  REMAINING before the mode is publicly reachable: delta or interest-scoped
-  snapshots to cut the BYTES on the wire (31B cut CPU, not bandwidth; this
-  needs a proto change, and protoc is unavailable in the dev sandbox), a
-  decision on bot backfill for under-filled lobbies (belongs with the bot
-  disclosure row), and only then a seats parameter on the HTTP surface.
+  Batch 32A then closed the wire-bytes question - with a measurement that
+  overturns the assumption behind it. State deltas are implemented
+  (`MatchStateDelta`: scalars plus only the players and cells that changed,
+  exact reconstruction proven with proto.Equal at every frame of a driven
+  60-seat match, self-healing on a missed frame, and 1v1 byte-identical because
+  deltas are scoped to rosters above two seats) and they cut the stream about
+  **2x** (1 460 -> 870 B/frame saturated, 1 320 -> 600 B/frame typical;
+  docs/LOAD-BASELINE.md has the churn breakdown). But the same measurement
+  shows the bytes were never the blocker the row assumed: a 60-seat client
+  costs **0.6-0.9 KB/s**, roughly 50 KB/s of aggregate egress for a full lobby.
+  Interest-scoped snapshots cannot help either - every seat needs the whole
+  board and the whole scoreboard. REMAINING before the mode is publicly
+  reachable is therefore a decision on bot backfill for under-filled lobbies
+  (belongs with the bot disclosure row) and, after it, a seats parameter on the
+  HTTP surface. The largest remaining wire saving, if it is ever worth taking,
+  is replacing the per-second lock countdown with a stable lock field (~27 % of
+  the delta), which is a client-contract change rather than a server
+  optimisation.
 - [ ] bot strategy and disclosure policy
 - [ ] anti-snowball mechanics
 - [ ] first PvE content

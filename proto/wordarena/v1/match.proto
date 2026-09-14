@@ -74,6 +74,45 @@ message PlayerState {
   float combo_multiplier = 5;
 }
 
+// MatchStateDelta is the bandwidth-shaped spelling of MatchStateSnapshot
+// (M2 batch 32A). A full snapshot repeats every player and every cell on
+// every frame, so a 60-seat Royale pays ~60x the bytes for state that has
+// not changed since the previous frame. A delta carries the same scalars
+// plus ONLY the players and cells whose value differs from the frame it is
+// based on, which is what makes the large-roster mode affordable on the
+// wire.
+//
+// Reconstruction is exact: a client that holds the full snapshot at
+// base_version and applies this delta must end up with a value identical to
+// the full snapshot the server would have sent for state_version. Only
+// scalars are always present; the repeated fields are a change set, so an
+// empty list means "unchanged", never "cleared".
+//
+// The delta is derived state, not authority: it is computed from two
+// canonical server snapshots and introduces no client-side competitive
+// input. A client that cannot apply it (gap in the stream, reconnect, first
+// frame of a connection) asks by simply not being in sync - the server
+// tracks the last version it sent per connection and falls back to a full
+// MatchStateSnapshot whenever the base does not match.
+message MatchStateDelta {
+  uint64 match_id = 1;
+  uint32 server_tick = 2;
+  uint32 remaining_time_ms = 3;
+  uint32 current_wave = 4;
+  // The version this delta produces.
+  uint32 state_version = 5;
+  // The version the receiver must already hold. A receiver whose state is
+  // at any other version must discard the delta and wait for a full
+  // snapshot.
+  uint32 base_version = 6;
+  // Changed or newly visible players only, identified by user_id.
+  repeated PlayerState players = 7;
+  // Changed cells only, identified by cell_id.
+  repeated BoardCell cells = 8;
+  // Same terminal flag as MatchStateSnapshot.over.
+  bool over = 9;
+}
+
 message BoardCell {
   uint32 cell_id = 1;
   string letter = 2;
@@ -95,5 +134,9 @@ message ServerEnvelope {
   oneof payload {
     WordValidatedEvent word_event = 2;
     MatchStateSnapshot snapshot = 3;
+    // Batch 32A: a delta against the previous snapshot. Sent to a
+    // connection that is already in sync at delta.base_version; a
+    // connection that is not in sync receives snapshot instead.
+    MatchStateDelta snapshot_delta = 4;
   }
 }

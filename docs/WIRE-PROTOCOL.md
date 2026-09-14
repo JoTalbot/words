@@ -46,10 +46,13 @@ Upgrade to WebSocket. All frames are **binary protobuf**:
 - Server → client:
   - immediately on connect: one `MatchStateSnapshot` (canonical anchor);
   - `WordValidatedEvent` after every evaluated intent (accepted or not);
-  - a `MatchStateSnapshot` once per second (every 30 ticks at 30 Hz);
-  - when the match finishes: exactly one terminal `MatchStateSnapshot` with
-    `over=true` (final scores included), so clients can deterministically
-    stop play and render the result; the room is removed ~3 s later.
+  - a state frame once per second (every 30 ticks at 30 Hz): a
+    `MatchStateSnapshot`, or a `MatchStateDelta` on a roster larger than 1v1
+    when the connection is already in sync (see
+    [State deltas](#state-deltas-m2-batch-32a));
+  - when the match finishes: exactly one terminal frame with `over=true`
+    (final scores included), so clients can deterministically stop play and
+    render the result; the room is removed ~3 s later.
 
 ### Word submission
 
@@ -320,6 +323,95 @@ follow-up that replaces sequential ids with unguessable match codes.
 - Frame payloads are protobuf v3; proto3 scalars default to zero values.
 - Field numbers are never reused; breaking changes need a version
   transition and compatibility window (docs/ARCHITECTURE.md).
+
+## State deltas (M2 batch 32A)
+
+A full `MatchStateSnapshot` repeats the whole roster and the whole board on
+every frame. A 60-seat Royale therefore pays for 60 `PlayerState` and 60
+`BoardCell` entries once per second per client even when almost none of them
+changed, which is what kept the mode's wire cost an open question after batch
+31B (31B removed the per-subscriber *CPU* cost, not the bytes).
+
+The server may now send `MatchStateDelta` instead: the same scalars plus only
+the players and cells that differ from the frame it is based on.
+
+```protobuf
+message MatchStateDelta {
+  uint64 match_id = 1;
+  uint32 server_tick = 2;
+  uint32 remaining_time_ms = 3;
+  uint32 current_wave = 4;
+  uint32 state_version = 5;   // the version this delta produces
+  uint32 base_version = 6;    // the version the receiver must already hold
+  repeated PlayerState players = 7;  // changed players only, by user_id
+  repeated BoardCell cells = 8;      // changed cells only, by cell_id
+  bool over = 9;
+}
+```
+
+### When the server sends a delta
+
+Per connection, the transport remembers the last `state_version` it handed to
+that socket. A frame is sent as a delta only when that remembered version is
+exactly the frame's base; otherwise the connection gets the full snapshot for
+that frame.
+
+That single rule covers every way a connection can be out of sync - a dropped
+frame, a reconnect, a late join, or the very first frame of a socket, which has
+no predecessor at all. There is no separate resync request, and no client
+cooperation is required to stay correct: a connection that falls behind is
+re-anchored by the server on the next frame and returns to deltas immediately
+after that.
+
+### Client obligations
+
+1. Keep the last full snapshot you were sent as your base.
+2. Apply a delta only if `base_version` equals the `state_version` you are
+   holding. If it does not, discard it and keep applying nothing until a full
+   snapshot arrives; the server will send one.
+3. The repeated fields are a **change set**: replace the entry with the same
+   `user_id` / `cell_id`, or append it if it is new. An empty list means
+   "nothing changed", never "nothing left".
+4. `MatchStateDelta` carries no client input and grants no authority. It is a
+   more compact spelling of the same server state.
+
+The server's own definition of "apply" is `protocol.ApplyDelta`, which the test
+suite asserts is exactly equal - `proto.Equal`, including element order - to the
+full snapshot of the same frame. A reconstruction that differed would be a
+server defect, not a client tolerance question.
+
+### Compatibility rule
+
+Deltas are enabled only for rosters **larger than two seats**. A 1v1
+connection can only ever be sent a full snapshot, byte for byte as before this
+batch, so the M0/M1 two-seat contract is unchanged. This is the same approach
+Q10 took for the board: the large-roster mode gets the new mechanism, the
+proven mode keeps the old bytes.
+
+Guarded by `TestRoomScopesDeltaBasesToLargerRosters` (which rooms hand out
+bases), `TestOneVsOneWireStillCarriesOnlyFullSnapshots` (a real 1v1 socket sees
+no delta), `TestEncodeSnapshotFrameChoosesBySyncState` (in sync, behind, ahead),
+`TestDeltaStreamReconstructsEveryFrame` (every frame of a 60-seat match) and
+`TestRosterWireCarriesDeltasThatReconstructTheBoard` (end to end over
+WebSocket, cross-checked against the word events).
+
+### Measured cost
+
+At 1 Hz, measured on the dev sandbox with a driven 60-seat match
+(`go test ./internal/protocol -run TestDeltaStreamReconstructsEveryFrame -v`,
+details and the churn breakdown in `docs/LOAD-BASELINE.md`):
+
+| Load | Full snapshot | Delta | Reduction |
+|---|---|---|---|
+| saturated (a claim every ~170 ms) | ~1 460 B/frame | ~870 B/frame | 1.7x |
+| typical (a claim every ~250 ms) | ~1 320 B/frame | ~600 B/frame | 2.2x |
+
+The honest headline: a delta can only save what did not change, and in a
+60-seat lobby the board is genuinely moving - roughly half of all entries
+change between two frames at these rates. The absolute number matters more
+than the ratio: **a 60-seat client costs about 0.6-0.9 KB/s**, against 1.3-1.5
+KB/s before. Wire volume was never going to be a per-client problem; this is a
+~2x cut to the aggregate, not a rescue.
 
 ## The first snapshot a socket receives is not a synchronisation point
 

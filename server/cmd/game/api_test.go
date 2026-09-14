@@ -91,6 +91,11 @@ func (c *testClient) readEnvelope(t *testing.T) (*wordarenav1.ServerEnvelope, pr
 	if env.GetSnapshot() != nil {
 		return &env, env.GetSnapshot()
 	}
+	// Batch 32A: a roster larger than 1v1 may be served a delta instead of a
+	// full snapshot on a frame the connection is already in sync for.
+	if env.GetSnapshotDelta() != nil {
+		return &env, env.GetSnapshotDelta()
+	}
 	t.Fatalf("unknown envelope %s", env.String())
 	return nil, nil
 }

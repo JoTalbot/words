@@ -61,6 +61,15 @@ type Room struct {
 	// overSent records that the terminal (phase "over") snapshot was already
 	// fanned out, so it is broadcast exactly once.
 	overSent bool
+	// prevSnap is the last snapshot broadcast by this room, used as the base
+	// for the next frame's delta (batch 32A). Nil until the first broadcast,
+	// and nil forever when deltaSnapshots is off.
+	prevSnap *match.Snapshot
+	// deltaSnapshots enables per-frame delta bases for this room. Batch 32A
+	// turns it on only for rosters larger than 1v1, so the M0/M1 two-seat
+	// contract stays byte-identical on the wire: a 1v1 connection can only
+	// ever be sent a full snapshot, exactly as before this batch.
+	deltaSnapshots bool
 }
 
 // Subscription delivers canonical state to one connected client.
@@ -101,6 +110,19 @@ type SnapshotFrame struct {
 	// once per frame instead of once per connection (batch 31B). It may be
 	// nil, in which case callers simply encode for themselves.
 	Encoded *SharedPayload
+	// Base is the previous canonical snapshot in this room, or nil when the
+	// room does not keep one (see Room.DeltaSnapshots). Batch 32A: a
+	// subscriber that already holds Base may be served the delta instead of
+	// the full frame, which is what keeps a 60-seat lobby's bandwidth
+	// proportional to what changed rather than to the roster size.
+	//
+	// Base points at a snapshot this room owns and never mutates; readers
+	// must treat it as read-only.
+	Base *match.Snapshot
+	// EncodedDelta is the shared wire encoding of the delta from Base to
+	// Snapshot, filled in once per frame exactly like Encoded. Nil when the
+	// room keeps no base, in which case only the full frame is available.
+	EncodedDelta *SharedPayload
 }
 
 // New creates a room around a fresh deterministic match.
@@ -125,12 +147,17 @@ func New(cfg Config) (*Room, error) {
 		return nil, err
 	}
 	r := &Room{
-		id:       cfg.MatchID,
-		match:    m,
-		userIDs:  append([]uint64(nil), userIDs...),
-		tokenTTL: cfg.TokenTTL,
-		tokens:   map[string]tokenGrant{},
-		subs:     map[match.Seat]*Subscription{},
+		id:      cfg.MatchID,
+		match:   m,
+		userIDs: append([]uint64(nil), userIDs...),
+		// Batch 32A: a full snapshot repeats the whole roster and board, so
+		// its cost grows with the seat count while the per-frame change set
+		// does not. Deltas are therefore enabled above 1v1 only, keeping the
+		// two-seat wire contract byte-identical to M0/M1.
+		deltaSnapshots: len(userIDs) > 2,
+		tokenTTL:       cfg.TokenTTL,
+		tokens:         map[string]tokenGrant{},
+		subs:           map[match.Seat]*Subscription{},
 	}
 	for seat, tok := range tokens {
 		if seat >= len(userIDs) {
@@ -316,6 +343,19 @@ func (r *Room) broadcastSnapshotLocked(snap match.Snapshot) {
 	// is identical for all seats, so it is encoded at most once no matter
 	// how large the roster is.
 	frame := SnapshotFrame{Snapshot: snap, Encoded: NewSharedPayload()}
+	if r.deltaSnapshots {
+		// The delta box is shared the same way, and is encoded lazily: a
+		// frame whose subscribers are all out of sync (every one of them
+		// needs a full snapshot) never pays for a delta nobody reads.
+		if r.prevSnap != nil {
+			frame.Base = r.prevSnap
+			frame.EncodedDelta = NewSharedPayload()
+		}
+		// Keep the frame for the next delta, and keep the room owning its
+		// memory: prevSnap must not alias a caller's slice.
+		held := snap
+		r.prevSnap = &held
+	}
 	for _, s := range r.subs {
 		select {
 		case s.Snapshots <- frame:
@@ -323,3 +363,8 @@ func (r *Room) broadcastSnapshotLocked(snap match.Snapshot) {
 		}
 	}
 }
+
+// DeltaSnapshots reports whether this room hands out per-frame delta bases.
+// Batch 32A: true for rosters larger than 1v1, so a transport can decide
+// without re-deriving the rule.
+func (r *Room) DeltaSnapshots() bool { return r.deltaSnapshots }
