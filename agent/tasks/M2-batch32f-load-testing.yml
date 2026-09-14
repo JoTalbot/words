@@ -1,0 +1,84 @@
+id: M2-batch32f-load-testing
+title: >-
+  Infrastructure load testing - a harness, an isolation procedure, and the first
+  two ceilings the box actually has
+owner: orchestrator (infrastructure lane)
+priority: high
+complexity: medium
+status: merged_pending_ci
+inputs:
+  - docs/LOAD-BASELINE.md (the 32A byte budget - 0.6-0.9 KB/s per client at 60
+    seats, ~50 KB/s per lobby) and the frame layout it was derived from
+  - docs/ROADMAP.md M2 row "infrastructure load testing"
+  - server/cmd/game/api.go (create path, per-caller mutation limiter,
+    WORDARENA_MUTATIONS_PER_MIN, /metrics active_matches, room ticker)
+  - server/cmd/headless-bot/main.go (the existing WS client shape to reuse)
+  - server/internal/dictionary (the harness spells real words, not noise)
+dependencies:
+  - M2-batch32a-state-deltas
+  - M2-batch30f-tick-cost
+outputs:
+  - server/cmd/loadtest/main.go - the harness (create + WS clients + /proc
+    sampling + JSON report), with the run() split from flag parsing so it is
+    testable
+  - server/cmd/loadtest/loadtest_test.go - a CI guard that drives a real server
+    process for three seconds and asserts the measurement is not empty
+  - tools/loadtest-isolated.sh - the safe path (build, start a separate instance
+    on a spare port, drive it, drain it, tear it down)
+  - docs/M2-LOAD-TESTING.md - methodology, isolation rule, the measurement
+    table, the two ceilings found, and what is deliberately not measured
+  - docs/ROADMAP.md - the load-testing row closed with the measured numbers
+acceptance:
+  - One command measures an isolated instance over the real transport and
+    reports create latency, intent round-trip percentiles, per-client bytes,
+    server CPU/RSS and the intent-outcome histogram.
+  - The harness submits dictionary words over free cells and counts the skips
+    where the board can spell nothing, so a run measures real work rather than
+    the cheap rejection path.
+  - A 429 from the mutation limiter is honoured via Retry-After and counted in
+    the report, because the limiter is one of the ceilings the run exists to
+    find.
+  - The 32A byte budget is confirmed from the client side (1v1 ~170 B/s, full
+    lobby ~900 B/s) rather than re-derived.
+  - Room cost is measured with no clients at all, which is the state a box is in
+    after a spike or an incident.
+  - No stage produced a room leak, a dropped frame, or an unhealthy instance.
+  - The tool cannot silently rot - a small version runs in CI against a real
+    server process.
+validation:
+  - cd server && go build ./... && go vet ./... && gofmt -l .
+  - cd server && go test ./cmd/loadtest/ -v
+  - tools/loadtest-isolated.sh (default stage) - end-to-end sanity on a spare port
+  - cd server && go test ./... && go test -race ./...
+file_ownership:
+  - server/cmd/loadtest/**
+  - tools/loadtest-isolated.sh
+  - docs/M2-LOAD-TESTING.md, docs/ROADMAP.md
+risk: low
+escalation: none
+notes: >-
+  The row asked for load testing and the useful output is not a single capacity
+  number - that number depends entirely on the box - but the two ceilings that
+  were found by measuring instead of predicting. The first is an admission
+  control: creating 400 matches from one caller fails at 121 with 429, because
+  WORDARENA_MUTATIONS_PER_MIN defaults to 120 per caller per minute, so a burst
+  of N lobbies takes at least N/120 minutes no matter how idle the box is. That
+  is correct behaviour, and it is exactly the kind of fact that is invisible
+  from a unit test and expensive to discover during an event. The second is that
+  rooms outlive their clients by design: the measured drain after every client
+  left was 180.2 s, the full match length, so capacity is a product
+  (creations/s x 180 s) rather than a count, and the state to plan for is a box
+  full of abandoned rooms. Two measurement choices are worth recording. The
+  harness spells real dictionary words instead of noise, because a generator of
+  nonsense measures the rejection path while the expensive path (score, event,
+  state version, broadcast) never runs; and the run reports every reason the
+  load fell short (skips, throttles, dial errors, outcome histogram) so that a
+  capacity figure is never quoted from a run that quietly dropped half its load.
+  Honest limits of the numbers themselves: the generator runs on the same 4 vCPU
+  box as the target, so latency and CPU are upper bounds, and the p95 growth
+  from 3 ms to 67 ms is scheduling contention, not server saturation - the
+  server never exceeded 12.7 % of one core while the wire stayed inside the 32A
+  budget. Finally, the finding that matters most for M3: a full lobby's cost is
+  frames, not bytes - 90 intents/s across 60 seats produced 5 400 frames/s
+  because every evaluated intent is broadcast to every seat - so a future
+  optimisation that lowers bytes without lowering frames has not addressed it.

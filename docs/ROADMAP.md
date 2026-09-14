@@ -161,7 +161,23 @@ Exit gate: two remote clients can complete repeated matches with identical final
   only, and polite by default (3-4 letter words, 1.5 s between them, never
   steals). REMAINING: difficulty selection and any tutorial framing.
 - [ ] guild foundation
-- [ ] infrastructure load testing
+- [x] infrastructure load testing - **batch 32F** (docs/M2-LOAD-TESTING.md). A
+  harness (`server/cmd/loadtest`) plus an isolation script
+  (`tools/loadtest-isolated.sh`) that measures one instance from outside, over
+  the real transport, with real dictionary words: create latency, intent
+  round-trip percentiles, per-client bytes, server CPU and RSS, and the
+  intent-outcome histogram. Measured on a 4 vCPU box: a 1v1 client costs
+  163-178 B/s (a full 60-seat lobby client ~900 B/s, the top of the 32A band and
+  ~50 KB/s per lobby), a room costs 0.28 ms of CPU per second to tick, memory is
+  the first resource to watch at ~270 KB per live room, and a lobby's real cost
+  is per-frame work (intents x seats), not bytes. Two ceilings found by
+  measurement rather than prediction: the per-caller mutation limit
+  (WORDARENA_MUTATIONS_PER_MIN, default 120/min) throttles a burst of match
+  creations long before the box does, and rooms outlive their clients by design
+  (measured drain 180.2 s = the full match length), so capacity is a product
+  (creations/s x 180 s) rather than a count. Zero room leaks, dropped frames or
+  unhealthy states in any stage. REMAINING: Postgres-backed runs, a longer soak,
+  and latency measured with the generator off-box.
 
 ## M3 — Feature Complete Beta
 
