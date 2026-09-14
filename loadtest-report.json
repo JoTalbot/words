@@ -1,0 +1,51 @@
+{
+  "started": "2026-09-14T09:49:41.285328033Z",
+  "duration_s": 25,
+  "url": "http://127.0.0.1:18080",
+  "matches": 4,
+  "seats": 2,
+  "clients": 8,
+  "created": 4,
+  "create_p50_ms": 0.394,
+  "create_p95_ms": 13.461,
+  "create_max_ms": 13.461,
+  "create_errors": 0,
+  "dial_errors": 0,
+  "intents_sent": 104,
+  "intents_acked": 104,
+  "intents_accepted": 24,
+  "intents_rejected": 80,
+  "intents_per_sec": 4.2,
+  "acked_per_sec": 4.2,
+  "latency_p50_ms": 0.698,
+  "latency_p95_ms": 1.929,
+  "latency_p99_ms": 2.344,
+  "latency_max_ms": 2.363,
+  "frames": 432,
+  "bytes": 36896,
+  "bytes_per_sec_total": 1475.8,
+  "bytes_per_sec_per_client": 184.5,
+  "results_by_name": {
+    "ACCEPTED": 24,
+    "BLOCKED_BY_RULE": 20,
+    "REJECTED_NOT_IN_DICT": 60
+  },
+  "frames_by_kind": {
+    "snapshot": 224,
+    "word_event": 208
+  },
+  "bytes_by_kind": {
+    "snapshot": 31776,
+    "word_event": 5120
+  },
+  "read_errors": 0,
+  "write_errors": 0,
+  "server_cpu_seconds": 0.3,
+  "server_cpu_percent": 1.2,
+  "server_rss_start_mb": 9.8,
+  "server_rss_end_mb": 17.1,
+  "active_matches_after": 4,
+  "active_matches_end": 4,
+  "healthz_after": "{\"status\":\"ok\"}",
+  "metrics_after": "ok"
+}
