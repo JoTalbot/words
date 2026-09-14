@@ -104,6 +104,35 @@ clauses above and changed none of them. The remaining three (bot rating pool,
 matchmaking fallback to bots, difficulty selection) stay open, and nothing in
 32E is a precedent for the second one, which Q5 already answered negatively.
 
+### Q12 — Guild identity and membership rules
+
+**Status: the rules below are DECIDED as part of batch 32G
+(docs/M2-GUILDS.md); the open questions named at the end are explicitly NOT
+decided.**
+
+The question a guild raises is not "what is a guild" but "who is allowed to say
+they are someone". Guilds are the first feature that needs a durable identity,
+and the server had none: profiles were anonymous and any caller could act as any
+player. The foundations decided here:
+
+1. **Guild mutations authenticate with a per-profile owner token**, returned
+   once at profile creation and stored only as a hash. A caller never supplies a
+   player id, so impersonation is impossible by construction.
+2. **One guild per player**, enforced by a unique index rather than a check.
+3. **Names and tags are unique case-insensitively**, 3–24 and 2–5 characters,
+   with the same character policy as nicknames.
+4. **A guild always has exactly one owner and never exists without members**:
+   ownership passes to the earliest-joined member if the owner leaves, and the
+   guild is dissolved when the last member leaves. A headless guild — or one
+   squatting on a name — is not a state the model allows.
+5. **Rosters are public; mutations are not.** Reading a guild needs no token.
+
+Deliberately left open (each needs product input, none blocks the foundation):
+guild chat and its moderation obligations, invite-only join and join requests,
+co-owners, the roster cap number (50 is a placeholder), whether guilds ever
+affect matchmaking, and whether the owner token grows into the real M2 identity
+work or is replaced by sessions.
+
 ### Q11 — What the first practice mode is
 
 **Status: DECIDED 2026-09-14 (settled as part of batch 32E; the product choice

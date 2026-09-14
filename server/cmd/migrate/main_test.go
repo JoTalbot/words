@@ -159,7 +159,10 @@ var (
 // The guard's real invariant is "the schema the service creates on connect
 // equals the schema the migrations produce once all of them have run", and that
 // is what it now checks.
-func applyAddedColumns(t *testing.T, schema map[string][]string, sql string) {
+// applyMigration folds one later migration into the cumulative schema: CREATE
+// TABLE statements introduce tables (parsed the same way as the baseline) and
+// ADD COLUMN statements extend existing ones.
+func applyMigration(t *testing.T, schema map[string][]string, sql string) {
 	t.Helper()
 	for _, m := range addColumnRe.FindAllStringSubmatch(sql, -1) {
 		table := strings.ToLower(m[1])
@@ -177,6 +180,46 @@ func applyAddedColumns(t *testing.T, schema map[string][]string, sql string) {
 		schema[table] = append(cols, col)
 		sort.Strings(schema[table])
 	}
+	// seenHere is scoped to this call: two migrations may define different
+	// tables, but one migration defining the same table twice is an authoring
+	// mistake, and a package-level set would report it across unrelated calls.
+	seenHere := map[string]struct{}{}
+	for _, m := range tableRe.FindAllStringSubmatch(sql, -1) {
+		table := strings.ToLower(m[1])
+		// A later migration may only introduce a table the baseline does not
+		// already define; redefining one would mean the two disagree about its
+		// shape, which is the drift this test exists to catch.
+		if _, exists := schema[table]; exists {
+			t.Errorf("migration redefines table %q (use ALTER TABLE, or the two schemas could disagree)", table)
+			continue
+		}
+		if _, twice := seenHere[table]; twice {
+			t.Errorf("migration defines table %q twice", table)
+			continue
+		}
+		seenHere[table] = struct{}{}
+		schema[table] = parseColumns(t, m[2])
+	}
+}
+
+// parseColumns extracts the column names of one CREATE TABLE body.
+func parseColumns(t *testing.T, body string) []string {
+	t.Helper()
+	var cols []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ","))
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		switch strings.ToUpper(fields[0]) {
+		case "PRIMARY", "UNIQUE", "CONSTRAINT", "CHECK", "FOREIGN", "--":
+			continue
+		}
+		cols = append(cols, strings.ToLower(fields[0]))
+	}
+	sort.Strings(cols)
+	return cols
 }
 
 // parseSchema extracts table name -> sorted column names from a SQL blob.
@@ -186,25 +229,7 @@ func parseSchema(t *testing.T, sql string) map[string][]string {
 	t.Helper()
 	out := make(map[string][]string)
 	for _, m := range tableRe.FindAllStringSubmatch(sql, -1) {
-		table := strings.ToLower(m[1])
-		var cols []string
-		for _, line := range strings.Split(m[2], "\n") {
-			line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ","))
-			if line == "" {
-				continue
-			}
-			fields := strings.Fields(line)
-			head := strings.ToUpper(fields[0])
-			switch head {
-			case "PRIMARY", "UNIQUE", "CONSTRAINT", "CHECK", "FOREIGN":
-				continue
-			case "--":
-				continue
-			}
-			cols = append(cols, strings.ToLower(fields[0]))
-		}
-		sort.Strings(cols)
-		out[table] = cols
+		out[strings.ToLower(m[1])] = parseColumns(t, m[2])
 	}
 	if len(out) == 0 {
 		t.Fatal("no CREATE TABLE statements parsed; the schema parser needs updating")
@@ -250,12 +275,17 @@ func TestBaselineMigrationMatchesServiceSchema(t *testing.T) {
 
 	want := parseSchema(t, pgSchemaFromSource(t, root))
 	// discover already loaded every migration body, so the cumulative schema is
-	// the baseline plus the columns each later migration adds. Comparing against
-	// that - rather than against 001_init.sql alone - is what makes the guard
-	// correct once migrations change the column set instead of only its types.
+	// the baseline plus whatever each later migration does to it. Comparing
+	// against that - rather than against 001_init.sql alone - is what makes the
+	// guard correct once migrations change the schema instead of only its types.
+	//
+	// Later migrations can do two things: add columns to existing tables
+	// (004, 005) and introduce new tables (005 guilds and guild_members).
+	// Both are applied here; a migration that does something else must be
+	// taught to this function, which is the point of keeping it explicit.
 	got := parseSchema(t, migrations[0].SQL)
 	for _, m := range migrations[1:] {
-		applyAddedColumns(t, got, m.SQL)
+		applyMigration(t, got, m.SQL)
 	}
 
 	if len(got) != len(want) {
@@ -296,14 +326,14 @@ func keys(m map[string][]string) []string {
 	return out
 }
 
-// TestApplyAddedColumnsDetectsDrift proves the cumulative guard still has teeth.
+// TestApplyMigrationDetectsDrift proves the cumulative guard still has teeth.
 // Making it fold in later migrations could have quietly turned it into a test
 // that always passes, so both directions are pinned: a column a migration adds
 // must appear in the service schema, and a duplicate add is itself an error.
-func TestApplyAddedColumnsDetectsDrift(t *testing.T) {
+func TestApplyMigrationDetectsDrift(t *testing.T) {
 	base := map[string][]string{"match_results": {"match_id", "seed"}}
 
-	applyAddedColumns(t, base, `ALTER TABLE match_results ADD COLUMN IF NOT EXISTS match_code TEXT;`)
+	applyMigration(t, base, `ALTER TABLE match_results ADD COLUMN IF NOT EXISTS match_code TEXT;`)
 	if len(base["match_results"]) != 3 {
 		t.Fatalf("column was not folded in: %v", base["match_results"])
 	}
@@ -323,7 +353,38 @@ func TestApplyAddedColumnsDetectsDrift(t *testing.T) {
 	}
 }
 
-func TestApplyAddedColumnsRejectsBadMigrations(t *testing.T) {
+// TestApplyMigrationFoldsInNewTables covers the other half: migration 005
+// introduces guilds and guild_members, so the cumulative schema builder must
+// understand CREATE TABLE in a later migration as well as ADD COLUMN. Without
+// that, the guard would fail on a correct schema - or, worse, be "fixed" by
+// moving new tables into the baseline migration.
+func TestApplyMigrationFoldsInNewTables(t *testing.T) {
+	schema := map[string][]string{"players": {"id", "nickname"}}
+	applyMigration(t, schema, `
+CREATE TABLE IF NOT EXISTS guilds (
+    id   BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    PRIMARY KEY (id)
+);
+`)
+	cols, ok := schema["guilds"]
+	if !ok {
+		t.Fatalf("a table introduced by a migration was not folded in: %v", keys(schema))
+	}
+	if len(cols) != 2 || cols[0] != "id" || cols[1] != "name" {
+		t.Fatalf("guilds columns = %v, want [id name] (constraint lines are not columns)", cols)
+	}
+
+	// Redefining an existing table in a later migration is drift, not a
+	// definition: the baseline and the service schema could then disagree.
+	fakeT := &testing.T{}
+	applyMigration(fakeT, schema, `CREATE TABLE IF NOT EXISTS players (id BIGINT);`)
+	if !fakeT.Failed() {
+		t.Error("a later migration redefining an existing table was not reported")
+	}
+}
+
+func TestApplyMigrationRejectsBadMigrations(t *testing.T) {
 	// A duplicate add and an add against an unknown table are both authoring
 	// mistakes the guard should surface rather than absorb.
 	t.Run("duplicate", func(t *testing.T) {
@@ -334,7 +395,7 @@ func TestApplyAddedColumnsRejectsBadMigrations(t *testing.T) {
 		}()
 		schema := map[string][]string{"players": {"id", "nickname"}}
 		fakeT := &testing.T{}
-		applyAddedColumns(fakeT, schema, `ALTER TABLE players ADD COLUMN IF NOT EXISTS nickname TEXT;`)
+		applyMigration(fakeT, schema, `ALTER TABLE players ADD COLUMN IF NOT EXISTS nickname TEXT;`)
 		if !fakeT.Failed() {
 			t.Error("a duplicate ADD COLUMN was not reported")
 		}
@@ -342,7 +403,7 @@ func TestApplyAddedColumnsRejectsBadMigrations(t *testing.T) {
 	t.Run("unknown table", func(t *testing.T) {
 		schema := map[string][]string{"players": {"id"}}
 		fakeT := &testing.T{}
-		applyAddedColumns(fakeT, schema, `ALTER TABLE ghosts ADD COLUMN boo TEXT;`)
+		applyMigration(fakeT, schema, `ALTER TABLE ghosts ADD COLUMN boo TEXT;`)
 		if !fakeT.Failed() {
 			t.Error("an ADD COLUMN against an undefined table was not reported")
 		}
