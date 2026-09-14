@@ -25,6 +25,7 @@ import (
 	"github.com/JoTalbot/words/server/internal/match"
 	"github.com/JoTalbot/words/server/internal/matchroom"
 	"github.com/JoTalbot/words/server/internal/protocol"
+	"github.com/JoTalbot/words/server/internal/pve"
 	"github.com/JoTalbot/words/server/internal/security"
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
@@ -113,6 +114,10 @@ type API struct {
 	// trustProxy enables X-Forwarded-For based caller identity. It must only
 	// be set when the service sits behind a proxy that overwrites the header.
 	trustProxy bool
+	// pve maps a match id to the server-driven opponent playing one of its
+	// seats (M2 batch 32E). Empty for every match that is not a practice match.
+	pveMu sync.Mutex
+	pve   map[uint64]pveOpponent
 	// allowBotSeats permits a caller to DECLARE seats as simulated players
 	// (M2 batch 32D, Q5). Default false: declaring a bot is a QA/tooling and
 	// practice capability, not something an arbitrary caller should be able to
@@ -264,6 +269,7 @@ func (a *API) primeMatchIDs() error {
 func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 	a := &API{
 		rooms:             map[uint64]*matchroom.Room{},
+		pve:               map[uint64]pveOpponent{},
 		stopCh:            make(chan struct{}),
 		maxRooms:          envInt("WORDARENA_MAX_ROOMS", 128),
 		maxWSBytes:        int64(envInt("WORDARENA_MAX_WS_BYTES", 64<<10)),
@@ -474,6 +480,12 @@ type createMatchRequest struct {
 	// Gated by WORDARENA_ALLOW_BOT_SEATS (default false). Only a declaration
 	// can make a seat a bot; there is no field that makes one stop being one.
 	BotSeats []int `json:"bot_seats,omitempty"`
+	// PvE asks for a practice match: a 1v1 against an opponent the SERVER
+	// drives (M2 batch 32E), so one player can play alone with no second
+	// client and no external tooling. The opponent is a declared bot, so the
+	// match is disclosed and is not rating-eligible - which is exactly what
+	// product decision Q5 makes safe. Gated by WORDARENA_ALLOW_BOT_SEATS.
+	PvE bool `json:"pve,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
@@ -693,11 +705,40 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if req.PvE {
+		// A practice match is 1v1 against a server-driven opponent. Saying so
+		// explicitly is better than accepting a roster the mode cannot fill.
+		if seats != match.MinSeats {
+			httpError(w, http.StatusBadRequest, "pve is only available for a 1v1 match")
+			return
+		}
+		if !a.allowBotSeats {
+			httpError(w, http.StatusBadRequest, "pve is not enabled on this deployment (WORDARENA_ALLOW_BOT_SEATS)")
+			return
+		}
+		if len(botSeats) == 0 {
+			// Seat 0 is the player, seat 1 is the opponent. The player may say
+			// otherwise through bot_seats, but the default must not require
+			// them to know seat numbering.
+			botSeats = []bool{false, true}
+		}
+	}
 	var pids []uint64
 	if req.PlayerIDs != nil {
 		pids = []uint64{req.PlayerIDs[0], req.PlayerIDs[1]}
 	}
 	info, err := a.createRoomNBots(lang, req.Seed, pids, botSeats, seats, req.SuddenDeath)
+	if err == nil && req.PvE {
+		// The opponent is attached after provisioning so a failure to load the
+		// dictionary is reported to the caller instead of silently producing a
+		// match where seat 1 never moves.
+		if err = a.startPvE(info, lang); err != nil {
+			a.discardRoom(info.ID)
+			httpError(w, http.StatusInternalServerError, "practice opponent unavailable")
+			log.Printf("pve opponent for match %d: %v", info.ID, err)
+			return
+		}
+	}
 	if err != nil {
 		if errors.Is(err, errRoomCapacity) {
 			httpError(w, http.StatusTooManyRequests, "too many active matches")
@@ -905,6 +946,88 @@ func (a *API) createRoomNBots(lang string, seed *uint64, playerIDs []uint64, bot
 	return roomInfo{ID: id, Seed: s, Tokens: tokens, UserIDs: userIDs, Access: access, BotSeats: room.BotSeats()}, nil
 }
 
+// pveOpponent is a server-driven player attached to one seat of a match. The
+// driver is deliberately kept next to the transport rather than inside the
+// room: the opponent is a CLIENT of the room (it submits through Room.Submit
+// like anyone else), so the simulation keeps one validated door and the
+// opponent needs no privileges to play.
+type pveOpponent struct {
+	seat     match.Seat
+	opponent *pve.Opponent
+}
+
+// startPvE attaches the practice opponent to every declared bot seat of a
+// freshly created match (M2 batch 32E). It returns an error rather than
+// creating a silently broken match when the dictionary cannot be loaded.
+func (a *API) startPvE(info roomInfo, lang string) error {
+	seat := -1
+	for _, s := range info.BotSeats {
+		seat = s
+		break
+	}
+	if seat < 0 {
+		return fmt.Errorf("pve needs a declared bot seat")
+	}
+	opponent, err := pve.New(lang, pve.DefaultPolicy())
+	if err != nil {
+		return err
+	}
+	if opponent.CandidateCount() == 0 {
+		return fmt.Errorf("pve: no %s words of length %d..%d to draw on",
+			lang, opponent.Policy().MinLen, opponent.Policy().MaxLen)
+	}
+	a.pveMu.Lock()
+	a.pve[info.ID] = pveOpponent{seat: match.Seat(seat), opponent: opponent}
+	a.pveMu.Unlock()
+	a.publishTelemetry(telemetryEvent{
+		Type: "pve_started", MatchID: info.ID, Language: lang,
+		Seat: telemetryInt(seat), BotSeats: info.BotSeats,
+	})
+	return nil
+}
+
+// pveFor returns the opponent attached to a room, if any.
+func (a *API) pveFor(id uint64) (pveOpponent, bool) {
+	a.pveMu.Lock()
+	defer a.pveMu.Unlock()
+	o, ok := a.pve[id]
+	return o, ok
+}
+
+// discardRoom removes a room that failed to finish provisioning.
+func (a *API) discardRoom(id uint64) {
+	a.mu.Lock()
+	delete(a.rooms, id)
+	a.mu.Unlock()
+	a.pveMu.Lock()
+	delete(a.pve, id)
+	a.pveMu.Unlock()
+}
+
+// tickPvEOpponent gives the practice opponent one chance to act, outside the
+// room lock. It is called from the room ticker before the tick advances, so the
+// opponent sees the same board a client would and its intent is validated by
+// the ordinary submit path - including the ordinary rejection paths. An
+// opponent that tries something illegal loses a word, exactly like a player
+// would.
+func (a *API) tickPvEOpponent(id uint64, room *matchroom.Room) {
+	po, ok := a.pveFor(id)
+	if !ok {
+		return
+	}
+	cells := po.opponent.Intent(room.Snapshot(), room.Match().Tick(), po.seat)
+	if len(cells) == 0 {
+		return
+	}
+	if _, err := room.Submit(po.seat, cells); err != nil {
+		// A rejected intent is normal (the board moved on between the decision
+		// and the submission); it must never take the room down.
+		a.publishTelemetry(telemetryEvent{
+			Type: "pve_intent_rejected", MatchID: id, Seat: telemetryInt(int(po.seat)),
+		})
+	}
+}
+
 // runRoomTicker advances a room at 30 Hz until shortly after match end.
 func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 	tick := time.NewTicker(time.Second / match.TicksPerSecond)
@@ -914,6 +1037,9 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 		case <-a.stopCh:
 			return
 		case <-tick.C:
+			// The practice opponent acts through the ordinary submit path
+			// (M2 batch 32E); a room without one skips this entirely.
+			a.tickPvEOpponent(id, room)
 			room.Tick()
 			if room.IsOver() {
 				// Persist the final outcome before the room is torn down so
@@ -929,6 +1055,9 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 				delete(a.rooms, id)
 				a.mu.Unlock()
 				a.clearSeatWindows(id)
+				a.pveMu.Lock()
+				delete(a.pve, id)
+				a.pveMu.Unlock()
 				a.profiledMu.Lock()
 				delete(a.profiled, id)
 				a.profiledMu.Unlock()

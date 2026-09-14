@@ -97,6 +97,41 @@ non-ranked lobby) should exist, whether bots get their own rating pool, and
 what a bot's in-match difficulty should be. Those are feature decisions that
 the disclosure and eligibility rules above make *safe to take later*.
 
+**Follow-up, same day:** the first of those feature questions was then taken —
+the labelled practice mode now exists (batch 32E, `docs/M2-PVE.md`) precisely
+because this decision made it safe to take. The mode is a *user* of the three
+clauses above and changed none of them. The remaining three (bot rating pool,
+matchmaking fallback to bots, difficulty selection) stay open, and nothing in
+32E is a precedent for the second one, which Q5 already answered negatively.
+
+### Q11 — What the first practice mode is
+
+**Status: DECIDED 2026-09-14 (settled as part of batch 32E; the product choice
+was to ship the smallest useful thing and let evidence size the rest).**
+
+The question is what "first PvE content" means, now that a labelled bot is
+policy-safe. Options were: a tutorial with scripted lessons, a difficulty-ladder
+practice mode, or a plain practice match against a server-driven opponent.
+
+Decided: **a plain 1v1 practice match**, because it is the only one of the three
+that fixes a blocking problem rather than adding scope — today a player cannot
+play the game alone at all, with no second client and no second human. The
+design follows from three constraints rather than from taste:
+
+1. **The opponent is a client of the match, not part of it.** It submits through
+   the ordinary validated path and holds no privileges, so practice cannot
+   diverge from the rules (and a bug in it costs a word, not a board state).
+2. **It is polite by default**: 3–4 letter words, 1.5 s between them, never
+   steals. The first content teaches claiming before defending; a difficulty
+   ladder is a later feature with playtest evidence, not a guess now.
+3. **It is deterministic**, so a practice match replays and debugs like any
+   other match — which is what lets the mode be tested at all.
+
+Explicitly *not* decided here: difficulty levels, rewards for practice, whether
+practice is ever reachable from the ranked path (Q5 clause 3 says such a match
+stays non-rating-eligible either way), and tutorial framing. Nothing is blocked
+on them, and the mode is behind `WORDARENA_ALLOW_BOT_SEATS`, off by default.
+
 
 ### Q6 — Cross-language LPI
 The proposed LPI needs empirical calibration against actual dictionaries/corpora. A formula based only on mean word length, alphabet size and frequency can create unintended advantages. Validate with simulation before tying rewards to it.

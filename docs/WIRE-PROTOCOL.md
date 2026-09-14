@@ -352,6 +352,33 @@ follow-up that replaces sequential ids with unguessable match codes.
 - Field numbers are never reused; breaking changes need a version
   transition and compatibility window (docs/ARCHITECTURE.md).
 
+## Practice matches (M2 batch 32E)
+
+`POST /v1/matches` accepts one more optional field:
+
+```json
+{"language": "en", "seed": 1512, "pve": true}
+```
+
+`pve` is a request for a 1v1 in which **the server plays seat 1 itself**
+(docs/M2-PVE.md). It changes nothing about the wire contract after creation: the
+response is the ordinary two-seat response, the caller connects to
+`/v1/match/ws` with the seat-0 token and receives snapshots, deltas, word
+events and the result exactly as in any other match. Seat 1 is a declared bot,
+so `is_bot` is `true` for it on every surface and the result carries
+`bot_present: true`, `bots: [1]`, `rating_eligible: false`.
+
+Two refusals are worth knowing:
+
+- `pve` with any `seats` other than 1v1 → `400`, because the mode is defined as
+  1v1 and a silently re-sized practice match is a worse contract than an error;
+- `pve` on a deployment without `WORDARENA_ALLOW_BOT_SEATS` (default off) →
+  `400`, and the message names the switch.
+
+A caller who wants seat 0 to be the simulated one can say so with
+`bot_seats: [0]`; `pve` then fills the remaining seat. Without `bot_seats`, a
+practice match places the opponent on seat 1.
+
 ## Simulated players (M2 batch 32D)
 
 Product decision Q5 is implemented as a disclosure requirement, and the wire
