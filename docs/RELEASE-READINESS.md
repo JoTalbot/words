@@ -27,9 +27,12 @@ Remaining items are **not** M1 feature work:
 
 1. **Q8 stage 2** — stable domain, per-IP limits, `/metrics` deny, public
    token decision. Waits on an owner-provided domain. The stage-1 quick
-   tunnel URL is ephemeral; the repository variable `WORDS_SERVER_URL` must be
-   refreshed after any tunnel restart or the scheduled device run skips the
-   full-match leg (explicitly, with a notice — it never weakens the smoke).
+   tunnel URL is ephemeral; batch 34D made the device smoke's full-match leg
+   self-contained: a reachable `WORDS_SERVER_URL` (dispatch input or repo
+   variable) is still preferred — it exercises the live deployment — but a
+   stale or unset URL now falls back to a same-commit server built and run on
+   the runner (the emulator reaches it via the AOSP host alias `10.0.2.2`),
+   so the leg no longer skips or fails on tunnel churn.
 2. **B2 uk dictionary licence** — distribution blocker, owner item.
 
 ### Row-by-row evidence
