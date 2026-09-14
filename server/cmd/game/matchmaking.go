@@ -13,6 +13,14 @@ import (
 // queueTTL is the default time a queue entry stays valid before expiring.
 const queueTTL = 2 * time.Minute
 
+// lobbyFillWait is how long a partially filled roster waits for more players
+// before starting short-handed (batch 31C). It only applies to rosters larger
+// than two: a 1v1 queue either has an opponent or it does not, and starting a
+// "match" of one is not a thing. Sixty players will rarely be queued at once
+// during soft launch, so without this a Royale lobby would simply expire
+// everyone at queueTTL and nobody would ever play the mode.
+const lobbyFillWait = 20 * time.Second
+
 // createRoomFn abstracts room provisioning so the matchmaker stays free of
 // transport/room details (it is injected by the API). playerIDs, when
 // non-nil, binds seats to registered profiles; a zero entry means the seat
@@ -55,7 +63,17 @@ type matchmaker struct {
 	// pairing loop itself is written for any N so there is no second
 	// matchmaker to keep in sync.
 	seats int
+	// fillWait is how long a partial roster waits before starting
+	// short-handed (batch 31C); zero disables short-handed starts, which
+	// is the 1v1 behaviour.
+	fillWait time.Duration
+	// now is injected so the fill timeout is testable without sleeping.
+	now func() time.Time
 }
+
+// minLobbySeats is the smallest roster a short-handed Royale start may use.
+// It is match.MinSeats: below two there is no contest at all.
+const minLobbySeats = 2
 
 func newMatchmaker() *matchmaker {
 	return newMatchmakerWithSeats(2)
@@ -68,12 +86,18 @@ func newMatchmakerWithSeats(seats int) *matchmaker {
 	if seats < 2 {
 		seats = 2
 	}
-	return &matchmaker{
+	mm := &matchmaker{
 		ttl:     queueTTL,
 		waiting: map[string][]*queueEntry{},
 		entries: map[string]*queueEntry{},
 		seats:   seats,
+		now:     time.Now,
 	}
+	if seats > 2 {
+		// Only a Royale-sized lobby can start short-handed.
+		mm.fillWait = lobbyFillWait
+	}
+	return mm
 }
 
 // enqueue registers a player and attempts pairing. It returns the entry; if
@@ -100,13 +124,14 @@ func (mm *matchmaker) enqueue(lang string, playerID uint64, create createRoomFn)
 		// randomHex only fails on catastrophic entropy exhaustion.
 		id = "0000000000000000"
 	}
+	now := mm.clock()
 	e := &queueEntry{
 		ID:        id,
 		Language:  lang,
 		Status:    "waiting",
 		PlayerID:  playerID,
-		CreatedAt: time.Now(),
-		deadline:  time.Now().Add(mm.ttl),
+		CreatedAt: now,
+		deadline:  now.Add(mm.ttl),
 	}
 	mm.entries[e.ID] = e
 	mm.waiting[lang] = append(mm.waiting[lang], e)
@@ -147,13 +172,22 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 	}
 	for {
 		q := mm.waiting[lang]
+		size := seats
 		if len(q) < seats {
-			return
+			// Batch 31C: a partial Royale roster is not stuck forever. Once
+			// the oldest waiting player has waited out fillWait, start with
+			// whoever is here - a short match beats expiring the whole
+			// lobby at queueTTL and never playing the mode at all.
+			n := mm.shortHandedSizeLocked(q)
+			if n == 0 {
+				return
+			}
+			size = n
 		}
-		group := q[:seats]
+		group := q[:size]
 		// playerIDs is always seats long: its length tells the room factory
 		// the roster size, and a zero entry keeps that seat anonymous.
-		pids := make([]uint64, seats)
+		pids := make([]uint64, size)
 		for i, e := range group {
 			pids[i] = e.PlayerID
 		}
@@ -161,7 +195,7 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 		if err != nil {
 			return
 		}
-		if len(info.Tokens) < seats || len(info.UserIDs) < seats {
+		if len(info.Tokens) < size || len(info.UserIDs) < size {
 			// The factory returned a smaller roster than requested. Leave the
 			// players queued rather than handing out seats that do not exist.
 			return
@@ -177,7 +211,48 @@ func (mm *matchmaker) pairLocked(lang string, create createRoomFn) {
 			// is shared knowledge between its players by definition.
 			e.MatchCode, e.ReadCapability = info.Access.Code, info.Access.ReadCap
 		}
-		mm.waiting[lang] = q[seats:]
+		mm.waiting[lang] = q[size:]
+	}
+}
+
+// clock reads the injected time source (tests replace it).
+func (mm *matchmaker) clock() time.Time {
+	if mm.now == nil {
+		return time.Now()
+	}
+	return mm.now()
+}
+
+// shortHandedSizeLocked reports the roster a partial queue may start with, or
+// 0 to keep waiting. A lobby starts short-handed only when short-handed starts
+// are enabled at all (fillWait > 0, i.e. a Royale-sized matchmaker), at least
+// minLobbySeats players are present, and the player who has waited longest has
+// waited out fillWait. Using the OLDEST entry is deliberate: it bounds any
+// individual player's wait, whereas keying off the newest would let a trickle
+// of arrivals postpone the start indefinitely.
+func (mm *matchmaker) shortHandedSizeLocked(q []*queueEntry) int {
+	if mm.fillWait <= 0 || len(q) < minLobbySeats {
+		return 0
+	}
+	if mm.clock().Sub(q[0].CreatedAt) < mm.fillWait {
+		return 0
+	}
+	return len(q)
+}
+
+// tryFormLobbies gives every language queue a chance to start short-handed.
+//
+// pairLocked only runs on enqueue, so without this a partial Royale lobby that
+// stops receiving arrivals would never reach its fill timeout - the very case
+// the timeout exists for. The API calls this from its periodic reaper.
+func (mm *matchmaker) tryFormLobbies(create createRoomFn) {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+	if mm.fillWait <= 0 {
+		return // 1v1: nothing to start short-handed
+	}
+	for lang := range mm.waiting {
+		mm.pairLocked(lang, create)
 	}
 }
 
@@ -198,7 +273,7 @@ func removeWaiting(q []*queueEntry, target *queueEntry) []*queueEntry {
 func (mm *matchmaker) reap() {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
-	now := time.Now()
+	now := mm.clock()
 
 	for lang, q := range mm.waiting {
 		kept := q[:0]

@@ -62,16 +62,34 @@ now **any seat other than the actor** rather than `Seat(1 - seat)`. A steal
 debits the actual victim, whichever seat owned the cell. Re-using your own
 unlocked cells never scores twice.
 
-## 5. What is deliberately NOT decided here
+## 5. Lobby formation (batch 31C)
+
+A Royale lobby cannot assume sixty people queue at the same moment. A roster
+larger than two therefore starts **short-handed** once the longest-waiting
+player has waited `lobbyFillWait` (20 s):
+
+- A full roster still starts **immediately** — the timeout only applies to a
+  partial one.
+- The wait is measured from the **oldest** waiting entry, not the newest, so a
+  trickle of late arrivals cannot postpone the start indefinitely; every
+  player's wait is bounded.
+- A lobby never starts with fewer than two players, and queues never mix
+  languages.
+- **1v1 is unaffected**: short-handed starts are disabled for a two-seat
+  matchmaker, because a "match" of one is not a match.
+- Pairing runs both on enqueue and from the server's periodic sweep, so a
+  lobby that simply stops receiving arrivals still starts rather than expiring
+  everyone at the queue TTL.
+
+## 6. What is deliberately NOT decided here
 
 - **Snapshot fan-out.** A 60-seat match sends every subscriber a snapshot
   containing 60 players and up to 60 cells; that is the dominant cost
   (`docs/LOAD-BASELINE.md`, batch 30F), and delta or interest-scoped snapshots
   are the next Royale work item. The simulation itself is not the constraint.
-- **Lobby formation for a large roster.** The matchmaker can form an N-player
-  lobby (`newMatchmakerWithSeats`), but nothing decides how long an
-  incomplete Royale lobby waits or whether bots backfill it — bot disclosure
-  is its own roadmap row.
+- **Bot backfill.** Whether an under-filled lobby is topped up with bots is
+  still open and belongs with the bot disclosure roadmap row. What *is*
+  decided (batch 31C) is the human-only fallback below.
 - **No HTTP endpoint exposes a `seats` knob yet.** Royale is reachable
   internally via `createRoomN`; the public surface stays 1v1 until the
   fan-out work lands.

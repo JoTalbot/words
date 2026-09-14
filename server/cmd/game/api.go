@@ -269,6 +269,11 @@ func (a *API) runReaper() {
 		case <-a.stopCh:
 			return
 		case <-t.C:
+			// Give partial Royale lobbies a chance to start short-handed
+			// before reaping: pairing otherwise only happens on enqueue,
+			// so a lobby that stopped receiving arrivals would expire
+			// instead of starting (batch 31C).
+			a.mm.tryFormLobbies(a.queueRoomFactory())
 			a.mm.reap()
 			a.reapResults()
 			a.mutators.Reap()
@@ -1095,10 +1100,17 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	e := a.mm.enqueue(lang, req.PlayerID, func(l string, pids []uint64) (roomInfo, error) {
-		return a.createRoomN(l, nil, pids, len(pids), false)
-	})
+	e := a.mm.enqueue(lang, req.PlayerID, a.queueRoomFactory())
 	writeJSON(w, http.StatusAccepted, e)
+}
+
+// queueRoomFactory is the room provisioner the matchmaker injects into every
+// pairing attempt. The roster size is len(pids), so the same factory serves
+// 1v1 and a short-handed Royale lobby alike.
+func (a *API) queueRoomFactory() createRoomFn {
+	return func(l string, pids []uint64) (roomInfo, error) {
+		return a.createRoomN(l, nil, pids, len(pids), false)
+	}
 }
 
 // handleQueuePoll returns the current queue entry state (waiting / matched /
