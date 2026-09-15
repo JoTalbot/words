@@ -3,7 +3,7 @@ title: "Batch 34D: device smoke - survive the install/launch kill race and make 
 milestone: M2
 batch: 34D
 type: ci-infra
-status: in_progress
+status: verified_device
 owner: agent (device smoke leg; no Go/Unity product code touched)
 branch: fix/m2-batch34d-smoke-death-recovery
 files:
@@ -126,7 +126,8 @@ validation:
   - "run 34912557224 (c0e4d40): build green with the .androidlib; APK forensics in the sandbox proved the config + attribute are packaged (strings extracted from the binary res/xml and the AXML pool) yet the enqueue still threw 'Insecure connection not allowed'"
   - "run 34914821023 (48fbfde): debug rewrite to base cleartext=true STILL blocked; logcat names the real gate ('Non-secure network connections disabled in Player Settings') -> the fix is PlayerSettings.insecureHttpOption=DevelopmentOnly (InsecureHttpOption enum, singular - Unity 6 API) in BuildCommand.cs; .androidlib removed"
   - "run 34916686056 (be18f01): compile errors CS0117/CS0103 proved the Unity 6 API names - PlayerSettings.insecureHttpOption is TOP-LEVEL (not under .Android) and the enum is InsecureHttpOption (singular); corrected against the 6000.0 scripting docs (NotAllowed/DevelopmentOnly/AlwaysAllowed)"
-  - "PENDING: re-dispatched unity-android run on the updated branch head (device proof: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint against source=runner-local)"
+  - "run 34917614489 (546436d): FULL GREEN on device - gesture legs (WORDS_SWIPE TAAN + diagonal TSO), resolver picked source=runner-local (healthy in 35 s), client paired over http://10.0.2.2 (insecureHttpOption=DevelopmentOnly), full match played to terminal state ([PARTNER] MATCH OVER scores=47:36, PARTNER-GATE: PASS), client logged [WORDS_MATCH_COMPLETE] final=47:36 match=1 winner=seat0 version=15 source=result-endpoint, WORDS_FULL_MATCH_SMOKE_OK; API 33 retry leg skipped (not needed)"
+  - "PR #50 merged to main as 67e625a with all checks green (device + Go tests + hygiene + compose + migrations); the 03:17 UTC scheduled run will be the first scheduled run carrying the 34D fixes"
 risk: >
   Low. Device smoke script and workflow docs only - no product code. Worst
   case is another INFRA_FAIL classification on the device leg, which cannot
