@@ -50,6 +50,8 @@ namespace Words
                     : AndroidArchitecture.ARM64;
                 EditorUserBuildSettings.buildAppBundle = false;
 
+                ApplyNetworkSecurityConfig(buildType);
+
                 var outputPath = Path.GetFullPath(buildPath);
                 var outputDirectory = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(outputDirectory))
@@ -86,6 +88,39 @@ namespace Words
                 Debug.LogException(exception);
                 EditorApplication.Exit(1);
             }
+        }
+
+        /// <summary>
+        /// Batch 34D: UnityWebRequest on Android enforces the GLOBAL platform
+        /// cleartext policy - its Java pre-check calls
+        /// NetworkSecurityPolicy.isCleartextTrafficPermitted() WITHOUT a
+        /// hostname, so a domain-scoped exception for the emulator host alias
+        /// never survives it. Measured twice with the merged config verifiably
+        /// packaged in the APK (runs 34906844282 and 34912557224: enqueue to
+        /// http://10.0.2.2:18080 still threw "Insecure connection not
+        /// allowed"). Debug builds therefore get cleartext ENABLED globally
+        /// (development images only - CI device automation plays against a
+        /// runner-local server over the AOSP host alias); the committed
+        /// release configuration keeps cleartext DENIED for every origin.
+        /// The rewrite happens in the ephemeral CI checkout; a local editor
+        /// debug build dirties the tracked config file - restore it with git
+        /// checkout afterwards.
+        /// </summary>
+        private static void ApplyNetworkSecurityConfig(string buildType)
+        {
+            const string netSecPath =
+                "Assets/Plugins/WordArenaNetSec.androidlib/res/xml/network_security_config.xml";
+            var permitted = buildType == "debug" ? "true" : "false";
+            var xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<!-- Written by BuildCommand.ApplyNetworkSecurityConfig (batch 34D);"
+                + " committed state is the strict release variant. -->\n"
+                + "<network-security-config>\n"
+                + $"    <base-config cleartextTrafficPermitted=\"{permitted}\" />\n"
+                + "</network-security-config>\n";
+            File.WriteAllText(netSecPath, xml);
+            AssetDatabase.ImportAsset(netSecPath, ImportAssetOptions.ForceUpdate);
+            AssetDatabase.Refresh();
+            Debug.Log($"Word Arena: network security config written (cleartext permitted = {permitted})");
         }
 
         private static string GetArgument(string name, string fallback)

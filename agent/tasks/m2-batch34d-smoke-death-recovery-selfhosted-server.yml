@@ -12,6 +12,7 @@ files:
   - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/AndroidManifest.xml
   - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/res/xml/network_security_config.xml
   - client/unity/Assets/Plugins/WordArenaNetSec.androidlib.meta
+  - client/unity/Assets/Editor/BuildCommand.cs
   - docs/RELEASE-READINESS.md
   - agent/tasks/m2-batch34d-smoke-death-recovery-selfhosted-server.yml
 goal: >
@@ -91,6 +92,20 @@ changes: |-
   removed, move your resources to an AAR or an Android Library". The custom
   main manifest was dropped entirely - it would have overridden the
   unityLibrary manifest for no additional benefit.
+  SECOND MEASURED FACT (run 34912557224 on c0e4d40): the .androidlib merge
+  worked perfectly - the APK contains res/xml/network_security_config.xml
+  verbatim (10.0.2.2/localhost/127.0.0.1 entries extracted from the packaged
+  binary XML) and the merged manifest carries android:networkSecurityConfig -
+  yet UnityWebRequest STILL threw "Insecure connection not allowed". Unity's
+  Android pre-check consults only the GLOBAL policy
+  (NetworkSecurityPolicy.isCleartextTrafficPermitted() without hostname), so
+  domain-scoped exceptions can never pass it.
+  client/unity/Assets/Editor/BuildCommand.cs therefore rewrites the config at
+  build time (ApplyNetworkSecurityConfig): debug builds get base-config
+  cleartextTrafficPermitted=true (development images only - that is what CI
+  device automation installs), release builds get the strict committed
+  variant (cleartext denied for every origin, identical to the platform
+  default). The committed file is the strict release variant.
 acceptance:
   - dispatched device run on this branch passes the swipe legs (no INFRA_FAIL
     from the install/launch race - prevented by the settle, recovered by the
@@ -108,7 +123,8 @@ validation:
   - "run 34906844282 (2c20758): gesture legs green, settle held, sheet round-1 dismiss, resolver picked source=runner-local and the partner reached the local queue; full-match pairing blocked only by the cleartext policy (evidence item 4) - fixed by the scoped network security config in this branch"
   - "manifest + network_security_config: xml.dom.minidom parse clean; .androidlib folder meta (PluginImporter, Android enabled) validates as YAML; inner-file metas left to Unity's importer (convention for .androidlib plug-ins)"
   - "run 34910227019 (b3986df): Unity 6 REJECTED Assets/Plugins/Android/res ('OBSOLETE ... move your resources to an AAR or an Android Library') - restructured to WordArenaNetSec.androidlib; the gesture-leg and resolver proofs from run 34906844282 stand"
-  - "PENDING: re-dispatched unity-android run on the updated branch head (device proof of the cleartext fix: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint)"
+  - "run 34912557224 (c0e4d40): build green with the .androidlib; APK forensics in the sandbox proved the config + attribute are packaged (strings extracted from the binary res/xml and the AXML pool) yet the enqueue still threw 'Insecure connection not allowed' -> Unity checks only the GLOBAL cleartext policy; fixed by the debug/release config rewrite in BuildCommand.cs"
+  - "PENDING: re-dispatched unity-android run on the updated branch head (device proof: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint against source=runner-local)"
 risk: >
   Low. Device smoke script and workflow docs only - no product code. Worst
   case is another INFRA_FAIL classification on the device leg, which cannot
