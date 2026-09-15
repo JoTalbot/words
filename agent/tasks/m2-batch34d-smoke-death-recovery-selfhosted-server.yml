@@ -101,7 +101,7 @@ changes: |-
   pre-check (PlayerSettings), not the Android platform policy; every
   manifest/network-security-config approach is ignored by it. FINAL FIX:
   BuildCommand.ApplyInsecureHttpPolicy sets
-  PlayerSettings.Android.insecureHttpOption = DevelopmentOnly for debug
+  PlayerSettings.insecureHttpOption = DevelopmentOnly for debug
   builds (permits http:// only in development images - exactly what the CI
   smoke installs) and NotAllowed for release builds (shipped posture
   unchanged). The whole .androidlib plug-in and the config-rewrite approach
@@ -124,7 +124,8 @@ validation:
   - "manifest + network_security_config: xml.dom.minidom parse clean; .androidlib folder meta (PluginImporter, Android enabled) validates as YAML; inner-file metas left to Unity's importer (convention for .androidlib plug-ins)"
   - "run 34910227019 (b3986df): Unity 6 REJECTED Assets/Plugins/Android/res ('OBSOLETE ... move your resources to an AAR or an Android Library') - restructured to WordArenaNetSec.androidlib; the gesture-leg and resolver proofs from run 34906844282 stand"
   - "run 34912557224 (c0e4d40): build green with the .androidlib; APK forensics in the sandbox proved the config + attribute are packaged (strings extracted from the binary res/xml and the AXML pool) yet the enqueue still threw 'Insecure connection not allowed'"
-  - "run 34914821023 (48fbfde): debug rewrite to base cleartext=true STILL blocked; logcat names the real gate ('Non-secure network connections disabled in Player Settings') -> the fix is PlayerSettings.Android.insecureHttpOption=DevelopmentOnly in BuildCommand.cs; .androidlib removed"
+  - "run 34914821023 (48fbfde): debug rewrite to base cleartext=true STILL blocked; logcat names the real gate ('Non-secure network connections disabled in Player Settings') -> the fix is PlayerSettings.insecureHttpOption=DevelopmentOnly (InsecureHttpOption enum, singular - Unity 6 API) in BuildCommand.cs; .androidlib removed"
+  - "run 34916686056 (be18f01): compile errors CS0117/CS0103 proved the Unity 6 API names - PlayerSettings.insecureHttpOption is TOP-LEVEL (not under .Android) and the enum is InsecureHttpOption (singular); corrected against the 6000.0 scripting docs (NotAllowed/DevelopmentOnly/AlwaysAllowed)"
   - "PENDING: re-dispatched unity-android run on the updated branch head (device proof: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint against source=runner-local)"
 risk: >
   Low. Device smoke script and workflow docs only - no product code. Worst

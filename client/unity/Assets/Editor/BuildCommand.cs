@@ -97,7 +97,8 @@ namespace Words
         /// packaged network_security_config.xml (domain exception for the
         /// emulator host alias, extracted from the APK bytes) was ignored
         /// anyway (runs 34906844282, 34912557224, 34914821023). The native
-        /// knob is PlayerSettings.Android.insecureHttpOption:
+        /// knob is PlayerSettings.insecureHttpOption ("Allow downloads over
+        /// HTTP" in Player Settings):
         /// DevelopmentOnly permits http:// ONLY in development builds. The
         /// CI device smoke installs debug images (BuildOptions.Development)
         /// and plays against a runner-local server over http://10.0.2.2 -
@@ -107,10 +108,14 @@ namespace Words
         /// </summary>
         private static void ApplyInsecureHttpPolicy(string buildType)
         {
-            PlayerSettings.Android.insecureHttpOption = buildType == "debug"
-                ? InsecureHttpOptions.DevelopmentOnly
-                : InsecureHttpOptions.NotAllowed;
-            Debug.Log($"Word Arena: insecureHttpOption = {PlayerSettings.Android.insecureHttpOption}");
+            // Unity 6 API (verified against the 6000.0 scripting docs): the
+            // property is PlayerSettings.insecureHttpOption (top level, NOT
+            // under .Android) and the enum is InsecureHttpOption (singular) -
+            // run 34916686056 measured the wrong names as CS0117/CS0103.
+            PlayerSettings.insecureHttpOption = buildType == "debug"
+                ? InsecureHttpOption.DevelopmentOnly
+                : InsecureHttpOption.NotAllowed;
+            Debug.Log($"Word Arena: insecureHttpOption = {PlayerSettings.insecureHttpOption}");
         }
 
         private static string GetArgument(string name, string fallback)
