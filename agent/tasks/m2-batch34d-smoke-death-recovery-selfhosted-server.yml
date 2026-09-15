@@ -9,8 +9,9 @@ branch: fix/m2-batch34d-smoke-death-recovery
 files:
   - tools/android-smoke.sh
   - .github/workflows/unity-android.yml
-  - client/unity/Assets/Plugins/Android/AndroidManifest.xml
-  - client/unity/Assets/Plugins/Android/res/xml/network_security_config.xml
+  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/AndroidManifest.xml
+  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/res/xml/network_security_config.xml
+  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib.meta
   - docs/RELEASE-READINESS.md
   - agent/tasks/m2-batch34d-smoke-death-recovery-selfhosted-server.yml
 goal: >
@@ -75,15 +76,21 @@ changes: |-
   .github/workflows/unity-android.yml: server_url input description and the
   setup echo updated to the 34D fallback semantics (no behaviour change in
   the workflow itself; it keeps passing WORDS_SERVER_URL through).
-  client/unity/Assets/Plugins/Android/AndroidManifest.xml (+meta): custom
-  main manifest, Unity 6 default template + android:networkSecurityConfig
-  only (INTERNET permission and the activity come from the unityLibrary
-  merge as before; activity android:exported=true per API 31+ template).
-  client/unity/Assets/Plugins/Android/res/xml/network_security_config.xml
-  (+meta): base-config cleartext DENIED (identical to the API 28+ platform
-  default) + domain-config permitting cleartext ONLY for 10.0.2.2,
-  localhost and 127.0.0.1 - loopback-like automation hosts that are not
-  routable on real devices, so the shipped-build posture is unchanged.
+  client/unity/Assets/Plugins/WordArenaNetSec.androidlib (+ folder meta,
+  PluginImporter Android-enabled): an Android LIBRARY plug-in whose only job
+  is to merge android:networkSecurityConfig into the final app manifest.
+  Its AndroidManifest.xml (package com.jotalbot.words.netsec, required by
+  Unity for .androidlib) carries the attribute; its
+  res/xml/network_security_config.xml keeps cleartext DENIED globally
+  (identical to the API 28+ platform default) and permits it ONLY for
+  10.0.2.2, localhost and 127.0.0.1 - loopback-like automation hosts that
+  are not routable on real devices, so the shipped-build posture is
+  unchanged. NOTE: the first attempt (custom main manifest +
+  Assets/Plugins/Android/res) was REJECTED by Unity 6 in run 34910227019:
+  "OBSOLETE - Providing Android resources in Assets/Plugins/Android/res was
+  removed, move your resources to an AAR or an Android Library". The custom
+  main manifest was dropped entirely - it would have overridden the
+  unityLibrary manifest for no additional benefit.
 acceptance:
   - dispatched device run on this branch passes the swipe legs (no INFRA_FAIL
     from the install/launch race - prevented by the settle, recovered by the
@@ -99,7 +106,8 @@ validation:
   - "runner-local server leg rehearsed in the sandbox exactly as scripted: go run ./cmd/game with WORDARENA_ADDR=127.0.0.1:18080 and WORDARENA_ALLOW_BOT_SEATS=true -> /healthz ok in <2s (warm cache); POST /v1/queue mode=1v1 bot=true accepted with is_bot=true; cleanup order (pkill -P child then kill go-run parent) verified to free the port"
   - "task yaml: python yaml.safe_load + tools/check-task-yaml.py clean; tools/check-repo-hygiene.py 254 checked / 0 failed"
   - "run 34906844282 (2c20758): gesture legs green, settle held, sheet round-1 dismiss, resolver picked source=runner-local and the partner reached the local queue; full-match pairing blocked only by the cleartext policy (evidence item 4) - fixed by the scoped network security config in this branch"
-  - "manifest + network_security_config: xml.dom.minidom parse clean; metas created for all new assets/folders"
+  - "manifest + network_security_config: xml.dom.minidom parse clean; .androidlib folder meta (PluginImporter, Android enabled) validates as YAML; inner-file metas left to Unity's importer (convention for .androidlib plug-ins)"
+  - "run 34910227019 (b3986df): Unity 6 REJECTED Assets/Plugins/Android/res ('OBSOLETE ... move your resources to an AAR or an Android Library') - restructured to WordArenaNetSec.androidlib; the gesture-leg and resolver proofs from run 34906844282 stand"
   - "PENDING: re-dispatched unity-android run on the updated branch head (device proof of the cleartext fix: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint)"
 risk: >
   Low. Device smoke script and workflow docs only - no product code. Worst
