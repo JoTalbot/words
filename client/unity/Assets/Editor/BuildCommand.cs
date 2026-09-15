@@ -44,13 +44,12 @@ namespace Words
                 PlayerSettings.bundleVersion = "0.1.0";
                 PlayerSettings.Android.bundleVersionCode = 1;
                 PlayerSettings.Android.forceInternetPermission = true;
+                ApplyInsecureHttpPolicy(buildType);
                 PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
                 PlayerSettings.Android.targetArchitectures = buildType == "debug"
                     ? AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64
                     : AndroidArchitecture.ARM64;
                 EditorUserBuildSettings.buildAppBundle = false;
-
-                ApplyNetworkSecurityConfig(buildType);
 
                 var outputPath = Path.GetFullPath(buildPath);
                 var outputDirectory = Path.GetDirectoryName(outputPath);
@@ -91,36 +90,27 @@ namespace Words
         }
 
         /// <summary>
-        /// Batch 34D: UnityWebRequest on Android enforces the GLOBAL platform
-        /// cleartext policy - its Java pre-check calls
-        /// NetworkSecurityPolicy.isCleartextTrafficPermitted() WITHOUT a
-        /// hostname, so a domain-scoped exception for the emulator host alias
-        /// never survives it. Measured twice with the merged config verifiably
-        /// packaged in the APK (runs 34906844282 and 34912557224: enqueue to
-        /// http://10.0.2.2:18080 still threw "Insecure connection not
-        /// allowed"). Debug builds therefore get cleartext ENABLED globally
-        /// (development images only - CI device automation plays against a
-        /// runner-local server over the AOSP host alias); the committed
-        /// release configuration keeps cleartext DENIED for every origin.
-        /// The rewrite happens in the ephemeral CI checkout; a local editor
-        /// debug build dirties the tracked config file - restore it with git
-        /// checkout afterwards.
+        /// Batch 34D: the cleartext block that broke the CI full-match leg is
+        /// UNITY'S OWN pre-check, not the Android platform policy - the
+        /// logcat line right before the exception says "Non-secure network
+        /// connections disabled in Player Settings", and a verifiably
+        /// packaged network_security_config.xml (domain exception for the
+        /// emulator host alias, extracted from the APK bytes) was ignored
+        /// anyway (runs 34906844282, 34912557224, 34914821023). The native
+        /// knob is PlayerSettings.Android.insecureHttpOption:
+        /// DevelopmentOnly permits http:// ONLY in development builds. The
+        /// CI device smoke installs debug images (BuildOptions.Development)
+        /// and plays against a runner-local server over http://10.0.2.2 -
+        /// an address that is not routable on any real device or network.
+        /// Release builds stay NotAllowed, so the shipped client's transport
+        /// posture is unchanged.
         /// </summary>
-        private static void ApplyNetworkSecurityConfig(string buildType)
+        private static void ApplyInsecureHttpPolicy(string buildType)
         {
-            const string netSecPath =
-                "Assets/Plugins/WordArenaNetSec.androidlib/res/xml/network_security_config.xml";
-            var permitted = buildType == "debug" ? "true" : "false";
-            var xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                + "<!-- Written by BuildCommand.ApplyNetworkSecurityConfig (batch 34D);"
-                + " committed state is the strict release variant. -->\n"
-                + "<network-security-config>\n"
-                + $"    <base-config cleartextTrafficPermitted=\"{permitted}\" />\n"
-                + "</network-security-config>\n";
-            File.WriteAllText(netSecPath, xml);
-            AssetDatabase.ImportAsset(netSecPath, ImportAssetOptions.ForceUpdate);
-            AssetDatabase.Refresh();
-            Debug.Log($"Word Arena: network security config written (cleartext permitted = {permitted})");
+            PlayerSettings.Android.insecureHttpOption = buildType == "debug"
+                ? InsecureHttpOptions.DevelopmentOnly
+                : InsecureHttpOptions.NotAllowed;
+            Debug.Log($"Word Arena: insecureHttpOption = {PlayerSettings.Android.insecureHttpOption}");
         }
 
         private static string GetArgument(string name, string fallback)

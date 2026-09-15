@@ -9,9 +9,6 @@ branch: fix/m2-batch34d-smoke-death-recovery
 files:
   - tools/android-smoke.sh
   - .github/workflows/unity-android.yml
-  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/AndroidManifest.xml
-  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib/res/xml/network_security_config.xml
-  - client/unity/Assets/Plugins/WordArenaNetSec.androidlib.meta
   - client/unity/Assets/Editor/BuildCommand.cs
   - docs/RELEASE-READINESS.md
   - agent/tasks/m2-batch34d-smoke-death-recovery-selfhosted-server.yml
@@ -96,16 +93,19 @@ changes: |-
   worked perfectly - the APK contains res/xml/network_security_config.xml
   verbatim (10.0.2.2/localhost/127.0.0.1 entries extracted from the packaged
   binary XML) and the merged manifest carries android:networkSecurityConfig -
-  yet UnityWebRequest STILL threw "Insecure connection not allowed". Unity's
-  Android pre-check consults only the GLOBAL policy
-  (NetworkSecurityPolicy.isCleartextTrafficPermitted() without hostname), so
-  domain-scoped exceptions can never pass it.
-  client/unity/Assets/Editor/BuildCommand.cs therefore rewrites the config at
-  build time (ApplyNetworkSecurityConfig): debug builds get base-config
-  cleartextTrafficPermitted=true (development images only - that is what CI
-  device automation installs), release builds get the strict committed
-  variant (cleartext denied for every origin, identical to the platform
-  default). The committed file is the strict release variant.
+  yet UnityWebRequest STILL threw "Insecure connection not allowed".
+  THIRD MEASURED FACT (run 34914821023 on 48fbfde, debug build with the
+  config rewritten to base cleartext=true): STILL blocked, and the logcat
+  line right before the exception names the real gate - "Non-secure network
+  connections disabled in Player Settings". The block is UNITY'S OWN
+  pre-check (PlayerSettings), not the Android platform policy; every
+  manifest/network-security-config approach is ignored by it. FINAL FIX:
+  BuildCommand.ApplyInsecureHttpPolicy sets
+  PlayerSettings.Android.insecureHttpOption = DevelopmentOnly for debug
+  builds (permits http:// only in development images - exactly what the CI
+  smoke installs) and NotAllowed for release builds (shipped posture
+  unchanged). The whole .androidlib plug-in and the config-rewrite approach
+  were REMOVED (dead weight once the real gate was identified).
 acceptance:
   - dispatched device run on this branch passes the swipe legs (no INFRA_FAIL
     from the install/launch race - prevented by the settle, recovered by the
@@ -123,7 +123,8 @@ validation:
   - "run 34906844282 (2c20758): gesture legs green, settle held, sheet round-1 dismiss, resolver picked source=runner-local and the partner reached the local queue; full-match pairing blocked only by the cleartext policy (evidence item 4) - fixed by the scoped network security config in this branch"
   - "manifest + network_security_config: xml.dom.minidom parse clean; .androidlib folder meta (PluginImporter, Android enabled) validates as YAML; inner-file metas left to Unity's importer (convention for .androidlib plug-ins)"
   - "run 34910227019 (b3986df): Unity 6 REJECTED Assets/Plugins/Android/res ('OBSOLETE ... move your resources to an AAR or an Android Library') - restructured to WordArenaNetSec.androidlib; the gesture-leg and resolver proofs from run 34906844282 stand"
-  - "run 34912557224 (c0e4d40): build green with the .androidlib; APK forensics in the sandbox proved the config + attribute are packaged (strings extracted from the binary res/xml and the AXML pool) yet the enqueue still threw 'Insecure connection not allowed' -> Unity checks only the GLOBAL cleartext policy; fixed by the debug/release config rewrite in BuildCommand.cs"
+  - "run 34912557224 (c0e4d40): build green with the .androidlib; APK forensics in the sandbox proved the config + attribute are packaged (strings extracted from the binary res/xml and the AXML pool) yet the enqueue still threw 'Insecure connection not allowed'"
+  - "run 34914821023 (48fbfde): debug rewrite to base cleartext=true STILL blocked; logcat names the real gate ('Non-secure network connections disabled in Player Settings') -> the fix is PlayerSettings.Android.insecureHttpOption=DevelopmentOnly in BuildCommand.cs; .androidlib removed"
   - "PENDING: re-dispatched unity-android run on the updated branch head (device proof: PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint against source=runner-local)"
 risk: >
   Low. Device smoke script and workflow docs only - no product code. Worst
