@@ -28,7 +28,9 @@ on:
           Public base URL of a reachable word-arena server (the Q8 stage-1
           tunnel). When set, the device smoke also runs the batch 28b
           full-match leg; when empty it falls back to the WORDS_SERVER_URL
-          repository variable and, failing that, skips the leg.
+          repository variable and, failing that, to a runner-local server
+          built from the same commit (batch 34D: the leg is self-contained
+          and a stale tunnel URL can no longer skip or fail it).
         required: false
         type: string
         default: ""
@@ -81,13 +83,15 @@ jobs:
           [ -n "$api_level" ] || api_level=35
           # Batch 28b: the full-match leg needs a server the emulator can
           # reach. A dispatch input wins; otherwise the repository variable
-          # (which the scheduled run uses) applies; empty = leg skipped.
+          # (which the scheduled run uses) applies. Batch 34D: empty OR
+          # unreachable now falls back to a runner-local same-commit server
+          # inside tools/android-smoke.sh, so the leg always runs.
           server_url="${{ inputs.server_url }}"
           [ -n "$server_url" ] || server_url="${{ vars.WORDS_SERVER_URL }}"
           echo "build_type=$build_type"
           echo "run_smoke=$run_smoke"
           echo "api_level=$api_level"
-          echo "server_url=${server_url:-<unset: 28b full-match leg will be skipped>}"
+          echo "server_url=${server_url:-<unset: 28b falls back to a runner-local server (batch 34D)>}"
           {
             echo "build_type=$build_type"
             echo "run_smoke=$run_smoke"

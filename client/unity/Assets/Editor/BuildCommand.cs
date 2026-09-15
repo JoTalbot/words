@@ -44,6 +44,7 @@ namespace Words
                 PlayerSettings.bundleVersion = "0.1.0";
                 PlayerSettings.Android.bundleVersionCode = 1;
                 PlayerSettings.Android.forceInternetPermission = true;
+                ApplyInsecureHttpPolicy(buildType);
                 PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
                 PlayerSettings.Android.targetArchitectures = buildType == "debug"
                     ? AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64
@@ -86,6 +87,35 @@ namespace Words
                 Debug.LogException(exception);
                 EditorApplication.Exit(1);
             }
+        }
+
+        /// <summary>
+        /// Batch 34D: the cleartext block that broke the CI full-match leg is
+        /// UNITY'S OWN pre-check, not the Android platform policy - the
+        /// logcat line right before the exception says "Non-secure network
+        /// connections disabled in Player Settings", and a verifiably
+        /// packaged network_security_config.xml (domain exception for the
+        /// emulator host alias, extracted from the APK bytes) was ignored
+        /// anyway (runs 34906844282, 34912557224, 34914821023). The native
+        /// knob is PlayerSettings.insecureHttpOption ("Allow downloads over
+        /// HTTP" in Player Settings):
+        /// DevelopmentOnly permits http:// ONLY in development builds. The
+        /// CI device smoke installs debug images (BuildOptions.Development)
+        /// and plays against a runner-local server over http://10.0.2.2 -
+        /// an address that is not routable on any real device or network.
+        /// Release builds stay NotAllowed, so the shipped client's transport
+        /// posture is unchanged.
+        /// </summary>
+        private static void ApplyInsecureHttpPolicy(string buildType)
+        {
+            // Unity 6 API (verified against the 6000.0 scripting docs): the
+            // property is PlayerSettings.insecureHttpOption (top level, NOT
+            // under .Android) and the enum is InsecureHttpOption (singular) -
+            // run 34916686056 measured the wrong names as CS0117/CS0103.
+            PlayerSettings.insecureHttpOption = buildType == "debug"
+                ? InsecureHttpOption.DevelopmentOnly
+                : InsecureHttpOption.NotAllowed;
+            Debug.Log($"Word Arena: insecureHttpOption = {PlayerSettings.insecureHttpOption}");
         }
 
         private static string GetArgument(string name, string fallback)
