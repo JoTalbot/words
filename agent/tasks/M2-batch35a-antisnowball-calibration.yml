@@ -1,0 +1,56 @@
+id: M2-batch35a-antisnowball-calibration
+title: "Anti-snowball calibration: per-match HTTP opt-in + simulation sweep (rebuild of lost batch 34B)"
+status: code_complete_sweep_done_results_documented_pending_ci
+priority: high
+complexity: large
+dependencies:
+  - M2 batch 32C (catch-up rule, merged)
+  - M2 batch 33 (protocol handshake, merged)
+inputs:
+  - server/internal/match/antisnowball.go (rule + CatchUpParams)
+  - server/internal/pve (deterministic driver policy)
+  - docs/M2-ANTI-SNOWBALL.md
+  - docs/ROADMAP.md (anti-snowball row)
+outputs:
+  - anti_snowball field on POST /v1/matches (request + response + state view)
+  - catch_up_bonus on replay/result events
+  - match.CatchUpParams (per-match constants, zero value = shipped 25/2/15)
+  - server/cmd/calibrate (sweep harness, sharded)
+  - docs/M2-ANTI-SNOWBALL.md calibration section (results pending sweep)
+  - sweep-full.json (server artifact, merged shard output)
+acceptance:
+  - "go test -count=1 ./... green on the branch (13/13 packages)"
+  - "rule off by default: no M0/M1 baseline, replay or device assertion moves"
+  - "anti_snowball=true accepted on POST /v1/matches for any roster, echoed by the response and the state view, and changes the provisioned room's scoring (bonus events present, final scores differ from the same seed with the flag off)"
+  - "sweep artifact: 576 variant pairs + 96 baselines over 24 seeds x rosters 2/8/30/60 x 6 constant sets, deterministic (re-run byte-identical apart from wall_ms)"
+  - "CALIBRATION_RESULTS_PLACEHOLDER in docs/M2-ANTI-SNOWBALL.md filled from the sweep summary; ROADMAP row updated per the evidence"
+  - "full go test ./... + race subset run on the branch before merge"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+  - "calibrate -limit 1 smoke run + determinism test (cmd/calibrate)"
+  - "sweep: 4 sharded runs on the OCI server (GOMAXPROCS=1), calibrate -merge, jq 'del(.pairs)' for the doc excerpt"
+risk: medium
+
+file_ownership:
+  - server/internal/match/antisnowball.go
+  - server/internal/match/types.go
+  - server/internal/match/match.go
+  - server/internal/match/antisnowball_test.go
+  - server/internal/matchroom/room.go
+  - server/cmd/game/api.go
+  - server/cmd/game/antisnowball_api_test.go
+  - server/cmd/game/security_test.go
+  - server/cmd/calibrate/
+  - docs/M2-ANTI-SNOWBALL.md
+  - agent/tasks/M2-batch35a-antisnowball-calibration.yml
+notes: >-
+  Batch 34B (same scope) was lost when the previous Arena sandbox was wiped:
+  its branch was never pushed and the sweep process died with it. This batch
+  is a rebuild, verified against the same acceptance shape recorded in
+  agent/state/current.yml (24 seeds x rosters 2/8/30/60 x 6 constant sets).
+  Two findings ride along: (1) decodeJSON accepted trailing junk after the
+  first JSON value - a request body is now exactly one value, pinned by
+  TestCreateMatchRejectsTrailingJunk; (2) a fixed seat-order driver produces
+  a degenerate 2-of-60 steal ping-pong, so the harness uses a rotating
+  single-seat-per-tick driver (documented in the doc's calibration section).
+  The queue (matchmaker) path deliberately keeps the default rule set.

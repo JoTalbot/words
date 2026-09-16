@@ -314,3 +314,38 @@ func TestInternalErrorIsNotEchoed(t *testing.T) {
 		t.Errorf("error body leaks storage detail: %s", body)
 	}
 }
+
+// TestCreateMatchRejectsTrailingJunk pins the strict-body rule: a request
+// body is exactly one JSON value, and a decoder that stops after the first
+// value would let a caller append anything to an otherwise valid body.
+// (Found 2026-09-16 while the anti_snowball flag test built its body wrong:
+// {"language":"en"},"anti_snowball":true parsed as a no-flag match instead
+// of failing the request.)
+func TestCreateMatchRejectsTrailingJunk(t *testing.T) {
+	api := NewAPI()
+	t.Cleanup(api.Stop)
+	srv := httptest.NewServer(api.Routes())
+	t.Cleanup(srv.Close)
+
+	cases := []string{
+		`{"language":"en"},"anti_snowball":true}`,
+		`{"language":"en"} {"language":"ru"}`,
+	}
+	for _, body := range cases {
+		code, out := postRaw(t, srv, "/v1/matches", body, nil)
+		if code == http.StatusCreated {
+			t.Fatalf("trailing junk was accepted for %q (body: %s)", body, out)
+		}
+		if code != http.StatusBadRequest {
+			t.Fatalf("trailing junk %q: status %d, want 400 (%s)", body, code, out)
+		}
+	}
+	// The honest body still works - including with harmless trailing
+	// whitespace, which every line-ending client appends.
+	if code, _ := postRaw(t, srv, "/v1/matches", `{"language":"en"}`, nil); code != http.StatusCreated {
+		t.Fatalf("a clean body was rejected: %d", code)
+	}
+	if code, _ := postRaw(t, srv, "/v1/matches", `{"language":"en"}`+"\n", nil); code != http.StatusCreated {
+		t.Fatalf("a body with trailing whitespace was rejected: %d", code)
+	}
+}
