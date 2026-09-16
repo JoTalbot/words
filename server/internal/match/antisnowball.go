@@ -59,6 +59,22 @@ type CatchUpParams struct {
 	Divisor int
 	// MaxBonus: the hard per-word cap. Zero means CatchUpMaxBonus.
 	MaxBonus int
+	// GapPercent scales the trigger with the game's own score scale
+	// (batch 35D): a seat is eligible when
+	//
+	//	leader - score >= max(Gap, leader*GapPercent/100)
+	//
+	// in integer arithmetic (deterministic, replay-safe). Zero disables the
+	// scaled component, so the zero value keeps the exact roster-blind 25
+	// point trigger of batches 32C/35A. Why a percentage of the LEADER and
+	// not of the roster size: the 35A measurement showed the failure is
+	// score-scale blindness (at 60 seats the final gap is ~128 points, so a
+	// fixed 25 is a permanent state for most of the field and the rule rides
+	// 97-100% of words); the leader's score IS that scale, whatever the
+	// roster, the language or the wave shape. The absolute Gap stays as the
+	// floor so the early game (leader score 0 or small) keeps the duel's
+	// measured-correct behaviour - at two seats the percentage never binds.
+	GapPercent int
 }
 
 // DefaultCatchUpParams is the batch 32C constant set, made explicit.
@@ -87,7 +103,21 @@ func (c CatchUpParams) normalized() CatchUpParams {
 	case c.MaxBonus < 0:
 		c.MaxBonus = 0
 	}
+	if c.GapPercent < 0 {
+		c.GapPercent = 0
+	}
 	return c
+}
+
+// catchUpThreshold is the eligibility gap for the given leader score: the
+// absolute floor, or the leader-relative percentage when that is larger.
+// Integer math only - a replay must compute the same threshold bit for bit.
+func (c CatchUpParams) catchUpThreshold(leader int) int {
+	t := c.Gap
+	if p := leader * c.GapPercent / 100; p > t {
+		t = p
+	}
+	return t
 }
 
 // CatchUpBonus returns the extra points a seat earns for an accepted word
@@ -116,7 +146,7 @@ func (m *Match) CatchUpBonus(seat Seat, points int) int {
 			leader = sc
 		}
 	}
-	if leader-int(m.players[seat].Score) < m.catchUp.Gap {
+	if leader-int(m.players[seat].Score) < m.catchUp.catchUpThreshold(leader) {
 		return 0
 	}
 	bonus := points / m.catchUp.Divisor

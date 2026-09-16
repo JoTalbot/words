@@ -1,0 +1,34 @@
+id: M2-batch35d-antisnowball-roster-scaled
+title: "Anti-snowball roster-scaled (leader-relative) trigger: mechanism + calibration sweep"
+status: code_complete_tests_green_sweep_pending
+priority: high
+complexity: medium
+dependencies:
+  - M2 batch 35A (calibration verdict naming the roster-scaled trigger as required, merged)
+  - M2 batch 32C (the catch-up rule itself, merged)
+inputs:
+  - server/internal/match/antisnowball.go (CatchUpParams, normalized, trigger)
+  - server/cmd/calibrate (sweep harness, constant sets, shard assignment)
+  - docs/M2-ANTI-SNOWBALL.md (35A verdict + provisional decision)
+outputs:
+  - CatchUpParams.GapPercent: a seat is eligible when leader-score >= max(Gap, leader*GapPercent/100), integer arithmetic, zero = the exact legacy roster-blind trigger
+  - calibrate constant sets pct10/pct20/pct30/pct40 (+ default/gap40 anchors)
+  - balanced shard assignment (roster-outer grid order)
+  - docs/M2-ANTI-SNOWBALL.md 35D section (results + decision per PD-007)
+  - ROADMAP anti-snowball row update per evidence
+acceptance:
+  - "go test -count=1 ./... green on the branch"
+  - "zero-value back-compat: GapPercent=0 keeps the exact 32C/35A trigger at any leader score (pinned by test)"
+  - "floor semantics: the absolute Gap still governs the early game / the duel (pinned by test)"
+  - "sweep artifact: 6 sets x 24 seeds x rosters 2/8/30/60 = 576 variant pairs + 96 baselines, deterministic, run on the SERVER (artifacts-35d)"
+  - "decision documented per PD-007: which set (if any) becomes the >2-seat default for the opt-in anti_snowball flag, with the measured fire rate / gap closed / winner-flip evidence; the 1v1 default stays 25/2/15"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+  - "sweep: 4 balanced shards on the OCI server, calibrate -merge, jq summary"
+risk: low
+file_ownership:
+  - server/internal/match/antisnowball.go
+  - server/internal/match/antisnowball_test.go
+  - server/cmd/calibrate/main.go
+  - docs/M2-ANTI-SNOWBALL.md
+  - docs/ROADMAP.md
