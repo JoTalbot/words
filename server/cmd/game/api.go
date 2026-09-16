@@ -519,6 +519,13 @@ type createMatchRequest struct {
 	// constants are code-level calibration candidates (PD-007), not request
 	// fields.
 	AntiSnowball bool `json:"anti_snowball,omitempty"`
+	// PvEDifficulty names the practice opponent's preset (M2 batch 35B):
+	// "easy" (the shipped 32E opponent, and the default), "normal" or
+	// "hard" (server/internal/pve/presets.go). It requires pve - a
+	// difficulty on a match with no server-driven opponent is a contract
+	// error, not a silently ignored field. Like pve it is gated by
+	// WORDARENA_ALLOW_BOT_SEATS.
+	PvEDifficulty string `json:"pve_difficulty,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
@@ -776,6 +783,21 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 			botSeats = []bool{false, true}
 		}
 	}
+	// A difficulty names the practice opponent; without pve there is no
+	// opponent to name it for, so it is a client error, not an ignored field.
+	difficulty := pve.DifficultyEasy
+	if req.PvEDifficulty != "" {
+		if !req.PvE {
+			httpError(w, http.StatusBadRequest, "pve_difficulty requires pve")
+			return
+		}
+		d := pve.Difficulty(req.PvEDifficulty)
+		if !d.Valid() {
+			httpError(w, http.StatusBadRequest, "pve_difficulty must be easy, normal or hard")
+			return
+		}
+		difficulty = d
+	}
 	var pids []uint64
 	if req.PlayerIDs != nil {
 		pids = []uint64{req.PlayerIDs[0], req.PlayerIDs[1]}
@@ -785,7 +807,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 		// The opponent is attached after provisioning so a failure to load the
 		// dictionary is reported to the caller instead of silently producing a
 		// match where seat 1 never moves.
-		if err = a.startPvE(info, lang); err != nil {
+		if err = a.startPvE(info, lang, difficulty); err != nil {
 			a.discardRoom(info.ID)
 			httpError(w, http.StatusInternalServerError, "practice opponent unavailable")
 			log.Printf("pve opponent for match %d: %v", info.ID, err)
@@ -1021,7 +1043,7 @@ type pveOpponent struct {
 // startPvE attaches the practice opponent to every declared bot seat of a
 // freshly created match (M2 batch 32E). It returns an error rather than
 // creating a silently broken match when the dictionary cannot be loaded.
-func (a *API) startPvE(info roomInfo, lang string) error {
+func (a *API) startPvE(info roomInfo, lang string, difficulty pve.Difficulty) error {
 	seat := -1
 	for _, s := range info.BotSeats {
 		seat = s
@@ -1030,7 +1052,7 @@ func (a *API) startPvE(info roomInfo, lang string) error {
 	if seat < 0 {
 		return fmt.Errorf("pve needs a declared bot seat")
 	}
-	opponent, err := pve.New(lang, pve.DefaultPolicy())
+	opponent, err := pve.New(lang, difficulty.Policy())
 	if err != nil {
 		return err
 	}
@@ -1044,6 +1066,7 @@ func (a *API) startPvE(info roomInfo, lang string) error {
 	a.publishTelemetry(telemetryEvent{
 		Type: "pve_started", MatchID: info.ID, Language: lang,
 		Seat: telemetryInt(seat), BotSeats: info.BotSeats,
+		Difficulty: string(difficulty),
 	})
 	return nil
 }

@@ -13,13 +13,15 @@ and a game someone can actually try.
 Request it with `POST /v1/matches`:
 
 ```json
-{"language": "en", "seed": 1512, "pve": true}
+{"language": "en", "seed": 1512, "pve": true, "pve_difficulty": "hard"}
 ```
 
 The response is the ordinary two-seat create response. Seat 0 is the caller,
 seat 1 is the server's opponent. `seats` may not be set alongside `pve`: a
 practice match is 1v1 by definition, and a mode that quietly accepts a roster
-it cannot fill would be a worse contract than a refusal.
+it cannot fill would be a worse contract than a refusal. `pve_difficulty`
+names the opponent's preset (batch 35B, below); absent, the opponent is
+exactly the shipped 32E default.
 
 ## Why it was safe to build now
 
@@ -84,10 +86,47 @@ the simulation correctly rejected as blocked-by-rule.
   match; per-tick work is a scan of the candidate list over at most 60 cells,
   so it is bounded by the board, not by the player count.
 
+## Difficulty (batch 35B)
+
+Q11 left "difficulty levels" open, so this batch ships the mechanism - a
+named, deterministic, disclosed knob behind the same
+`WORDARENA_ALLOW_BOT_SEATS` gate - and starting values, not product numbers.
+The values are calibration candidates in the PD-007 sense and will move with
+playtest evidence (a data change, not a redesign).
+
+`pve_difficulty` accepts three named presets
+(`server/internal/pve/presets.go`):
+
+| Preset | Words | Thinking | Steals | What it is |
+|---|---|---|---|---|
+| `easy` (default) | 3-4 | 1.5 s | never | exactly the shipped 32E opponent: no existing practice match moves |
+| `normal` | 3-5 | 1.0 s | never | a fair opponent that answers defending with pressure instead of taking it |
+| `hard` | 3-6 | 0.5 s | yes | the full aggressive shape - the same profile the anti-snowball calibration harness drives (docs/M2-ANTI-SNOWBALL.md), so "what hard plays" stays measurable against that evidence |
+
+Rules of the surface, in the shape of the rest of the batch:
+
+- **The default is byte-identical to 32E.** `easy` is `pve.DefaultPolicy()`,
+  and a `pve` request without `pve_difficulty` is the match it always got.
+- **It requires `pve`.** A difficulty on a match with no server-driven
+  opponent is a contract error (400), not a silently ignored field - the
+  same "saying so explicitly is better" rule as the 1v1-only refusal.
+- **Unknown names are rejected** (400 naming the three valid values); there
+  is no numeric knob, so a caller cannot dial an opponent the presets were
+  not measured against.
+- **It is disclosed, not hidden.** The `pve_started` telemetry event carries
+  the difficulty, so an operator can answer "what did this player practice
+  against?" from the event stream. The opponent remains a declared,
+  disclosed bot in every snapshot and in the durable result; difficulty
+  changes how it plays, never what it is.
+
+Still deliberately open (each needs its own evidence): rewards or progression
+for practice, how a client surfaces the choice (UX), and the preset VALUES
+themselves once there is playtest data.
+
 ## Deliberately not in this batch
 
-- Difficulty selection, bot ratings, or a separate bot pool (Q5 clause 3 makes
-  bot matches non-rating-eligible, so a bot pool has no meaning yet).
+- Bot ratings or a separate bot pool (Q5 clause 3 makes bot matches
+  non-rating-eligible, so a bot pool has no meaning yet).
 - Matchmaking against a bot ("play online" falling back to practice) — the
   matchmaker fills human lobbies only, and short-handed starts (31C) remain the
   answer to low population.

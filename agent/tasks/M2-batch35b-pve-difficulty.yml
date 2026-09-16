@@ -1,0 +1,41 @@
+id: M2-batch35b-pve-difficulty
+title: "PvE difficulty selection: named presets (easy/normal/hard) behind the existing gate"
+status: code_complete_suite_green_pending_ci
+priority: normal
+complexity: medium
+dependencies:
+  - M2 batch 32E (first PvE content, merged)
+inputs:
+  - server/internal/pve (opponent + policy)
+  - server/cmd/game/api.go (create surface, startPvE)
+  - docs/M2-PVE.md
+  - docs/PRODUCT-DECISIONS.md (Q11: difficulty left open)
+outputs:
+  - server/internal/pve/presets.go (Difficulty type + three presets)
+  - pve_difficulty field on POST /v1/matches (requires pve; unknown names 400)
+  - difficulty on the pve_started telemetry event
+  - docs/M2-PVE.md difficulty section
+acceptance:
+  - "go test -count=1 ./... green on the branch"
+  - "a pve match without pve_difficulty runs the exact shipped 32E policy (TestPvEDifficultyDefaultIsEasy)"
+  - "each named preset attaches the documented policy (TestPvEDifficultiesAreAccepted)"
+  - "unknown difficulty names and difficulty-without-pve are rejected with 400 (TestPvEDifficultyRejectsUnknownNames, TestPvEDifficultyRequiresPvE)"
+  - "hard plays strictly more words and a different score than easy over the same seed (TestPvEDifficultyChangesTheOpponent): the preset changes the opponent, not the label"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+risk: low
+file_ownership:
+  - server/internal/pve/presets.go
+  - server/cmd/game/api.go
+  - server/cmd/game/telemetry.go
+  - server/cmd/game/pve_difficulty_test.go
+  - docs/M2-PVE.md
+  - agent/tasks/M2-batch35b-pve-difficulty.yml
+notes: >-
+  Mechanism + starting values only: Q11 deliberately left difficulty levels
+  open, so the preset VALUES are calibration candidates (PD-007 framing),
+  documented as such in docs/M2-PVE.md. easy is exactly pve.DefaultPolicy(),
+  so no existing practice match moves. The behavior test drives both seats
+  through Room.Submit with a rotating one-seat-per-tick order (the same
+  non-degenerate driver as the 35A calibration harness) because the API's
+  real-time pve ticker desynchronizes from a fast-forwarded simulation.
