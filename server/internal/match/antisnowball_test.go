@@ -222,3 +222,118 @@ func min64(a, b int64) int64 {
 	}
 	return b
 }
+
+// M2 batch 35A: the rule's constants are per-match parameters with the 25/2/15
+// batch 32C set as the zero-value default, so the calibration sweep (and any
+// future documented provisional values) can vary them without touching code.
+
+func catchUpMatchWithParams(t *testing.T, params CatchUpParams) *Match {
+	t.Helper()
+	m, err := NewWithBoard(Config{
+		MatchID: 1, Seed: 1, Lang: "en", Seats: 4, AntiSnowball: true,
+		CatchUp: params,
+	}, "catdogfunrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestCatchUpParamsZeroValueIsTheShippedSet(t *testing.T) {
+	// The zero value must behave exactly like the batch 32C constants: a
+	// seat 24 points behind is inside the 25-point gap and earns nothing.
+	m := catchUpMatchWithParams(t, CatchUpParams{})
+	if m.catchUp != DefaultCatchUpParams() {
+		t.Fatalf("the zero-value config resolved to %v, want the 25/2/15 set", m.catchUp)
+	}
+	m.players[0].Score = int64(CatchUpGap) - 1
+	ev := submitWord(t, m, 1, "cat")
+	if ev.Result != ResultAccepted {
+		t.Fatalf("fixture word was %v", ev.Result)
+	}
+	if ev.CatchUpBonus != 0 {
+		t.Fatalf("a seat inside the default gap earned a bonus of %d", ev.CatchUpBonus)
+	}
+}
+
+func TestCatchUpParamsGapControlsTheTrigger(t *testing.T) {
+	// The same 15-point deficit: a bonus under a 10-point gap, none under the
+	// default 25 - the gap parameter is the trigger, and only the trigger.
+	m10 := catchUpMatchWithParams(t, CatchUpParams{Gap: 10})
+	m10.players[0].Score = 15
+	ev10 := submitWord(t, m10, 1, "cat")
+
+	mDef := catchUpMatchWithParams(t, CatchUpParams{})
+	mDef.players[0].Score = 15
+	evDef := submitWord(t, mDef, 1, "cat")
+
+	if ev10.CatchUpBonus <= 0 {
+		t.Fatalf("a 15-point deficit under a 10-point gap earned no bonus")
+	}
+	if evDef.CatchUpBonus != 0 {
+		t.Fatalf("the same deficit under the default gap earned a bonus of %d", evDef.CatchUpBonus)
+	}
+	// Only the trigger moved: the word and its own points are identical.
+	if ev10.ScoreAdded-ev10.CatchUpBonus != evDef.ScoreAdded {
+		t.Fatal("changing the gap changed the word's own points")
+	}
+}
+
+func TestCatchUpParamsDivisorControlsTheRate(t *testing.T) {
+	m := catchUpMatchWithParams(t, CatchUpParams{Gap: 5, Divisor: 3})
+	m.players[0].Score = 200
+	ev := submitWord(t, m, 1, "cat")
+	base := ev.ScoreAdded - ev.CatchUpBonus
+	if want := min64(base/3, int64(CatchUpMaxBonus)); ev.CatchUpBonus != want {
+		t.Fatalf("bonus %d, want %d (base %d over divisor 3, capped at %d)",
+			ev.CatchUpBonus, want, base, CatchUpMaxBonus)
+	}
+	// And the divisor-2 default awards more on the same base.
+	m2 := catchUpMatchWithParams(t, CatchUpParams{Gap: 5})
+	m2.players[0].Score = 200
+	ev2 := submitWord(t, m2, 1, "cat")
+	if ev2.CatchUpBonus <= ev.CatchUpBonus {
+		t.Fatalf("divisor 3 (%d) does not award strictly less than divisor 2 (%d)",
+			ev.CatchUpBonus, ev2.CatchUpBonus)
+	}
+}
+
+func TestCatchUpParamsMaxBonusIsTheHardCap(t *testing.T) {
+	m := catchUpMatchWithParams(t, CatchUpParams{Gap: 5, MaxBonus: 2})
+	m.players[0].Score = 200
+	ev := submitWord(t, m, 1, "cat")
+	if ev.Result != ResultAccepted {
+		t.Fatalf("fixture word was %v", ev.Result)
+	}
+	if ev.CatchUpBonus != 2 {
+		t.Fatalf("bonus %d, want the cap of 2 (word base %d)", ev.CatchUpBonus, ev.ScoreAdded-ev.CatchUpBonus)
+	}
+}
+
+func TestCatchUpParamsClampTheNonsensical(t *testing.T) {
+	// A negative cap is "no bonus": the rule is on and would fire, but the
+	// cap allows nothing. The rule must not crash or invent points.
+	m := catchUpMatchWithParams(t, CatchUpParams{Gap: 1, MaxBonus: -5})
+	m.players[0].Score = 200
+	if ev := submitWord(t, m, 1, "cat"); ev.CatchUpBonus != 0 {
+		t.Fatalf("a negative cap awarded a bonus of %d", ev.CatchUpBonus)
+	}
+	// Negative gap and divisor fall back to the shipped defaults.
+	if p := (CatchUpParams{Gap: -1, Divisor: -1}).normalized(); p != DefaultCatchUpParams() {
+		t.Fatalf("negative gap/divisor resolved to %v, want the default set", p)
+	}
+}
+
+func TestCatchUpParamsAreVisibleInTheSnapshot(t *testing.T) {
+	on := catchUpMatchWithParams(t, CatchUpParams{Gap: 10})
+	if !on.Snapshot().AntiSnowball {
+		t.Fatal("the snapshot does not show the rule on")
+	}
+	m, err := NewWithBoard(Config{MatchID: 2, Seed: 1, Lang: "en", Seats: 4}, "catdogfunrun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Snapshot().AntiSnowball {
+		t.Fatal("the snapshot shows the rule on for a default match")
+	}
+}

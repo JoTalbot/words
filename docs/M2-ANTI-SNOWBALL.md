@@ -68,14 +68,59 @@ carry the effect.
   each is a separate rules change with its own evidence.
 - **It does not change the combo multiplier.** Combos are how a leader
   compounds; capping them is a second, distinct decision.
-- **It is not reachable from the HTTP surface yet.** `match.Config` and
-  `matchroom.Config` accept it, which is what the tests drive. Exposing it as a
-  per-match option belongs with the tuning pass that follows playtest data, and
-  is deliberately not invented here.
-- **Its constants are not calibrated.** 25 / 2 / 15 are engineering defaults,
-  consistent with PD-007's framing of M0 numbers as calibration candidates.
-  They are expected to move once there is playtest or simulation evidence, and
-  that will be a data change rather than a redesign.
+- **It is a per-match option, not a deployment capability.** `POST
+  /v1/matches` accepts `anti_snowball: true` (batch 35A); the create response
+  echoes it, the seat-authorized state view shows it, and every replay event
+  that carries a bonus records it in `catch_up_bonus`. It is not gated by an
+  environment variable - it changes fairness, not capability - and the
+  matchmaker queue deliberately keeps the default: making it a queue
+  attribute is a product decision, not a server detail. The rule's CONSTANTS
+  are not request fields either: whatever the calibration settles on is a
+  code-level value until playtest evidence says otherwise, and an
+  unauthenticated endpoint should not be a tuning panel.
+- **Its constants are calibrated in batch 35A, not guessed again.** 25 / 2 /
+  15 were engineering defaults, consistent with PD-007's framing of M0 numbers
+  as calibration candidates. The simulation sweep (below) measures what the
+  rule actually does before the constants move, and that will be a data change
+  rather than a redesign.
+
+## Calibration (batch 35A)
+
+PD-007 makes the constants calibration candidates, so the question is not
+"should there be a catch-up rule?" but "what does the rule DO, and which of
+the three levers does the evidence need?" The harness (`server/cmd/calibrate`)
+answers it with simulation rather than playtest - the rule is a pure
+function of canonical state, so a driven match is a legitimate measurement
+bed until there are players to measure.
+
+**The grid.** 24 fixed seeds × rosters 2 / 8 / 30 / 60 × six constant sets
+(`default` 25/2/15, `gap15`, `gap40`, `div3`, `cap10`, `cap20` - one lever
+bracketed at a time) = 576 variant matches, each against the rule-OFF
+baseline of its (seed, roster) pair (96 baselines). Grid order is (seed,
+roster) with sets innermost, and shards own whole pairs, so each baseline is
+computed exactly once; `calibrate -shard N -shards M` splits the work and
+`-merge` combines the shard files and prints the summary.
+
+**The driver.** Every seat is played by the pve opponent (the same validated
+door a human uses, a pure function of snapshot/tick/dictionary/policy) in an
+"aggressive" shape (3-6 letter words, 0.5 s between them, steals allowed) so
+that a score gap actually opens inside one match - the precondition for the
+rule to matter. One seat acts per tick in a ROTATING round-robin: with a
+fixed seat order and the policy's shortest-lexicographic-first word choice,
+seats 0 and 1 enter a degenerate steal ping-pong over the lexicographic
+minimum word of the whole dictionary and the rest of the roster never scores
+(2 of 60 seats scoring, measured). Real populations have independent
+preferences and independent timing; the rotating order models the second and
+removes the first-mover bias. The baseline and every variant use the same
+driver, so the comparison is the rule and nothing else.
+
+**What it measures.** For each configuration: how much of the baseline's
+final gap (leader over lowest seat) the bonus erases, whether the winner
+flips, what the bonus costs in points, and the per-match exposure - the
+share of matches where the rule fires at all, which is the other half of the
+roadmap row (a rule that fires in 1 of 96 matches is not really on).
+
+CALIBRATION_RESULTS_PLACEHOLDER
 
 ## Validation
 

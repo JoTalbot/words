@@ -25,8 +25,10 @@ type Match struct {
 
 	// suddenDeath is the opt-in flag; inSuddenDeath marks the tiebreak wave.
 	suddenDeath bool
-	// antiSnowball enables the opt-in catch-up rule; see antisnowball.go.
+	// antiSnowball enables the opt-in catch-up rule; catchUp is its resolved
+	// constant set (zero config = the 25/2/15 default); see antisnowball.go.
 	antiSnowball  bool
+	catchUp       CatchUpParams
 	inSuddenDeath bool
 
 	cells []Cell
@@ -61,6 +63,7 @@ func New(cfg Config) (*Match, error) {
 		phase:        "active",
 		suddenDeath:  cfg.SuddenDeath,
 		antiSnowball: cfg.AntiSnowball,
+		catchUp:      cfg.CatchUp.normalized(),
 	}
 	seats := cfg.Seats
 	if seats == 0 {
@@ -525,6 +528,7 @@ func (m *Match) Snapshot() Snapshot {
 		StateVersion:    m.stateVer,
 		Phase:           m.phase,
 		SuddenDeath:     m.inSuddenDeath,
+		AntiSnowball:    m.antiSnowball,
 	}
 	s.Players = make([]PlayerView, len(m.players))
 	for seat := Seat(0); int(seat) < len(m.players); seat++ {

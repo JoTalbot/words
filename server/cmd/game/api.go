@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net"
@@ -213,6 +214,11 @@ type replayEvent struct {
 	TotalScore int64  `json:"total_score"`
 	IsSteal    bool   `json:"is_steal"`
 	StateVer   int    `json:"state_version"`
+	// CatchUpBonus is the anti-snowball bonus folded into ScoreAdded, or
+	// absent when the opt-in rule (docs/M2-ANTI-SNOWBALL.md) did not apply.
+	// Recorded rather than inferred so a replay can prove WHY a score
+	// differs, not only that it does.
+	CatchUpBonus int64 `json:"catch_up_bonus,omitempty"`
 }
 
 // resultTTL is how long finished match results are kept in memory.
@@ -505,16 +511,28 @@ type createMatchRequest struct {
 	// match is disclosed and is not rating-eligible - which is exactly what
 	// product decision Q5 makes safe. Gated by WORDARENA_ALLOW_BOT_SEATS.
 	PvE bool `json:"pve,omitempty"`
+	// AntiSnowball enables the opt-in catch-up rule for this match
+	// (docs/M2-ANTI-SNOWBALL.md). Default false: the M0/M1 scoring contract
+	// is untouched and no baseline, replay or device assertion moves. Like
+	// sudden_death this is a per-match fairness option, not a deployment
+	// capability, so it is not gated by an environment variable; the rule's
+	// constants are code-level calibration candidates (PD-007), not request
+	// fields.
+	AntiSnowball bool `json:"anti_snowball,omitempty"`
 }
 
 // createMatchResponse is the JSON body returned on match creation.
 type createMatchResponse struct {
-	MatchID     uint64   `json:"match_id"`
-	Seed        uint64   `json:"seed"`
-	Language    string   `json:"language"`
-	SuddenDeath bool     `json:"sudden_death"`
-	Tokens      []string `json:"tokens"`
-	UserIDs     []uint64 `json:"user_ids"`
+	MatchID     uint64 `json:"match_id"`
+	Seed        uint64 `json:"seed"`
+	Language    string `json:"language"`
+	SuddenDeath bool   `json:"sudden_death"`
+	// AntiSnowball echoes the catch-up rule the created match will run under
+	// (docs/M2-ANTI-SNOWBALL.md), so a caller never has to guess whether the
+	// scores it reads back include catch-up bonuses.
+	AntiSnowball bool     `json:"anti_snowball"`
+	Tokens       []string `json:"tokens"`
+	UserIDs      []uint64 `json:"user_ids"`
 	// Seats is the roster size of the created match. Batch 32B widened the
 	// two-seat response to a roster: the JSON is unchanged for 1v1 (a
 	// two-element array either way), and a client can now size its seat loop
@@ -628,6 +646,15 @@ func (a *API) decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json body")
+		return false
+	}
+	// A single Decode stops after the first JSON value: trailing junk after
+	// it ({"language":"en"},"anti_snowball":true}) would otherwise be
+	// silently ignored, so a caller could append anything to a valid body
+	// and the request would still parse. Require the value to be the whole
+	// body.
+	if _, err := dec.Token(); err != io.EOF {
 		httpError(w, http.StatusBadRequest, "invalid json body")
 		return false
 	}
@@ -753,7 +780,7 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	if req.PlayerIDs != nil {
 		pids = []uint64{req.PlayerIDs[0], req.PlayerIDs[1]}
 	}
-	info, err := a.createRoomNBots(lang, req.Seed, pids, botSeats, seats, req.SuddenDeath)
+	info, err := a.createRoomNBots(lang, req.Seed, pids, botSeats, seats, req.SuddenDeath, req.AntiSnowball)
 	if err == nil && req.PvE {
 		// The opponent is attached after provisioning so a failure to load the
 		// dictionary is reported to the caller instead of silently producing a
@@ -782,7 +809,8 @@ func (a *API) handleCreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, createMatchResponse{
 		MatchID: info.ID, Seed: info.Seed, Language: lang, SuddenDeath: req.SuddenDeath,
-		Tokens: info.Tokens, UserIDs: info.UserIDs, Seats: len(info.Tokens),
+		AntiSnowball: req.AntiSnowball,
+		Tokens:       info.Tokens, UserIDs: info.UserIDs, Seats: len(info.Tokens),
 		MatchCode: info.Access.Code, ReadCapability: info.Access.ReadCap,
 	})
 }
@@ -864,14 +892,17 @@ type roomInfo struct {
 // leaves that seat synthetic). seats must be within the simulation's bounds;
 // anything else is rejected before allocating.
 func (a *API) createRoomN(lang string, seed *uint64, playerIDs []uint64, seats int, suddenDeath bool) (roomInfo, error) {
-	return a.createRoomNBots(lang, seed, playerIDs, nil, seats, suddenDeath)
+	// The catch-up rule is not reachable through this wrapper: it is a
+	// per-match option carried by the direct-create endpoint, and every
+	// existing caller (matchmaker queue, tests) keeps its default-rule room.
+	return a.createRoomNBots(lang, seed, playerIDs, nil, seats, suddenDeath, false)
 }
 
 // createRoomNBots is the roster-shaped provisioner with an explicit
 // simulated-player declaration (M2 batch 32D, Q5). createRoomN is its
 // no-bots spelling, so there is still exactly one provisioning path and no
 // existing caller changed.
-func (a *API) createRoomNBots(lang string, seed *uint64, playerIDs []uint64, botSeats []bool, seats int, suddenDeath bool) (roomInfo, error) {
+func (a *API) createRoomNBots(lang string, seed *uint64, playerIDs []uint64, botSeats []bool, seats int, suddenDeath bool, antiSnowball bool) (roomInfo, error) {
 	if len(botSeats) > seats {
 		return roomInfo{}, fmt.Errorf("bot_seats has %d entries for %d seats", len(botSeats), seats)
 	}
@@ -940,6 +971,11 @@ func (a *API) createRoomNBots(lang string, seed *uint64, playerIDs []uint64, bot
 		SuddenDeath: suddenDeath,
 		TokenTTL:    a.tokenTTL,
 		BotSeats:    botSeats,
+		// The queue (matchmaker) path provisions with the default rule set:
+		// anti-snowball is a per-match option on the direct-create endpoint,
+		// not a queue attribute, until a product decision says the option
+		// should be user-selectable there.
+		AntiSnowball: antiSnowball,
 	})
 	if err != nil {
 		return roomInfo{}, err
@@ -1184,6 +1220,7 @@ func (a *API) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		"state_version": snap.StateVersion,
 		"phase":         dsnap.Phase,
 		"sudden_death":  dsnap.SuddenDeath,
+		"anti_snowball": dsnap.AntiSnowball,
 		"cells":         cellsToJSON(snap.Cells),
 		"players":       playersToJSON(snap.Players),
 	})
@@ -1355,7 +1392,7 @@ func (a *API) handleReplay(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleQueueCreate enqueues a player for basic 1v1 matchmaking. An optional
-// player_id binds the queue entry to a registered profile so the eventual
+// player_id binds the queue entry to a registered profile queue entry to a registered profile so the eventual
 // match folds its outcome into that profile's stats.
 func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 	if a.rejectIfDraining(w) {
@@ -1421,7 +1458,7 @@ func (a *API) handleQueueCreate(w http.ResponseWriter, r *http.Request) {
 // 1v1 and a short-handed Royale lobby alike.
 func (a *API) queueRoomFactory() createRoomFn {
 	return func(l string, pids []uint64, bots []bool) (roomInfo, error) {
-		return a.createRoomNBots(l, nil, pids, bots, len(pids), false)
+		return a.createRoomNBots(l, nil, pids, bots, len(pids), false, false)
 	}
 }
 
@@ -1562,6 +1599,7 @@ func (a *API) recordResult(room *matchroom.Room) {
 			Seq: ev.Seq, Tick: ev.Tick, Seat: int(ev.Seat), CellIDs: ev.CellIDs,
 			Word: ev.Word, Result: ev.WordResultString, ScoreAdded: ev.ScoreAdded,
 			TotalScore: ev.TotalScore, IsSteal: ev.IsSteal, StateVer: ev.StateVersion,
+			CatchUpBonus: ev.CatchUpBonus,
 		})
 	}
 	a.resultsMu.Lock()

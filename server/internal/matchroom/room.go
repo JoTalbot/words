@@ -36,6 +36,9 @@ type Config struct {
 	// AntiSnowball enables the opt-in catch-up rule for this room
 	// (docs/M2-ANTI-SNOWBALL.md). Default false.
 	AntiSnowball bool
+	// CatchUp carries the rule's constants; the zero value is the 25/2/15
+	// batch 32C set (see match.CatchUpParams).
+	CatchUp match.CatchUpParams
 	// BotSeats declares simulated-player seats for this room, indexed by seat
 	// (M2 batch 32D, Q5). Nil means no seat is a bot, which is what every
 	// existing caller gets. See docs/M2-BOT-POLICY.md.
@@ -150,6 +153,7 @@ func New(cfg Config) (*Room, error) {
 		SuddenDeath:  cfg.SuddenDeath,
 		Seats:        len(userIDs),
 		AntiSnowball: cfg.AntiSnowball,
+		CatchUp:      cfg.CatchUp,
 		BotSeats:     cfg.BotSeats,
 	})
 	if err != nil {
