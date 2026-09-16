@@ -1,6 +1,6 @@
 id: M2-batch35d-antisnowball-roster-scaled
 title: "Anti-snowball roster-scaled (leader-relative) trigger: mechanism + calibration sweep"
-status: code_complete_tests_green_sweep_pending
+status: results_documented_decision_negative_pr_open
 priority: high
 complexity: medium
 dependencies:
@@ -21,7 +21,7 @@ acceptance:
   - "zero-value back-compat: GapPercent=0 keeps the exact 32C/35A trigger at any leader score (pinned by test)"
   - "floor semantics: the absolute Gap still governs the early game / the duel (pinned by test)"
   - "sweep artifact: 6 sets x 24 seeds x rosters 2/8/30/60 = 576 variant pairs + 96 baselines, deterministic, run on the SERVER (artifacts-35d)"
-  - "decision documented per PD-007: which set (if any) becomes the >2-seat default for the opt-in anti_snowball flag, with the measured fire rate / gap closed / winner-flip evidence; the 1v1 default stays 25/2/15"
+  - "decision documented per PD-007: NEGATIVE - no threshold set (absolute or leader-relative) closes the gap at 8+ seats; at 30/60 zero of 24 pairs close under any set; GapPercent stays as infrastructure (default 0 = exact legacy), nothing provisioned, recommendation for Royale sizes is flag OFF; the next lever at scale is volume (per-seat bonus budget / combo cap); the 1v1 default stays 25/2/15"
 validation:
   - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
   - "sweep: 4 balanced shards on the OCI server, calibrate -merge, jq summary"
