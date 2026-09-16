@@ -16,9 +16,11 @@
 // results, and the grid can be split across processes without any result
 // depending on scheduling.
 //
-// Sharding: the grid is ordered by (seed, roster) with the constant sets
+// Sharding: the grid is ordered by (roster, seed) with the constant sets
 // innermost, and shards own whole (seed, roster) pairs, so a baseline match
-// is computed exactly once per pair even though six sets reuse it. Run:
+// is computed exactly once per pair even though six sets reuse it - and, at
+// roster-outer order with i%%shards assignment, every shard sees a mix of
+// rosters, which keeps shard runtimes even. Run:
 //
 //	calibrate -shard 0 -shards 4 -out /tmp/sweep-0.json &
 //	calibrate -shard 1 -shards 4 -out /tmp/sweep-1.json &
@@ -59,7 +61,10 @@ var defaultSeeds = []int64{
 
 // Constant sets under test. "default" is the shipped 25/2/15; the others
 // bracket one constant at a time so the summary can say which of the three
-// levers the evidence actually needs.
+// levers the evidence actually needs. The pct* sets (batch 35D) add the
+// leader-relative trigger: a seat is eligible when
+// leader-score >= max(Gap, leader*pct/100), which scales the trigger with
+// the score scale the 35A measurement proved the fixed gap is blind to.
 var constantSets = map[string]match.CatchUpParams{
 	"default": {},
 	"gap15":   {Gap: 15},
@@ -67,6 +72,10 @@ var constantSets = map[string]match.CatchUpParams{
 	"div3":    {Divisor: 3},
 	"cap10":   {MaxBonus: 10},
 	"cap20":   {MaxBonus: 20},
+	"pct10":   {GapPercent: 10},
+	"pct20":   {GapPercent: 20},
+	"pct30":   {GapPercent: 30},
+	"pct40":   {GapPercent: 40},
 }
 
 // Policy profiles. "aggressive" is the calibration driver: long enough words
@@ -356,11 +365,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Grid order: (seed, roster) outer, sets inner. Shards own whole pairs,
-	// so each baseline is computed exactly once per pair.
+	// Grid order: (roster, seed) outer, sets inner. Shards own whole pairs,
+	// so each baseline is computed exactly once per pair. Batch 35D makes the
+	// order roster-outer: with seed-outer and i%shards assignment every shard
+	// owned all 24 seeds of ONE roster, and the 60-seat shard ran ~2x the
+	// wall time of the 2-seat one (measured 2289 s vs 1124 s in 35A);
+	// roster-outer spreads every roster across every shard.
 	var pairs []gridPair
-	for _, s := range seeds {
-		for _, r := range rosters {
+	for _, r := range rosters {
+		for _, s := range seeds {
 			pairs = append(pairs, gridPair{s, r})
 		}
 	}
@@ -427,6 +440,9 @@ func paramsString(p match.CatchUpParams) string {
 	}
 	if cap == 0 {
 		cap = d.MaxBonus
+	}
+	if p.GapPercent > 0 {
+		return fmt.Sprintf("%d/%d/%d+pct%d", gap, div, cap, p.GapPercent)
 	}
 	return fmt.Sprintf("%d/%d/%d", gap, div, cap)
 }

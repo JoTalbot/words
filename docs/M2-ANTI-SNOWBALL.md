@@ -178,6 +178,89 @@ board-side levers and the combo cap hold - and it is recorded on the ROADMAP
 row rather than invented in this batch. Until then, large-roster deployments
 that want the rule should know what they are buying: the table above.
 
+## Roster-scaled trigger (batch 35D)
+
+The 35A decision left large rosters with a documented-harmful rule and a
+required follow-up: a trigger that scales with the game. The shipped form is
+LEADER-RELATIVE, not roster-keyed:
+
+```
+eligible when   leader - score >= max(Gap, leader * GapPercent / 100)
+```
+
+in integer arithmetic. The leader's score is the scale the fixed 25 was blind
+to - it grows with the roster, the language and the wave shape without any
+lookup table, and a replay computes it bit for bit. The absolute `Gap` stays
+as the floor: at two seats (and in any early game where the leader score is
+small) the percentage never binds, which is what preserves the 35A-measured
+duel behaviour by construction rather than by exception. `GapPercent = 0` is
+the exact legacy trigger (pinned by test at a 1000-point leader); negative
+values clamp to zero like every other nonsensical `CatchUpParams` input.
+
+Run (server, 4 shards, artifacts `artifacts-35d/`): 24 seeds x rosters
+2/8/30/60 x sets `default,gap40,pct10,pct20,pct30,pct40` = 576 variant
+matches + 96 baselines, deterministic, same seed list as 35A - the duel row
+reproduces 35A exactly (default fires 87.5%, gap 20.1 -> 12.8, winner stable
+21/24), which is the cross-check that the harness changes did not move the
+simulation. The shard rebalance (roster-outer grid) worked: runtimes
+2562-2648 s, spread 1.03x vs 35A's 2.04x (1124 vs 2289 s). Host loadavg
+10.4-13.7 during the run (octopus co-tenant; recorded in `run-meta.json`).
+
+Results (per set x roster, n=24; "gap" is the leader-to-final-second gap,
+off -> on; "flip" is a changed winner vs the same-seed baseline):
+
+| set | fire% / flip% @2 | gap @2 | fire% / flip% @8 | gap @8 | fire% / flip% @30 | gap @30 | fire% / flip% @60 | gap @60 |
+|-----|------------------|--------|------------------|--------|-------------------|---------|-------------------|---------|
+| default | 87.5 / 12.5 | 20.1 -> 12.8 | 100 / 50.0 | 93.9 -> 157.0 | 100 / 87.5 | 66.8 -> 205.3 | 100 / 50.0 | 129.8 -> 263.5 |
+| gap40 | 37.5 / 12.5 | 20.1 -> 17.1 | 79.2 / 16.7 | 93.9 -> 105.2 | 87.5 / 62.5 | 66.8 -> 87.7 | 95.8 / 37.5 | 129.8 -> 158.9 |
+| pct10 | 87.5 / 12.5 | 20.1 -> 13.8 | 100 / 50.0 | 93.9 -> 156.5 | 100 / 87.5 | 66.8 -> 203.7 | 100 / 50.0 | 129.8 -> 260.6 |
+| pct20 | 87.5 / 8.3 | 20.1 -> 14.0 | 100 / 37.5 | 93.9 -> 136.8 | 100 / 91.7 | 66.8 -> 159.2 | 100 / 41.7 | 129.8 -> 214.2 |
+| pct30 | 83.3 / 4.2 | 20.1 -> 16.2 | 100 / 45.8 | 93.9 -> 118.7 | 100 / 95.8 | 66.8 -> 125.8 | 100 / 37.5 | 129.8 -> 187.0 |
+| pct40 | 79.2 / 4.2 | 20.1 -> 16.7 | 100 / 29.2 | 93.9 -> 106.7 | 100 / 91.7 | 66.8 -> 108.3 | 100 / 37.5 | 129.8 -> 170.9 |
+
+The duel behaves as designed: `pct10`/`pct20` are duel-neutral (the absolute
+floor of 25 governs whenever the leader is under 250/125 points, which is the
+whole duel), and `pct30`/`pct40` weaken it gently (closing 19.7%/17.2% vs the
+legacy 36.6%, with fewer winner flips, 1/24). So the mechanism's floor
+semantics are correct in the place the rule is locked.
+
+**At eight seats and up the answer is negative, and it is not close.** No
+tested set - absolute (`gap40`) or leader-relative (`pct10`..`pct40`) - closes
+the gap at 8+ seats. Not on average and not even per-pair: at 30 and 60 seats
+**zero of 24 pairs** end with a smaller leader gap under any set; median
+pair deltas are positive everywhere (e.g. `pct40` @8: median +15, IQR
+[+5,+24]; @30: +41; @60: +30). The leader-relative trigger does tame the
+rule monotonically - `pct40` cuts the damage from -67% to -14% @8, from
+-207% to -62% @30, from -103% to -32% @60 - but taming is not catching up.
+
+**Why, and what it points at.** The fire rate stays 100% at 8+ for every
+percentage set: with tens of seats, SOMEONE is always >40% behind the leader,
+so per-seat selectivity cannot silence the rule - and the aggregate harm
+tracks the total bonus volume, not the threshold: default hands out 368/2542/
+3840 bonus points per match @8/30/60 and opens the gap by 67/208/103%;
+`pct40` cuts the volume to 192/960/2552 and the damage to 14/62/32%; `gap40`
+cuts it to 85/381/2497 and 12/31/22%. Whatever threshold picks the seats,
+the repeated bonuses pump points into the chasing pack, the pack's new words
+then earn bonuses of their own, and the leader keeps scoring on top of a
+wider field. The harmful object at Royale scale is the **volume**, which is
+exactly the lever the planned combo cap / per-seat bonus budget holds.
+
+**Decision (2026-09-16, closes the 35A follow-up).** Negative result, three
+parts:
+
+1. `GapPercent` STAYS in the code as measured infrastructure: default 0 is
+   the exact legacy trigger (pinned by test), the floor preserves the
+   duel-locked 25/2/15 behaviour, and it is available to a future set with
+   evidence. Nothing default changes.
+2. NO percentage is provisioned. `anti_snowball` at any seat count keeps
+   25/2/15; the flag remains opt-in, and the recommendation for Royale
+   sizes (8+) is to leave it OFF - every tested trigger configuration opens
+   the gap there. The buyer-beware table is this section.
+3. The next anti-snowball lever at scale is VOLUME, not selection: a
+   per-seat bonus budget (the combo-cap family already on the ROADMAP row).
+   That is now evidence-motivated rather than speculative, and it is a
+   separate rules change with its own batch.
+
 ## Validation
 
 `server/internal/match/antisnowball_test.go`:

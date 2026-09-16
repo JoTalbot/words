@@ -337,3 +337,105 @@ func TestCatchUpParamsAreVisibleInTheSnapshot(t *testing.T) {
 		t.Fatal("the snapshot shows the rule on for a default match")
 	}
 }
+
+// --- batch 35D: the roster-scaled (leader-relative) trigger ----------------
+
+func TestCatchUpParamsPercentScalesTheTriggerWithTheLeader(t *testing.T) {
+	// The same 100-point deficit against a 1000-point leader: the legacy
+	// 25-point trigger fires, a 20%-of-leader trigger (threshold 200) does
+	// not. The score scale, not the roster, is what the rule must follow.
+	// Leader 1000, trailing seat 900: deficit 100.
+	mLegacy := catchUpMatchWithParams(t, CatchUpParams{})
+	mLegacy.players[0].Score = 1000
+	mLegacy.players[1].Score = 900
+	evLegacy := submitWord(t, mLegacy, 1, "cat")
+
+	mPct := catchUpMatchWithParams(t, CatchUpParams{GapPercent: 20})
+	mPct.players[0].Score = 1000
+	mPct.players[1].Score = 900
+	evPct := submitWord(t, mPct, 1, "cat")
+
+	if evLegacy.CatchUpBonus <= 0 {
+		t.Fatal("the legacy trigger missed a 100-point deficit (regression)")
+	}
+	if evPct.CatchUpBonus != 0 {
+		t.Fatalf("a 100-point deficit against a 20%%-of-leader trigger (threshold 200) earned %d", evPct.CatchUpBonus)
+	}
+	// Only the trigger moved: the word's own points are identical.
+	if evLegacy.ScoreAdded-evLegacy.CatchUpBonus != evPct.ScoreAdded {
+		t.Fatal("changing the trigger changed the word's own points")
+	}
+}
+
+func TestCatchUpParamsPercentFloorGovernsTheEarlyGame(t *testing.T) {
+	// A small leader score must not shrink the trigger below the absolute
+	// floor: leader 10 at 40% would be 4 points, the floor keeps 25.
+	m := catchUpMatchWithParams(t, CatchUpParams{GapPercent: 40})
+	m.players[0].Score = 10
+	ev := submitWord(t, m, 1, "cat")
+	if ev.CatchUpBonus != 0 {
+		t.Fatalf("an early-game deficit inside the 25-point floor earned %d", ev.CatchUpBonus)
+	}
+	// And at the floor boundary the percentage is inert: deficit 26 vs
+	// threshold max(25, 4) = 25 fires exactly like the legacy rule.
+	m2 := catchUpMatchWithParams(t, CatchUpParams{GapPercent: 40})
+	m2.players[0].Score = 26
+	if ev2 := submitWord(t, m2, 1, "cat"); ev2.CatchUpBonus <= 0 {
+		t.Fatal("a 26-point deficit against a floor-25 trigger earned nothing")
+	}
+}
+
+func TestCatchUpParamsZeroPercentIsTheLegacyTrigger(t *testing.T) {
+	// Zero must be the shipped roster-blind behaviour at ANY leader score:
+	// a 100-point deficit against a 1000-point leader fires (>= 25), a
+	// 20-point deficit does not (< 25).
+	m := catchUpMatchWithParams(t, CatchUpParams{})
+	m.players[0].Score = 1000
+	m.players[1].Score = 900
+	if ev := submitWord(t, m, 1, "cat"); ev.CatchUpBonus <= 0 {
+		t.Fatal("zero GapPercent must keep the 25-point trigger (100-point deficit)")
+	}
+	m2 := catchUpMatchWithParams(t, CatchUpParams{})
+	m2.players[0].Score = 1000
+	m2.players[1].Score = 980 // deficit 20
+	if ev2 := submitWord(t, m2, 1, "cat"); ev2.CatchUpBonus != 0 {
+		t.Fatalf("a 20-point deficit under the legacy 25-point trigger earned %d", ev2.CatchUpBonus)
+	}
+}
+
+func TestCatchUpParamsNegativePercentClampsToLegacy(t *testing.T) {
+	// Negative percentages are nonsensical input from a future caller; the
+	// clamp keeps them from meaning "always fire".
+	if p := (CatchUpParams{GapPercent: -50}).normalized(); p.GapPercent != 0 {
+		t.Fatalf("normalized GapPercent = %d, want 0", p.GapPercent)
+	}
+	m := catchUpMatchWithParams(t, CatchUpParams{GapPercent: -50})
+	m.players[0].Score = 1000
+	m.players[1].Score = 900 // deficit 100 >= 25 fires
+	if ev := submitWord(t, m, 1, "cat"); ev.CatchUpBonus <= 0 {
+		t.Fatal("a clamped negative percentage must behave exactly like zero (100-point deficit fires)")
+	}
+	m2 := catchUpMatchWithParams(t, CatchUpParams{GapPercent: -50})
+	m2.players[0].Score = 1000
+	m2.players[1].Score = 980 // deficit 20 < 25
+	if ev2 := submitWord(t, m2, 1, "cat"); ev2.CatchUpBonus != 0 {
+		t.Fatalf("a clamped negative percentage changed the trigger (earned %d)", ev2.CatchUpBonus)
+	}
+}
+
+func TestCatchUpScaledTriggerIsDeterministicInTheFingerprint(t *testing.T) {
+	// The scaled trigger must replay exactly: two matches, same seed, same
+	// params, same driven words - identical fingerprints; and the percentage
+	// must be visible in competitive state (a different pct is allowed to
+	// produce a different fingerprint when it changes any score).
+	run := func() string {
+		m := catchUpMatchWithParams(t, CatchUpParams{GapPercent: 25})
+		m.players[0].Score = 400
+		submitWord(t, m, 1, "cat")
+		submitWord(t, m, 1, "dog")
+		return m.Fingerprint()
+	}
+	if a, b := run(), run(); a != b {
+		t.Fatal("the scaled trigger is not deterministic")
+	}
+}

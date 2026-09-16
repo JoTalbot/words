@@ -152,11 +152,22 @@ Exit gate: two remote clients can complete repeated matches with identical final
   seeds x rosters 2/8/30/60 x 6 constant sets. Verdict: at 1v1 the rule works
   as designed (gap 20.1 -> 12.8, winner stable 21/24) and 25/2/15 is
   provisionally locked; at 8+ seats the roster-blind 25-point trigger fires on
-  97-100% of matches and inflates rather than closes the gap, so a
-  roster-scaled trigger is a required follow-up before the rule is useful at
-  Royale scale. REMAINING (each a separate rules change with its own
-  evidence): the roster-scaled trigger, the board-side levers (leader lock
-  duration, steal economics), and a combo cap.
+  97-100% of matches and inflates rather than closes the gap. Batch 35D then
+  shipped and measured the required follow-up - the leader-relative trigger
+  `GapPercent` (eligible when `leader - score >= max(Gap, leader*pct/100)`,
+  floor-preserved so the duel is untouched, default 0 = the exact legacy
+  rule) - over the same 24-seed x 4-roster grid with sets pct10..pct40 plus
+  anchors. NEGATIVE RESULT: no threshold set, absolute or relative, closes
+  the gap at 8+ seats - at 30/60 seats zero of 24 pairs close under any set,
+  and the fire rate stays 100% because with tens of seats someone is always
+  >40% behind. The harm tracks total bonus volume (default 3840 pts/match
+  @60 opens the gap 103%; pct40 cuts volume to 2552 and damage to 32%), so
+  the mechanism stays in the code as infrastructure, nothing is provisioned,
+  the recommendation for Royale sizes is to leave the opt-in flag OFF, and
+  the next lever at scale is volume - the per-seat bonus budget / combo cap.
+  REMAINING (each a separate rules change with its own evidence): the
+  board-side levers (leader lock duration, steal economics) and a volume cap
+  on catch-up bonuses.
 - [x] first PvE content - **batch 32E** (docs/M2-PVE.md): `POST /v1/matches`
   with `"pve": true` creates a 1v1 against an opponent the SERVER drives, so a
   single player can play a real match with no second client and no external
