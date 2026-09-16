@@ -178,6 +178,27 @@ board-side levers and the combo cap hold - and it is recorded on the ROADMAP
 row rather than invented in this batch. Until then, large-roster deployments
 that want the rule should know what they are buying: the table above.
 
+## Roster-scaled trigger (batch 35D)
+
+The 35A decision left large rosters with a documented-harmful rule and a
+required follow-up: a trigger that scales with the game. The shipped form is
+LEADER-RELATIVE, not roster-keyed:
+
+```
+eligible when   leader - score >= max(Gap, leader * GapPercent / 100)
+```
+
+in integer arithmetic. The leader's score is the scale the fixed 25 was blind
+to - it grows with the roster, the language and the wave shape without any
+lookup table, and a replay computes it bit for bit. The absolute `Gap` stays
+as the floor: at two seats (and in any early game where the leader score is
+small) the percentage never binds, which is what preserves the 35A-measured
+duel behaviour by construction rather than by exception. `GapPercent = 0` is
+the exact legacy trigger (pinned by test at a 1000-point leader); negative
+values clamp to zero like every other nonsensical `CatchUpParams` input.
+
+CALIBRATION_RESULTS_35D_PLACEHOLDER
+
 ## Validation
 
 `server/internal/match/antisnowball_test.go`:
