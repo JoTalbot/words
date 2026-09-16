@@ -103,6 +103,9 @@ type report struct {
 	CreateErr       int     `json:"create_errors"`
 	CreateThrottled int     `json:"create_throttled"`
 	DialErr         int     `json:"dial_errors"`
+	// SeatsDropped counts clients whose connection ended before the run
+	// did (server-side disconnect - today the per-seat intent limiter).
+	SeatsDropped    int     `json:"seats_dropped"`
 	IntentsSent     int     `json:"intents_sent"`
 	IntentsAcked    int     `json:"intents_acked"`
 	IntentsAccepted int     `json:"intents_accepted"`
@@ -175,6 +178,7 @@ type harness struct {
 	dialErr   atomic.Int64
 	readErr   atomic.Int64
 	writeErr  atomic.Int64
+	dropped   atomic.Int64
 	sent      atomic.Int64
 	accepted  atomic.Int64
 	rejected  atomic.Int64
@@ -334,6 +338,21 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
+		// A read loop that ends while the run is still live means the
+		// connection died mid-run - today that is the per-seat intent
+		// limiter killing the socket (the server closes with
+		// "intent rate limit exceeded", docs/M2-LOAD-TESTING.md batch 35C
+		// stage). The seat then stops submitting and its in-flight intents
+		// are never acked, so sent-vs-acked alone would under-explain the
+		// gap; the report says how many seats that happened to.
+		defer func() {
+			select {
+			case <-ctx.Done():
+			case <-h.stopCh:
+			default:
+				h.dropped.Add(1)
+			}
+		}()
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {
@@ -817,6 +836,7 @@ loop:
 	rep.IntentsAccepted = int(h.accepted.Load())
 	rep.IntentsRejected = int(h.rejected.Load())
 	rep.DialErr = int(h.dialErr.Load())
+	rep.SeatsDropped = int(h.dropped.Load())
 	rep.CreateThrottled = int(h.throttled.Load())
 	rep.ReadErrors = int(h.readErr.Load())
 	rep.WriteErrors = int(h.writeErr.Load())
@@ -888,6 +908,7 @@ func printReport(out io.Writer, r *report) {
 	fmt.Fprintf(out, "create            p50 %.1f ms  p95 %.1f ms  max %.1f ms  errors %d  throttled(429) %d\n",
 		r.CreateP50Ms, r.CreateP95Ms, r.CreateMaxMs, r.CreateErr, r.CreateThrottled)
 	fmt.Fprintf(out, "dial errors       %d\n", r.DialErr)
+	fmt.Fprintf(out, "seats dropped     %d (connections ended by the server before the run did)\n", r.SeatsDropped)
 	fmt.Fprintf(out, "intents           sent %d (%.1f/s)  acked %d (%.1f/s)  accepted %d  rejected %d  skipped-no-word %d\n",
 		r.IntentsSent, r.IntentsPerSec, r.IntentsAcked, r.AckedPerSec, r.IntentsAccepted, r.IntentsRejected, r.SkippedNoWord)
 	fmt.Fprintf(out, "intent round trip p50 %.1f ms  p95 %.1f ms  p99 %.1f ms  max %.1f ms\n",

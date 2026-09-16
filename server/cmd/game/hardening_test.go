@@ -173,6 +173,14 @@ func TestMetricsCounters(t *testing.T) {
 	}
 	check("matches_created", 1)
 	check("intents_received", 2)
+	// The batch 35C intent histogram must appear on the JSON surface with the
+	// same observation count as intents_received (the prometheus surface is
+	// asserted separately in telemetry_test.go).
+	if h, ok := m["intent_process_us"].(map[string]any); !ok {
+		t.Fatalf("intent_process_us histogram missing from /metrics: %v", m["intent_process_us"])
+	} else if c, ok := h["count"].(float64); !ok || c != 2 {
+		t.Fatalf("intent_process_us.count = %v, want 2", h["count"])
+	}
 	check("words_accepted", 1)
 	check("words_rejected", 1)
 	check("active_matches", 1)

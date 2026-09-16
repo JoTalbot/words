@@ -47,6 +47,12 @@ def metric_names_from_source() -> set[str]:
         return set()
     src = TELEMETRY_SRC.read_text(encoding="utf-8")
     names = set(re.findall(r'writeMetric\(\s*"(wordarena_[a-z0-9_]+)"', src))
+    # Histograms are emitted through intentHist.prometheusLines(name), which
+    # renders NAME, NAME_bucket{le=...}, NAME_sum and NAME_count sample
+    # lines (batch 35C). The scan derives the four exposed names the same
+    # way the Prometheus text format does.
+    for hist in re.findall(r'prometheusLines\(\s*"(wordarena_[a-z0-9_]+)"', src):
+        names |= {hist, f"{hist}_bucket", f"{hist}_sum", f"{hist}_count"}
     if not names:
         fail("no writeMetric(...) calls found in telemetry.go")
     return names
@@ -94,8 +100,16 @@ def check_dashboard(emitted: set[str]) -> None:
         ok(f"all {len(referenced)} dashboard metrics are emitted by the service")
 
     # Every emitted metric should be surfaced somewhere, otherwise operators
-    # cannot see a signal the code already produces.
-    missing = sorted(emitted - referenced)
+    # cannot see a signal the code already produces. A histogram FAMILY
+    # (base name plus _bucket/_sum/_count samples) counts as surfaced when
+    # any of its series is plotted - PromQL never uses the bare family name,
+    # so requiring it literally would make every histogram unplottable.
+    missing = set(emitted) - referenced
+    for name in list(missing):
+        family = {name, f"{name}_bucket", f"{name}_sum", f"{name}_count"}
+        if name in emitted and (family & referenced) and (family <= emitted):
+            missing -= family
+    missing = sorted(missing)
     if missing:
         fail(f"metrics emitted but never plotted: {missing}")
     else:

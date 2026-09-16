@@ -230,6 +230,7 @@ type apiMetricsSnapshot struct {
 	IntentsReceived         uint64
 	WordsAccepted           uint64
 	WordsRejected           uint64
+	IntentProcess           intentHistSnapshot
 	ActiveMatches           int
 	TelemetryEventsEnqueued uint64
 	TelemetryEventsWritten  uint64
@@ -248,6 +249,7 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		IntentsReceived:         a.m.intentsReceived.Load(),
 		WordsAccepted:           a.m.wordsAccepted.Load(),
 		WordsRejected:           a.m.wordsRejected.Load(),
+		IntentProcess:           a.m.intentProcess.snapshot(),
 		ActiveMatches:           a.activeRooms(),
 		TelemetryEventsEnqueued: ts.EventsEnqueued,
 		TelemetryEventsWritten:  ts.EventsWritten,
@@ -272,6 +274,14 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeMetric("wordarena_intents_received_total", "Total word intents received by this process.", "counter", m.IntentsReceived)
 	writeMetric("wordarena_words_accepted_total", "Total accepted word intents.", "counter", m.WordsAccepted)
 	writeMetric("wordarena_words_rejected_total", "Total rejected word intents.", "counter", m.WordsRejected)
+	// The intent processing histogram (M2 batch 35C): server-side µs inside
+	// the authoritative submit, so an off-box latency run can decompose
+	// client-observed round trips into path latency plus server work.
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_process_us Server-side processing time of word intents in microseconds.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_process_us histogram\n")
+	for _, line := range a.m.intentProcess.prometheusLines("wordarena_intent_process_us") {
+		_, _ = fmt.Fprintln(w, line)
+	}
 	writeMetric("wordarena_active_matches", "Currently active matches.", "gauge", uint64(m.ActiveMatches))
 	writeMetric("wordarena_telemetry_events_enqueued_total", "Telemetry events accepted into the async exporter buffer.", "counter", m.TelemetryEventsEnqueued)
 	writeMetric("wordarena_telemetry_events_written_total", "Telemetry events written by the exporter.", "counter", m.TelemetryEventsWritten)

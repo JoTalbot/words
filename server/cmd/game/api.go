@@ -160,6 +160,13 @@ type metrics struct {
 	intentsReceived atomic.Uint64
 	wordsAccepted   atomic.Uint64
 	wordsRejected   atomic.Uint64
+
+	// intentProcess is the server-side processing histogram for word intents
+	// (M2 batch 35C): microseconds spent inside the authoritative
+	// SubmitWithSeq call, excluding socket and frame-cadence wait. It lets a
+	// latency run separate "the server is slow" from "the path is long"
+	// (docs/M2-LOAD-TESTING.md, generator off-box stage).
+	intentProcess intentHist
 }
 
 // matchResult is the persisted post-match outcome served by
@@ -589,6 +596,7 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"intents_received":          m.IntentsReceived,
 		"words_accepted":            m.WordsAccepted,
 		"words_rejected":            m.WordsRejected,
+		"intent_process_us":         m.IntentProcess,
 		"active_matches":            m.ActiveMatches,
 		"telemetry_events_enqueued": m.TelemetryEventsEnqueued,
 		"telemetry_events_written":  m.TelemetryEventsWritten,
@@ -1918,7 +1926,9 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "intent rate limit exceeded")
 			break
 		}
+		submitT0 := time.Now()
 		frame, err := room.SubmitWithSeq(seat, sw.ClientSequence, ids)
+		a.m.intentProcess.record(time.Since(submitT0).Microseconds())
 		if err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "submit failed")
 			break
