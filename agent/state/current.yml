@@ -1,4 +1,52 @@
 status: >-
+  2026-09-16 STATE (session 3, resume from wipe). RECOVERY: the old sandbox is
+  gone; repo re-cloned from GitHub; server state re-verified over SSH. CI is
+  green: Unity Android main runs 34948021533 (09-15 08:37Z), 35010793371 (09-15
+  18:58Z) and 35074307660 (09-16 08:32Z) all success on main e3ffe94 - the 03:17
+  scheduled run that 34D's resume point asked to watch PASSED (source=runner-local
+  fallback worked). No open PRs. BATCH 34B (anti-snowball calibration) WAS LOST:
+  its branch was never pushed (not on GitHub) and its sweep process died with the
+  old sandbox - confirmed by search of GitHub branches/commits and the server
+  (server home has no artifacts-34b, no sweep process, /opt/words worktrees only
+  batch18/proto-version). It is being rebuilt as BATCH 35A. BATCH 35A (IN
+  FLIGHT, branch feat/m2-batch35a-antisnowball-calibration, pushed 6bea0f5):
+  anti_snowball per-match option on POST /v1/matches (response echo + state-view
+  key + catch_up_bonus on replay events), match.CatchUpParams (zero value = the
+  shipped 25/2/15 set; negative MaxBonus = no-bonus), decodeJSON now rejects
+  trailing junk after the first JSON value (pinned by
+  TestCreateMatchRejectsTrailingJunk), and server/cmd/calibrate - the PD-007
+  sweep: 24 seeds x rosters 2/8/30/60 x 6 constant sets (default/gap15/gap40/
+  div3/cap10/cap20) = 576 variant pairs + 96 baselines, sharded by (seed, roster)
+  pair, deterministic per PD-003. The driver plays every seat with the pve
+  opponent in an aggressive shape (3-6 letters, 15-tick interval, steals on) ONE
+  SEAT PER TICK IN A ROTATING ROUND-ROBIN: a fixed seat order plus the policy's
+  shortest-lexicographic-first choice produces a DEGENERATE 2-of-60 steal
+  ping-pong over the lexicographic minimum dictionary word (measured: only seats
+  0 and 1 score, baseline a tie) which no real population reproduces - this is
+  documented in the doc's calibration section. Local: full server suite green
+  (13/13 packages) at 6bea0f5. SWEEP RUNNING ON THE OCI SERVER (launched
+  2026-09-16 about 16:33 UTC): 4 nohup shards, GOMAXPROCS=1, /home/ubuntu/
+  artifacts-35a/sweep-{0..3}.json, logs log-{0..3}.out, binary built from
+  6bea0f5 with GOMODCACHE=/home/ubuntu/gomod-35. ON COMPLETION (about 45 min;
+  the 60-seat shard binds; note the shard mapping is UNBALANCED - shard n owns
+  all 24 seeds of roster n because grid order is seed-outer with 4 rosters;
+  acceptable for a one-off, use (seed+roster)%shards for balanced future
+  sweeps): calibrate -merge sweep-0.json,...,sweep-3.json -out sweep-full.json
+  (prints the summary), jq del(.pairs) for the doc excerpt, fill
+  CALIBRATION_RESULTS_PLACEHOLDER in docs/M2-ANTI-SNOWBALL.md, flip the ROADMAP
+  anti-snowball row per the evidence, go test ./... + race on the branch, PR to
+  main. Also on the server this session: killed a runaway python3 (orphan from
+  session 2, stuck in a CDP while-loop on dead port 9222, 24h at 99% of a core),
+  installed Go 1.27.1 to /home/ubuntu/go-toolchain (binary at go-toolchain/bin/go,
+  NOT go-toolchain/go/bin/go), started ollama serve (0.33.2, nohup, log
+  /home/ubuntu/ollama-serve.log) and pulled qwen2.5:3b for the micro-worker
+  (tools/llm-micro-worker.sh with -m qwen2.5:3b; the 7b codegen verdict from
+  session 1 still stands). 35B (PvE difficulty selection) and 35C (loadtest
+  follow-ups: Postgres stage, generator off-box, per-seat intent limit) planned
+  on worktrees /home/ubuntu/wt-35b, /home/ubuntu/wt-35c - NOT STARTED as of this
+  writing. Live service unchanged at 22fb7af (promotion of the anti-snowball
+  field is optional after merge - default-match behavior is byte-identical).
+  Previous state (2026-09-14/15):
   2026-09-14 LATE STATE. 34C MERGED (PR #49, main e08ff85): security review of
   the M2 surfaces (owner token, guild rate limits, pve, protocol handshake) as
   S-10..S-14 in docs/SECURITY-REVIEW-M1.md; wire-protocol docs updated.
@@ -1366,6 +1414,6 @@ next_tasks:
     that pushes the per-seat intent limit rather than the per-caller mutation
     limit.
 
-last_verified_commit: "67e625a on main (34D merged via PR #50; e08ff85 = 34C security review via PR #49). Device-side: dispatched run 34917614489 (546436d) FULL GREEN - gesture legs, runner-local server resolver (source=runner-local), client paired over http://10.0.2.2 with insecureHttpOption=DevelopmentOnly, full match 47:36 to the authoritative result endpoint, PARTNER-GATE PASS, WORDS_FULL_MATCH_SMOKE_OK. Live OCI service unchanged at 22fb7af (34A promotion, gates 27/0 + 3/3 exit-gate PASS). Earlier: 0b71946 (batch 33), CI 6/6 on 1c59fd7 (32G) with migrations 001-005 applied live. KNOWN FLAKE (not reproduced since): a single cmd/game FAIL in a race run started while a previous suite was winding down - treat as resource contention; capture the test name if it recurs. cmd/loadtest timing tests are flaky under sweep CPU load on 2 cores - run when idle."
+last_verified_commit: "6bea0f5 on feat/m2-batch35a-antisnowball-calibration (35A): full server suite green 13/13 packages locally; branch pushed, CI pending. main is e3ffe94 (34D state) - CI + Unity Android green (last Unity Android main run 35074307660, 2026-09-16 08:32Z). Live OCI service at 22fb7af unchanged, gates last verified 27/0 + 3/3 exit gate (2026-09-14, 34A). Note: the sweep shards keep all 4 cores busy for about 45 min from 2026-09-16 16:33 UTC - do not run CPU-heavy jobs on the server in that window."
 
-resume_from: "RESUME POINT 2026-09-15T02:15Z: (i) 34D is DONE AND MERGED (PR #50 -> main 67e625a, device run 34917614489 fully green incl. PARTNER-GATE PASS + WORDS_MATCH_COMPLETE source=result-endpoint against source=runner-local); remaining: watch the 03:17 UTC scheduled run (expect source=runner-local fallback while the repo variable URL stays stale). (ii) 34B - reap sweep process calibration-sweep-9b76bc18 (output /home/user/artifacts-34b/sweep-full.json, JSON written only at exit; started 20:07 UTC, 213 CPU-min at 23:00), then placeholder/ROADMAP/tests/PR per active_tasks. (iii) Do NOT retry the GitHub variables API (404 for this PAT, user not org). (iv) Main is e08ff85. M1 COMPLETE (8/8). M2: ALL SIX ROWS ARE NOW CLOSED - the 60-player row (32A/32B/32D), first PvE content (32E), infrastructure load testing (32F) and guild foundation (32G), with anti-snowball marked [~] because its constants are deliberately uncalibrated. Merged 2026-09-14: 32A 11c1ad6, 32B 229f1bd, 32C 547243f, 32D dbcd8e0, 32E 1ce9aba, 32F 4477798, 32G 24b87a0. Q5/Q9/Q10/Q11/Q12 are DECIDED - do NOT re-open any of them. SEVEN FACTS A FUTURE SESSION MUST NOT RE-LITIGATE: (1) wire bytes were never the 60-player blocker - deltas buy about 2x, and the cost is MEASURED: 163-178 B/s per 1v1 client, about 900 B/s per full-lobby client, about 50 KB/s per lobby. (2) The seats knob is both a game capability (2..60) and a deployment policy (WORDARENA_MAX_SEATS, default 2, named in the refusal). (3) Anti-snowball is OPT_IN and its bonus must NEVER be folded into a cell's CreditedValue, because CreditedValue is what a steal debits. (4) A bot is DECLARED, never inferred; a client cannot clear the declaration; a bot match is never rating-eligible; the QA legs declare themselves so a deployment hosting them needs WORDARENA_ALLOW_BOT_SEATS=true. (5) The practice opponent is a CLIENT of the room (Room.Submit) and its intent is a pure function of (snapshot, tick, dictionary, policy). (6) A full lobby's real cost is FRAMES not bytes (intents x seats), and rooms OUTLIVE their clients (drain 180.2 s), so capacity is creations/s x 180 s - after the per-caller mutation limit (WORDARENA_MUTATIONS_PER_MIN, default 120/min) which answers a burst with 429 long before the box does. (7) Guild mutations authenticate with a per-profile OWNER TOKEN (returned once at profile creation, stored only as a SHA-256 hash); no endpoint trusts a caller-supplied player id; profiles created before 32G cannot use guilds and there is deliberately no way to mint a token for them. NEXT WORK, in order: (a) PROTOCOL-VERSION DEBT - CLOSED in batch 33 (0b71946, 2026-09-14): version + capabilities handshake on the connect path; (b) anti-snowball calibration by simulation rather than guess (PD-007); (c) security review of the NEW surfaces (owner token, guild rate limits, pve field) extending docs/SECURITY-REVIEW-M1.md; (d) PvE follow-ups (difficulty, rewards, tutorial framing); (e) load-testing follow-ups (Postgres stage, generator off-box, per-seat intent limit). OWNER ITEMS: Q8 stage 2 needs a domain; B2 (uk dictionary licence) is confirmed to exist and arrive later and NOTHING waits on it. RECOVERY: the sandbox home is wiped between turns - re-clone from GitHub (a partial snapshot can leave a words/ directory without .git; move it aside and clone fresh), re-create ~/.ssh/oci_server_key.pem, and note that a PARTIAL snapshot also strips the executable bit from toolchain binaries (chmod +x /home/user/go-toolchain/go/bin/* and /home/user/protoc21/bin/protoc and /home/user/gopath/bin/protoc-gen-go, or reinstall Go to /home/user/go-toolchain); USE A FRESH GOMODCACHE (/home/user/go/pkg/mod) because the persisted module cache is truncated and produces 'no required module provides package ...' errors that look like a go.mod problem. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
+resume_from: "RESUME POINT 2026-09-16T16:35Z: (i) SWEEP: check /home/ubuntu/artifacts-35a/log-{0..3}.out; when all four shards have written sweep-{n}.json, merge (calibrate -merge sweep-0.json,sweep-1.json,sweep-2.json,sweep-3.json -out sweep-full.json), extract the summary with jq del(.pairs), fill CALIBRATION_RESULTS_PLACEHOLDER in docs/M2-ANTI-SNOWBALL.md, flip the ROADMAP anti-snowball row per the evidence, go test ./... + race, push, PR, merge, then decide promotion (optional - default behavior unchanged). (ii) 35B PvE difficulty selection and 35C loadtest follow-ups are queued (worktrees wt-35b/wt-35c on the server exist at e3ffe94). (iii) Ollama is up on the server (nohup, log /home/ubuntu/ollama-serve.log) with qwen2.5:3b for tools/llm-micro-worker.sh - use -m qwen2.5:3b; 7b codegen is not viable on this host (session-1 verdict). (iv) Do NOT retry the GitHub variables API (404 for this PAT). (v) M1 COMPLETE (8/8). M2: five rows [x], anti-snowball [~] until the sweep lands. Q5/Q9/Q10/Q11/Q12 are DECIDED - do NOT re-open them. THE SEVEN NON-RE-LITIGABLE FACTS FROM 2026-09-15 STILL HOLD (wire bytes, seats knob, anti-snowball never touches CreditedValue, bots declared-not-inferred, practice opponent is a Room client, frames-not-bytes, owner tokens). NEW NON-RE-LITIGABLE FACTS: (8) the calibrate driver must rotate the acting seat per tick - a fixed seat order degenerates a 60-seat match into a 2-seat steal ping-pong; (9) a request body is exactly one JSON value (decodeJSON rejects trailing junk) - tests that build bodies by string concatenation must be checked for stray braces (a real 35A bug sat in a test body for 20 minutes because the parser was lenient); (10) the old sandbox wipe also killed the 34B sweep and its unpushed branch - push branches BEFORE running long jobs, and run long jobs on the server, never in the sandbox. RECOVERY: same as before - re-clone from GitHub, recreate the SSH key, Go on the SERVER is /home/ubuntu/go-toolchain (in the sandbox: /home/user/go-toolchain), fresh GOMODCACHE. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
