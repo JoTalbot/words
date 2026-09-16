@@ -123,6 +123,9 @@ func TestHarnessRunsASmallLoadAgainstARealServer(t *testing.T) {
 	if rep.IntentsSent == 0 {
 		t.Error("the harness submitted no intents, so it measured nothing")
 	}
+	if rep.SeatsDropped != 0 {
+		t.Errorf("seats dropped = %d, want 0 on a healthy run (a server-side disconnect inside the per-seat budget would be a defect)", rep.SeatsDropped)
+	}
 	if rep.IntentsAcked != rep.IntentsSent {
 		t.Errorf("sent %d intents but got %d acks; the round-trip measurement is incomplete",
 			rep.IntentsSent, rep.IntentsAcked)

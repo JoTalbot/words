@@ -27,10 +27,18 @@ GO="${GO:-go}"
 WORKDIR="$(mktemp -d /tmp/loadtest-isolated.XXXXXX)"
 GAME_BIN="${GAME_BIN:-}"
 
-export PATH="/home/user/go-toolchain/go/bin:$PATH"
 export GOMODCACHE="${GOMODCACHE:-/home/user/go/pkg/mod}"
 export GOCACHE="${GOCACHE:-/home/user/go/cache}"
 export GOPATH="${GOPATH:-/home/user/go}"
+# Batch 35C hygiene: this script used to prepend /home/user/go-toolchain/go/bin
+# to PATH - a path that no longer exists in any environment it runs in (the
+# sandbox was wiped; the server toolchain lives at
+# /home/ubuntu/go-toolchain/bin). If go is not on PATH, say so instead of
+# silently relying on a stale path.
+if ! command -v "$GO" >/dev/null; then
+  echo "go not found on PATH; set GO=/path/to/go (e.g. GO=/home/ubuntu/go-toolchain/bin/go)" >&2
+  exit 1
+fi
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then

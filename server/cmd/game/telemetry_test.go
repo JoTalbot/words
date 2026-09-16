@@ -61,6 +61,14 @@ func TestPrometheusMetricsEndpoint(t *testing.T) {
 		"wordarena_words_rejected_total 1",
 		"# TYPE wordarena_active_matches gauge",
 		"wordarena_telemetry_events_dropped_total 0",
+		// The intent processing histogram (batch 35C): both submits went
+		// through the authoritative path, so the histogram saw exactly two
+		// observations. The +Inf bucket is cumulative and equals the count,
+		// which is the one bucket assertion that cannot flake on a slow
+		// runner.
+		"# TYPE wordarena_intent_process_us histogram",
+		"wordarena_intent_process_us_count 2",
+		`wordarena_intent_process_us_bucket{le="+Inf"} 2`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("prometheus body missing %q:\n%s", want, text)
