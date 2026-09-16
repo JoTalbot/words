@@ -1,177 +1,41 @@
-status: >-
-  2026-09-16 LATE STATE (session 4). RECOVERY + THREE BATCHES MERGED. Session
-  started from a fresh sandbox; the SSH key in the handoff message had LOST
-  ONE BASE64 CHARACTER (1727 chars, mod 4 = 3; the short line was the 69-char
-  one) - recovered by brute-forcing all 1728x64 insertions against the full
-  OpenSSH structure + RSA cross-validation (d*e = 1 mod lambda(n), p*q = n,
-  iqmp*q = 1 mod p): exactly one candidate passed, char 'F' at stream
-  position 1041; ssh-keygen accepts it, fingerprint
-  SHA256:HpoCySL5YAQkK5vblU89h9RKyABVxpmHL+lJfkcGKCw. SECOND RECOVERY: the
-  ubuntu user's authorized_keys had been REWRITTEN at 18:37 UTC by the
-  co-tenant octopus project ("octopus-recovery-2026-09-16" key set), evicting
-  the words key; root still had it - re-APPENDED the oci-arm-server key to
-  ubuntu's authorized_keys (octopus keys untouched, backup kept as
-  authorized_keys.bak-words-20260916). Server facts re-verified: uptime 2d10h,
-  disk RECOVERED to 56G/145G (39% - the owner apparently cleaned the octopus
-  snapshots that caused the 09-14 disk incident), wordarena.service active
-  since 09-14 19:10 NRestarts=0 at 22fb7af, Postgres 16.15 up, worktrees
-  wt-35a/35b/35c present, Go 1.27.1 at /home/ubuntu/go-toolchain/bin/go,
-  ollama 0.33.2 with qwen2.5:3b up. The octopus project keeps the host BUSY
-  (loadavg 4.8-11.5, chromium renderers + a root process scanning /proc
-  pagemap for secrets - cross-project, not touched; every 35C artifact
-  records the loadavg honestly). MERGED THIS SESSION: (1) PR #51 batch 35A
-  anti-snowball calibration (the previous session had completed it: sweep
-  merged, docs filled, race-clean tests; this session reviewed + merged,
-  main 7ff4783). (2) PR #52 batch 35B PvE difficulty presets easy/normal/
-  hard (conflicted with 35A in createMatchRequest - resolution keeps BOTH
-  fields, tree verified byte-identical to the locally tested merge, full
-  server suite 14/14 green pre-merge; main 891fdc0). (3) PR #53 batch 35C
-  loadtest follow-ups (main 5446c6b): wordarena_intent_process_us histogram
-  (/metrics JSON + prometheus + Grafana panel 10 + histogram-aware
-  check-monitoring-assets.py), seats_dropped harness field,
-  tools/loadtest-pg.sh (throwaway-DB Postgres stage + back-to-back mem leg),
-  tools/loadtest-offbox-target.sh, port-safety guards in all three load
-  scripts, and the three measured stages: Postgres-vs-mem 210s stages with
-  matches finishing in-window show the DURABLE STORE IS NOT ON THE HOT PATH
-  (create p50 0.39 vs 0.37 ms, intent p99 6.4 vs 6.3 ms, CPU 0.75% vs 0.71%);
-  per-seat limit stage (5 ms gap = 200/s/seat vs 60/s budget) - the limiter
-  kills every seat at exactly 61.0 intents (seats_dropped 8/8, in-flight
-  intents unacked - hard disconnect is the documented design); off-box
-  generator run (sandbox->OCI over an SSH tunnel, ~190 ms path RTT, 150-probe
-  /healthz baseline p50 189.8 ms): client-observed 67-132 ms round trips
-  contain a 0.57 ms mean of server work (84% < 50 us), 120-client 2x60
-  full-lobby leg from the 2-vCPU generator box at 922 B/s per client - top of
-  the 32A band; histogram count == intents_received doubles as a consistency
-  check. PORT-SAFETY INCIDENT (recorded in docs/M2-LOAD-TESTING.md): the
-  first 35C Postgres-stage run silently drove the LIVE service - the load
-  scripts default to 18080, the live service OWNS 127.0.0.1:18080 on the
-  measurement host, and loadtest-isolated.sh's comment claiming otherwise was
-  written for the sandbox/runner and was false there; 17+1 throwaway test
-  matches landed on the live deployment (equivalent to a routine smoke run;
-  no data impact) - fixed with refuse-if-port-busy + assert-our-listener
-  guards in all three scripts (the guard also caught and correctly diagnosed
-  a transient mem-leg crash: our server answered healthz then died - now the
-  assert distinguishes the two cases and preserves server logs). The 32F
-  numbers are UNAFFECTED (its committed report could only have sampled CPU
-  from its own process). The micro-LLM worker was invoked for a drafting
-  task but its host-capacity guard refused (load1 7.90 > 4.80) - correct
-  behaviour, orchestrator wrote the text (session-1 precedent).
+# Session state — words project. Source of truth for continuation.
+# Updated: 2026-09-16 (session 5, batch 35D complete)
 
-failed_tasks:
-  - >-
-    Unity Android run 34771146946 (27H, head 4a975dc, dispatched
-    17:17Z): build green; both legs failed in the PRE-SWIPE GATE, not
-    the swipe - the sheet landed and the single tap-recovery round
-    failed to dismiss it (INFRA_FAIL before any swipe on either leg).
-    Not a swipe-path failure: the 27H fix was never exercised. Fixed
-    by 27I's persistent dismissal (91f3b59).
-  - >-
-    Unity Android run 34770332786 (27G probe, head 918948a, dispatched
-    17:01Z): build green; leg 35 red by design (probe run) but paid off
-    completely - [WORDS_INPUT] down gui=120,703 test=80,663 hit=0 for the
-    warm-up tap at screen (160,743) and down gui=12,703 test=-28,663
-    hit=none for the swipe start at screen x=52, on BOTH the primary pass
-    and the full-restart retry. Verdict: input delivery healthy (constant
-    (40,40) offset = the BeginArea origin), hit test double-converting
-    the event. Root-caused and fixed in 27H (4a975dc).
-  - >-
-    Unity Android run 34769405396 (27F, head a6febb5, dispatched 16:42Z
-    with explicit inputs): build green; leg 35 (API 35): client healthy,
-    board rect published, pre-swipe gate recovered the sheet, focus cycle
-    ran and the [WORDS_FOCUS] gained assertion PASSED, screenshot showed
-    a clean rendered board with no sheet - yet the swipe (x=52..992
-    y=743, measured inside row 0) produced no WORDS_SWIPE and the
-    full-cold-restart retry (fresh process, clean focus gate) also
-    produced nothing. Leg 33 (API 33): the sheet's recovery taps
-    (measured at 1080x1920) missed on that image's different screen
-    size; INFRA_FAIL before the swipe. Verdict: the swipe dies for a
-    reason no previous gate measured - 27G's [WORDS_INPUT] probe
-    localizes it in one run.
-  - >-
-    Unity Android run 34767504356 / 07aa6e6 (27E env NRE fix, head
-    07aa6e6, dispatched 16:04Z): build green; BOTH legs failed, but the
-    client was finally healthy - [WORDS_SERVER] source=default, board
-    rect published 1.6 s after ready (x=40..1004 y=662..1148 cells=12),
-    swipe planned inside row 0 (y=743). The failure is a NEW class:
-    Unity windowFocusChanged true at launch, false 0.5 s later, never
-    true again - the app rendered (screenshot: full UI, no sheet) but
-    the swipe produced no WORDS_SWIPE while dumpsys reported our window
-    focused. Root cause: Unity's input gate stuck at 'unfocused' after a
-    first-boot focus flap; dumpsys alone is not swipe-readiness. Fixed
-    in batch 27F (ac650b0) with the [WORDS_FOCUS] marker + forced focus
-    cycle + full-restart retry.
-  - >-
-    Unity Android run 34764775012 (head c2add29): FIRST green integrated
-    build, but both device legs failed with a new signature - client ready
-    (SetGameState isLoading=false), then 122-143 s of client silence (no
-    WORDS_BOARD_RECT, where the healthy 08:15Z run logged it within 0.14 s)
-    and no WORDS_SWIPE even from the fallback row y=880 that produced the
-    green run 34683472147. Leg 35 screenshot: NullReferenceException in
-    the Unity development console over a black app area (OnGUI loop killed)
-    + the ImmersiveModeConfirmation sheet in front; the launch focus gate
-    had passed ~0.13 s before the sheet appeared (gate and dumpsys
-    disagreed). Leg 33 had clean focus and the same silence, so the NRE is
-    the primary suspect. The static audit of the c72ce73..c2add29 client
-    diff found no reference-unsafe per-frame path - hence batch 27D
-    (instrumentation) rather than a guessed fix.
-  - >-
-    Unity Android build failures on the integrated batch 27/28 main, both
-    our own C# caught by the CI compile gate (kept as evidence the gate
-    earns its place): run 34763722090 (head 97dae4d) failed on batch 27B -
-    CS0117 Application.arguments (absent from Unity 6's netstandard shim)
-    and CS0029 Environment.GetEnvironmentVariable returning ReadOnlySpan<char>;
-    fixed in 140701b (PR #22) by dropping the argument channel (the file
-    channel is the practical Android automation path) and reading env via
-    .ToString(). Run 34764363334 (head 7968137) then failed on batch 28a -
-    CS1503 Color32 takes bytes, Mathf.RoundToInt returns int; fixed in
-    1e14264 (PR #23) with explicit (byte) casts (the lerp stays in 0..255).
-  - >-
-    Unity Android runs 34455925881 / 34457772896 / 34459251481 and 34492844342 (both legs) failed
-    on hosted-emulator instability. Root cause finally identified from the screenshot artifact
-    rather than the logs: "System UI isn't responding" owns the foreground, so `adb shell input
-    swipe` is delivered to the system dialog and the WORDS_SWIPE marker never appears. Repaired in
-    21B (ANR dialog suppression, focus gate, failure classes) instead of weakening the assertion.
-  - >-
-    Local-LLM worker qwen2.5:7b (batch 21C drafting task) TIMED OUT at 420s with "nothing
-    written"; an earlier attempt failed inside the harness (bash expanded $p before jq saw it, so
-    Ollama answered "missing request body"). Verdict: 7b codegen is not viable on this host; the
-    artifact was written by the orchestrator and the tooling now guards capacity.
-  - agent/state/current.yml itself was not parseable YAML for the whole history of the file (verified on the pre-edit commit), which defeats its purpose as a machine-readable resume state. Fixed in this batch by folding every multi-line list item into a block scalar with no content change.
-  - >-
-    Unity Android latest-main run 34437012338 failed in hosted emulator unlock before APK install
-    (`adb shell input keyevent 82` Broken pipe/exit 224); same head retried as run 34437841806 and
-    completed success, so treat 34437012338 as runner/emulator flake unless it recurs
-next_tasks:
-  - >-
-    Anti-snowball roster-scaled trigger (the 35A verdict names it "a required
-    follow-up before the rule is useful at Royale scale": the roster-blind
-    25-point trigger fires on 97-100% of 8+ seat matches and inflates rather
-    than closes the gap). The calibration harness (server/cmd/calibrate,
-    batch 35A) already drives rosters 2/8/30/60 - extend it with
-    roster-scaled trigger variants (e.g. gap as a function of leader score
-    percentile or roster size), sweep, document, decide per PD-007.
-  - >-
-    Load-testing leftovers, deliberately minor: a multi-hour soak (the
-    abandoned-room stage already covers its interesting part) and profiled
-    matches under load (player_ids attached - profile rows + stats fold at
-    match end; same single-write-at-end shape as the measured result path).
-  - >-
-    Live service promotion: the deployment is at 22fb7af, main is 5446c6b
-    (35A opt-in flag + 35B opt-in presets + 35C observability - default
-    behavior byte-identical, NO new migrations). Optional by design; do it
-    under a calm host (the octopus co-tenant currently keeps loadavg 5-11)
-    with the usual gates (smoke 27/0, exit gate 3/3 with baseline scores,
-    readyz storage=postgres).
-  - >-
-    PvE follow-ups beyond difficulty (35B shipped): tutorial framing and
-    whether practice is reachable from the ranked path - each needs evidence;
-    practice rewards are BLOCKED on the M3 economy (Q5 clause 3 already
-    guarantees non-rating-eligibility either way).
-  - >-
-    Guild product-input items (chat + moderation, invite-only join,
-    co-owners, roster cap number, GvG matchmaking/rewards) - each is gated on
-    owner product decisions, not engineering.
+last_verified_commit: e726fe3   # branch feat/m2-batch35d-antisnowball-roster-scaled (PR #54, CI green, awaiting merge)
+main_head_at_session_start: e867ebb
 
-last_verified_commit: "5446c6b on main (35A+35B+35C merged via PRs #51/#52/#53, all six CI checks green on each head; full server suite 14/14 packages green locally on the 35A+35B integration tree, identical to what merged). Live OCI service unchanged at 22fb7af, last gate verification 27/0 + 3/3 exit gate (2026-09-14, 34A) - promotion to 5446c6b is optional (no new migrations, default behavior identical)."
+session:
+  5:
+    what: "Batch 35D end-to-end: GapPercent mechanism + tests, balanced sharding, server sweep, negative-result decision, docs, PR #54"
+    merges_this_session: []   # 35A/35B/35C merged in sessions 3-4 (PRs #51/#52/#53); 35D PR #54 open
+    next_action: "Merge PR #54 once CI is green on e726fe3 (docs-only delta vs 46df0ac which was 6/6 green), then update this file on main + push"
 
-resume_from: "RESUME POINT 2026-09-16T22:05Z: (i) The three queued batches are MERGED (35A PR #51, 35B PR #52, 35C PR #53; main 5446c6b). The next engineering batch is the ANTI-SNOWBALL ROSTER-SCALED TRIGGER (see next_tasks) - harness exists (server/cmd/calibrate), sweep methodology proven (576 pairs in ~38 min on 4 shards), run it on the SERVER not the sandbox, push the branch BEFORE the long job (non-re-litigable fact 10). (ii) The load scripts now refuse busy ports and assert listener ownership - on the measurement host ALWAYS pass WORDARENA_LOADTEST_PORT (the live service owns 18080 there); artifacts-35c/{pg,mem,perseat,offbox} on the server hold the raw reports + env sidecars (loadavg 4.8-11.5 from the octopus co-tenant recorded per stage). (iii) SSH: the handoff key needed a one-char repair (details in status; the repaired key lives at ~/oci_server_key.pem in the sandbox and its public key is in root's AND ubuntu's authorized_keys on the server - if ubuntu@ fails again, check whether the octopus project rewrote authorized_keys, root@ still works with the same key). (iv) Ollama up, qwen2.5:3b, but llm-micro-worker.sh's capacity guard refuses while load1 > 4.80 (nproc=4) - do not --force it during measurements. (v) M1 COMPLETE 8/8. M2: load-testing row fully closed incl. follow-ups; PvE difficulty shipped; remaining M2 work is the anti-snowball roster-scaled trigger + board-side levers + combo cap (each a separate rules change with evidence), guild product-input items, and the optional promotion. Q5/Q8/Q9/Q10/Q11/Q12 DECIDED - do NOT re-open. NON-RE-LITIGABLE FACTS 1-10 HOLD, plus (11) the live service owns 127.0.0.1:18080 on the OCI measurement host and load stages must never default there (guard enforces; incident recorded in docs/M2-LOAD-TESTING.md), and (12) the octopus co-tenant rewrites ubuntu's authorized_keys during its recovery operations (2026-09-16 18:37) - verify ubuntu@ SSH after any octopus activity, root@ is the fallback. RECOVERY: re-clone from GitHub, recreate the SSH key (expect the one-char corruption in handoff pastes - fix_key.py-style brute force with full RSA validation), Go on the SERVER is /home/ubuntu/go-toolchain/bin/go, fresh GOMODCACHE. THE GITHUB TOKEN IS RECOVERABLE from the OCI host: ssh -i ~/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials"
+m2_remaining:
+  - "board-side levers (leader lock duration, steal economics) — separate rules changes, own evidence"
+  - "combo cap / per-seat bonus budget — NOW EVIDENCE-MOTIVATED (35D: harm tracks bonus volume at 8+, see docs/M2-ANTI-SNOWBALL.md 35D section)"
+  - "guild product-input items"
+  - "optional live promotion (22fb7af -> main; no new migrations; needs calm host — octopus load was 10-14 this session)"
+
+facts_non_relitigable:
+  - "01-10: see git history of agent/state/current.yml (live service owns 127.0.0.1:18080 on OCI host — load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops — verify ubuntu@ SSH after octopus activity; root@ same key is fallback)"
+  - "11: anti-snowball 25/2/15 is duel-locked (35A); at 8+ seats NO threshold family helps (35D negative) — the lever at scale is volume (per-seat bonus budget), not selection"
+  - "12: sweep shard balance: roster-outer grid order + i%shards gives 1.03x spread (35D measured) vs 2.04x seed-outer (35A); keep roster-outer for future grids"
+
+server:
+  host: 129.213.177.56
+  key: /home/user/oci_server_key.pem (works for ubuntu@ AND root@)
+  worktrees: wt-35a wt-35b wt-35c wt-35d (all on pushed branches; wt-35d at 46df0ac)
+  artifacts: /home/ubuntu/artifacts-35d/{sweep-full.json,sweep-0..3.json,run-meta.json,calibrate,log-*.out}
+  go: /home/ubuntu/go-toolchain/bin/go; GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35
+  load: octopus 10-14 during 35D run; record loadavg in every artifact sidecar
+  live_service: 22fb7af since 09-14, wordarena.service active, NRestarts=0
+
+sandbox:
+  artifacts_35d: /home/user/artifacts-35d/ (sweep-full.json + 4 shards + run-meta.json)
+  analyze_script: /home/user/analyze-35d.py (NOTE: first version used wrong field names; the inline python in session used the real schema: pair-level bonus_fired/final_gap_off/final_gap_on/winner_flipped, variant bonus_points/ bonus_events OMITTED when zero — always .get(...,0))
+  ssh_tunnel: id ...b1166232 port 28081 may still run — kill when convenient (not needed)
+
+resume_from:
+  - "Check PR #54 CI on e726fe3; if green, PUT /repos/JoTalbot/words/pulls/54/merge (squash or merge per repo convention — 35A-C used merge commits), then update this file on main (status: 35D merged, PR #54, new main head) and push"
+  - "Token recovery: ssh -i /home/user/oci_server_key.pem ubuntu@129.213.177.56 cat ~/.git-credentials (NEVER write the token itself into this repo - push protection blocks it)"
+  - "Next batch candidates: board-side levers, combo cap (volume lever — 35D evidence points here), guild product-input items; optional live promotion when host is calm"
