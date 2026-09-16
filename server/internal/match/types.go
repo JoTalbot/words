@@ -163,8 +163,12 @@ type Snapshot struct {
 	// SuddenDeath reports whether the match is currently in its tiebreak
 	// wave (first accepted word wins, see docs/M1-SUDDEN-DEATH.md).
 	SuddenDeath bool
-	Players     []PlayerView
-	Cells       []CellView
+	// AntiSnowball reports whether the catch-up rule is enabled for this
+	// match (docs/M2-ANTI-SNOWBALL.md), so a state view can show the rule a
+	// score difference came from.
+	AntiSnowball bool
+	Players      []PlayerView
+	Cells        []CellView
 }
 
 // PlayerView is a snapshot of one player's competitive state.
@@ -213,6 +217,10 @@ type Config struct {
 	// AntiSnowball enables the opt-in catch-up rule (docs/M2-ANTI-SNOWBALL.md).
 	// Default false: M0 behaviour, existing baselines and replays unchanged.
 	AntiSnowball bool
+	// CatchUp carries the rule's constants when it is on. The zero value is
+	// the 25/2/15 batch 32C set, so a Config that only sets AntiSnowball
+	// behaves exactly as the shipped rule did before this field existed.
+	CatchUp CatchUpParams
 	// BotSeats declares which seats are played by simulated players, indexed
 	// by seat (M2 batch 32D, Q5). Nil or short means "no declaration", so the
 	// zero value keeps every existing caller bot-free. A declaration is the

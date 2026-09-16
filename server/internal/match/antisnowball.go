@@ -44,6 +44,52 @@ const (
 	CatchUpMaxBonus = 15
 )
 
+// CatchUpParams holds the catch-up rule's constants for one match. The zero
+// value is the batch 32C constant set (25/2/15), so every existing Config,
+// replay and baseline keeps its exact behaviour; setting fields is how a
+// match opts into different numbers. These are calibration candidates, not a
+// protocol (PD-007, docs/M2-ANTI-SNOWBALL.md): the constants are code-level
+// until the simulation evidence picks documented provisional values, so they
+// are not exposed as caller-controlled request fields.
+type CatchUpParams struct {
+	// Gap: how far behind the leader a seat must be, in points. Zero means
+	// CatchUpGap.
+	Gap int
+	// Divisor: the bonus is points/Divisor. Zero means CatchUpBonusDivisor.
+	Divisor int
+	// MaxBonus: the hard per-word cap. Zero means CatchUpMaxBonus.
+	MaxBonus int
+}
+
+// DefaultCatchUpParams is the batch 32C constant set, made explicit.
+func DefaultCatchUpParams() CatchUpParams {
+	return CatchUpParams{Gap: CatchUpGap, Divisor: CatchUpBonusDivisor, MaxBonus: CatchUpMaxBonus}
+}
+
+// normalized resolves zero and negative fields to safe values. The zero
+// value must stay exactly the 32C set (25/2/15), so zero means the default
+// for every field - with one deliberate exception in MaxBonus's sign: a
+// NEGATIVE cap means "no bonus" (the rule is on but the cap allows nothing),
+// because zero has to keep meaning the default and 0 is not a valid tuning
+// point the calibration would want. Clamping instead of erroring keeps
+// Config non-fallible, as every existing caller assumes.
+func (c CatchUpParams) normalized() CatchUpParams {
+	d := DefaultCatchUpParams()
+	if c.Gap <= 0 {
+		c.Gap = d.Gap
+	}
+	if c.Divisor <= 0 {
+		c.Divisor = d.Divisor
+	}
+	switch {
+	case c.MaxBonus == 0:
+		c.MaxBonus = d.MaxBonus
+	case c.MaxBonus < 0:
+		c.MaxBonus = 0
+	}
+	return c
+}
+
 // CatchUpBonus returns the extra points a seat earns for an accepted word
 // worth `points`, or zero when the rule does not apply.
 //
@@ -70,12 +116,12 @@ func (m *Match) CatchUpBonus(seat Seat, points int) int {
 			leader = sc
 		}
 	}
-	if leader-int(m.players[seat].Score) < CatchUpGap {
+	if leader-int(m.players[seat].Score) < m.catchUp.Gap {
 		return 0
 	}
-	bonus := points / CatchUpBonusDivisor
-	if bonus > CatchUpMaxBonus {
-		bonus = CatchUpMaxBonus
+	bonus := points / m.catchUp.Divisor
+	if bonus > m.catchUp.MaxBonus {
+		bonus = m.catchUp.MaxBonus
 	}
 	if bonus < 1 {
 		return 0

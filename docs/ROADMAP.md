@@ -145,9 +145,18 @@ Exit gate: two remote clients can complete repeated matches with identical final
   replay cannot diverge. It is off by default, so no M0/M1 baseline, replay or
   device assertion moves, and it deliberately does not touch cell credit values
   because that is what a steal debits - a re-priced steal would have been a much
-  larger change than a score bonus. REMAINING: the board-side levers (leader
-  lock duration, steal economics), a combo cap, exposing the option per match,
-  and calibration of the constants against playtest rather than this guess.
+  larger change than a score bonus. Batch 35A exposed the option per match
+  (`anti_snowball` on `POST /v1/matches`, echoed in the response and state
+  view, `catch_up_bonus` on replay events) and CALIBRATED the constants by
+  simulation per PD-007: 576 rule-on matches vs 96 rule-off baselines over 24
+  seeds x rosters 2/8/30/60 x 6 constant sets. Verdict: at 1v1 the rule works
+  as designed (gap 20.1 -> 12.8, winner stable 21/24) and 25/2/15 is
+  provisionally locked; at 8+ seats the roster-blind 25-point trigger fires on
+  97-100% of matches and inflates rather than closes the gap, so a
+  roster-scaled trigger is a required follow-up before the rule is useful at
+  Royale scale. REMAINING (each a separate rules change with its own
+  evidence): the roster-scaled trigger, the board-side levers (leader lock
+  duration, steal economics), and a combo cap.
 - [x] first PvE content - **batch 32E** (docs/M2-PVE.md): `POST /v1/matches`
   with `"pve": true` creates a 1v1 against an opponent the SERVER drives, so a
   single player can play a real match with no second client and no external
