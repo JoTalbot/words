@@ -1,0 +1,33 @@
+id: M2-batch35c-loadtest-followups
+title: "Load-testing follow-ups from 32F: Postgres stage, generator off-box, per-seat intent limit"
+status: in_progress_runs_pending
+priority: high
+complexity: medium
+dependencies:
+  - M2 batch 32F (load harness + isolated script, merged)
+  - M2 batch 35A (merged; unrelated surface, same release train)
+  - M2 batch 35B (merged; unrelated surface, same release train)
+inputs:
+  - server/cmd/loadtest (harness; -intent-gap, -server-pid-file, report JSON)
+  - server/cmd/game/api.go (per-seat limiter WORDARENA_INTENTS_PER_SEC default 60, kills the socket on breach)
+  - server/cmd/migrate (versioned migrations)
+  - tools/loadtest-isolated.sh (in-memory stage pattern)
+  - docs/M2-LOAD-TESTING.md (32F baseline numbers + REMAINING section)
+outputs:
+  - tools/loadtest-pg.sh (Postgres stage: throwaway DB create/migrate/run/drop + in-memory comparison leg + env sidecar)
+  - tools/loadtest-offbox-target.sh (target side of a two-box run: isolated server + 1 Hz CPU/RSS sampler + metrics capture before kill)
+  - wordarena_intent_process_us histogram in /metrics (JSON) + /metrics/prometheus (fixed buckets, cumulative, lock-free; recorded inside the authoritative SubmitWithSeq)
+  - seats_dropped report field in the harness (server-ended connections; today the per-seat limiter kill)
+  - docs/M2-LOAD-TESTING.md: three new stage sections with measured numbers (runs on the OCI measurement host + off-box generator)
+  - docs/ROADMAP.md: load-testing row REMAINING updated per evidence
+acceptance:
+  - "go test -count=1 ./... green on the branch"
+  - "Postgres stage: throwaway DB only (script refuses non-throwaway names), migrations applied, pg vs mem reports side by side, environment recorded (host contention from the co-tenant noted, not hidden)"
+  - "off-box stage: generator on a different machine over an SSH tunnel (no new listening surface), tunnel RTT baseline measured and reported, client-observed intent percentiles + server-side wordarena_intent_process_us both captured"
+  - "per-seat stage: -intent-gap pushed below the 60/s budget, seats_dropped + sent-vs-acked divergence reported, limiter kill behaviour documented as-is (hard disconnect is the current design)"
+  - "docs updated with the measured numbers; ROADMAP row flipped per evidence"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+  - "tools/loadtest-pg.sh on the measurement host (artifacts-35c/pg)"
+  - "tools/loadtest-offbox-target.sh on the measurement host + harness from the generator box over ssh -L (artifacts-35c/offbox)"
+  - "per-seat stage: tools/loadtest-isolated.sh with INTENT_GAP_MS=5 (artifacts-35c/perseat)"

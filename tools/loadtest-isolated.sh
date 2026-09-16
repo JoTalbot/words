@@ -12,17 +12,51 @@
 #   SEATS=60 MATCHES=3 DURATION=45 tools/loadtest-isolated.sh
 #   GAME_BIN=/opt/words/bin/wordarena tools/loadtest-isolated.sh   # reuse a build
 #
-# Ports: WORDARENA_LOADTEST_PORT (default 18080) - deliberately not the service
-# port, so a mistake cannot reach the live instance.
+# Ports: WORDARENA_LOADTEST_PORT (default 18080). WARNING (batch 35C): on the
+# OCI measurement host the LIVE service itself listens on 127.0.0.1:18080 -
+# the port guard below refuses to run in that case; pick another port there.
 set -euo pipefail
 
 MATCHES="${1:-${MATCHES:-8}}"
 SEATS="${2:-${SEATS:-2}}"
 DURATION="${3:-${DURATION:-30}}"
 PORT="${WORDARENA_LOADTEST_PORT:-18080}"
+
+# ---- port safety guard (batch 35C) ---------------------------------------
+# A load stage must never talk to anything it did not start. On the OCI
+# measurement host the LIVE systemd service owns 127.0.0.1:18080 (the old
+# comment claiming 18080 is "deliberately not the service port" was written
+# for the sandbox/runner where nothing else listens, and was WRONG on that
+# host - batch 35C found out the hard way when a default-port stage silently
+# drove the live service). Two guards close the hole: refuse to start when
+# anything already listens on the port, and after /healthz answers, verify
+# the listener is OUR process, not whoever was there first.
+port_in_use() {
+  ss -tln 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {f=1} END{exit !f}'
+}
+refuse_if_port_busy() {
+  if port_in_use; then
+    echo "REFUSING to start: something already listens on $PORT:" >&2
+    ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
+    echo "  If that is the live wordarena service, pick another port" >&2
+    echo "  (WORDARENA_LOADTEST_PORT / PORT env)." >&2
+    exit 1
+  fi
+}
+assert_our_listener() {
+  # $1 = server pid. Fails when /healthz was answered by a process we did
+  # not start (the exact hole the guard exists to close).
+  if ! ss -tlnp 2>/dev/null | grep -q "pid=$1,"; then
+    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1)." >&2
+    ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
+    exit 1
+  fi
+}
+
 INTENT_GAP_MS="${INTENT_GAP_MS:-2000}"
 LANG="${LANG_CODE:-en}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+refuse_if_port_busy  # fail fast, before any build
 GO="${GO:-go}"
 WORKDIR="$(mktemp -d /tmp/loadtest-isolated.XXXXXX)"
 GAME_BIN="${GAME_BIN:-}"
@@ -63,6 +97,7 @@ fi
 # tickers. Postgres throughput is a separate question with its own bottleneck,
 # and mixing them would make neither number actionable. Point WORDARENA_POSTGRES_DSN
 # at a throwaway database to include it.
+refuse_if_port_busy
 echo "== starting isolated server on 127.0.0.1:$PORT (no WORDARENA_POSTGRES_DSN)"
 env -u WORDARENA_POSTGRES_DSN \
   WORDARENA_ADDR="127.0.0.1:$PORT" \
@@ -80,6 +115,7 @@ for i in $(seq 1 60); do
   fi
   sleep 0.5
 done
+assert_our_listener "$SERVER_PID"
 
 echo "== load: $MATCHES matches x $SEATS seats for ${DURATION}s, intent every ${INTENT_GAP_MS}ms"
 "$HARNESS" \

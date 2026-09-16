@@ -23,8 +23,30 @@ set -euo pipefail
 
 DURATION="${1:-${DURATION:-120}}"
 PORT="${2:-${PORT:-18080}}"
+
+# ---- port safety guard (batch 35C): see tools/loadtest-isolated.sh --------
+# A load stage must never talk to anything it did not start. On the OCI
+# measurement host the LIVE service owns 127.0.0.1:18080.
+port_in_use() {
+  ss -tln 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {f=1} END{exit !f}'
+}
+refuse_if_port_busy() {
+  if port_in_use; then
+    echo "REFUSING to start: something already listens on $PORT:" >&2
+    ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
+    exit 1
+  fi
+}
+assert_our_listener() {
+  if ! ss -tlnp 2>/dev/null | grep -q "pid=$1,"; then
+    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1)." >&2
+    exit 1
+  fi
+}
+
 REPORT_DIR="${REPORT_DIR:-./artifacts-35c-offbox}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+refuse_if_port_busy  # fail fast, before any build
 GO="${GO:-go}"
 
 command -v "$GO" >/dev/null || { echo "go not found; set GO=/path/to/go" >&2; exit 1; }
@@ -47,6 +69,7 @@ trap cleanup EXIT
 echo "== building isolated server"
 (cd "$ROOT/server" && "$GO" build -o "$WORKDIR/wordarena" ./cmd/game)
 
+refuse_if_port_busy
 echo "== starting target on 127.0.0.1:$PORT (no DSN: in-memory on purpose -
    this stage isolates the generator, the database stage is loadtest-pg.sh)"
 env -u WORDARENA_POSTGRES_DSN \
@@ -62,6 +85,7 @@ for _ in $(seq 1 60); do
   kill -0 "$SERVER_PID" 2>/dev/null || { echo "server died:"; tail -5 "$WORKDIR/server.log"; exit 1; }
   sleep 0.5
 done
+assert_our_listener "$SERVER_PID"
 
 {
   printf '{"date":"%s","nproc":%s,"loadavg_start":"%s","port":%s}\n' \

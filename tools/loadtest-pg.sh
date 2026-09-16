@@ -32,6 +32,27 @@ MATCHES="${1:-${MATCHES:-8}}"
 SEATS="${2:-${SEATS:-2}}"
 DURATION="${3:-${DURATION:-30}}"
 PORT="${WORDARENA_LOADTEST_PORT:-18080}"
+
+# ---- port safety guard (batch 35C): see tools/loadtest-isolated.sh --------
+# A load stage must never talk to anything it did not start. On the OCI
+# measurement host the LIVE service owns 127.0.0.1:18080.
+port_in_use() {
+  ss -tln 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {f=1} END{exit !f}'
+}
+refuse_if_port_busy() {
+  if port_in_use; then
+    echo "REFUSING to start: something already listens on $PORT:" >&2
+    ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
+    exit 1
+  fi
+}
+assert_our_listener() {
+  if ! ss -tlnp 2>/dev/null | grep -q "pid=$1,"; then
+    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1)." >&2
+    exit 1
+  fi
+}
+
 INTENT_GAP_MS="${INTENT_GAP_MS:-2000}"
 LANG_CODE="${LANG_CODE:-en}"
 LT_DB="${LT_DB:-wordarena_lt}"
@@ -74,6 +95,7 @@ LT_DSN="postgres://${PG_USER}:${PG_PASS}@${PG_HOST}${PG_PORT}/${LT_DB}${PG_PARAM
 ADMIN="${LT_ADMIN_PSQL:-sudo -u postgres psql}"
 command -v psql >/dev/null || { echo "psql not found on PATH" >&2; exit 1; }
 
+refuse_if_port_busy  # fail fast, before any build
 mkdir -p "$REPORT_DIR"
 WORKDIR="$(mktemp -d /tmp/loadtest-pg.XXXXXX)"
 cleanup() {
@@ -110,6 +132,7 @@ echo "== applying migrations to $LT_DB"
 run_stage() { # $1 = label, $2 = report path, $3... = extra server env pairs
   local label="$1" report="$2"
   shift 2
+  refuse_if_port_busy
   echo "== stage [$label]: $MATCHES matches x $SEATS seats for ${DURATION}s"
   env "$@" WORDARENA_ADDR="127.0.0.1:$PORT" \
     WORDARENA_MAX_ROOMS="${WORDARENA_MAX_ROOMS:-512}" \
@@ -122,6 +145,7 @@ run_stage() { # $1 = label, $2 = report path, $3... = extra server env pairs
     kill -0 "$SERVER_PID" 2>/dev/null || { echo "server died:"; tail -5 "$WORKDIR/server-$label.log"; return 1; }
     sleep 0.5
   done
+  assert_our_listener "$SERVER_PID"
   "$WORKDIR/loadtest" \
     -url "http://127.0.0.1:$PORT" \
     -matches "$MATCHES" -seats "$SEATS" \
