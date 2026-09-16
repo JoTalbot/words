@@ -45,6 +45,10 @@ type telemetryEvent struct {
 	// (M2 batch 32D, Q5). An operator should be able to answer "was a bot in
 	// this match?" from the event stream instead of reconstructing it.
 	BotSeats []int `json:"bot_seats,omitempty"`
+	// Difficulty names the practice opponent's preset for pve_started
+	// events (M2 batch 35B), so an operator can see what a player practiced
+	// against without reconstructing the request.
+	Difficulty string `json:"difficulty,omitempty"`
 	// GuildID names the guild a guild lifecycle event is about (M2 batch
 	// 32G). Guild events reuse UserID for the acting player, so the stream
 	// answers "who did what to which guild" without a second subject field.
