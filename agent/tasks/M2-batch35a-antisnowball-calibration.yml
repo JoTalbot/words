@@ -1,6 +1,6 @@
 id: M2-batch35a-antisnowball-calibration
 title: "Anti-snowball calibration: per-match HTTP opt-in + simulation sweep (rebuild of lost batch 34B)"
-status: code_complete_suite_green_sweep_running
+status: code_complete_sweep_done_results_documented_pending_ci
 priority: high
 complexity: large
 dependencies:
@@ -30,6 +30,7 @@ validation:
   - "calibrate -limit 1 smoke run + determinism test (cmd/calibrate)"
   - "sweep: 4 sharded runs on the OCI server (GOMAXPROCS=1), calibrate -merge, jq 'del(.pairs)' for the doc excerpt"
 risk: medium
+
 file_ownership:
   - server/internal/match/antisnowball.go
   - server/internal/match/types.go

@@ -120,7 +120,63 @@ flips, what the bonus costs in points, and the per-match exposure - the
 share of matches where the rule fires at all, which is the other half of the
 roadmap row (a rule that fires in 1 of 96 matches is not really on).
 
-CALIBRATION_RESULTS_PLACEHOLDER
+**Results** (run 2026-09-16, 4 ARM cores, ~38 min wall for the 60-seat
+shard; artifact `/home/ubuntu/artifacts-35a/sweep-full.json` on the OCI
+server, regenerated with the merge command above):
+
+Per constant set, averaged over all 96 (seed, roster) pairs:
+
+| set (gap/div/cap) | fired | bonus pts/match | winner flips | final gap off -> on |
+|---|---|---|---|---|
+| `gap40` (40/2/15) | 72/96 (75%) | 743 | 31 | 77.6 -> 92.2 |
+| `div3` (25/3/15) | 93/96 (97%) | 1016 | 44 | 77.6 -> 124.3 |
+| `cap10` (25/2/10) | 93/96 (97%) | 1624 | 51 | 77.6 -> 148.1 |
+| `default` (25/2/15) | 93/96 (97%) | 1726 | 48 | 77.6 -> 159.7 |
+| `cap20` (25/2/20) | 93/96 (97%) | 1748 | 48 | 77.6 -> 162.3 |
+| `gap15` (15/2/15) | 96/96 (100%) | 2462 | 48 | 77.6 -> 211.9 |
+
+Averaging rosters hides the shape, which is the finding:
+
+| roster | fired | scoring seats off -> on | top seat unchanged | gap (leader over lowest scorer) off -> on |
+|---|---|---|---|---|
+| 2 | 21/24 | 2 -> 2 | 21/24 | **20.1 -> 12.8** |
+| 8 | 24/24 | 8 -> 8 | 12/24 | 93.9 -> 157.0 |
+| 30 | 24/24 | 30 -> 30 | 3/24 | 66.4 -> 205.2 |
+| 60 | 24/24 | 35 -> 37 | 12/24 | 127.7 -> 223.0 |
+
+Reading:
+
+- **In the duel the rule does what it was written to do.** At two seats it
+  fires in 87.5% of matches, closes the leader-to-trail gap by a third
+  (20.1 -> 12.8), and leaves the winner in place 87.5% of the time. That is
+  catch-up without a different game.
+- **At eight seats and up, the same constants are not catch-up - they are
+  inflation with reshuffling.** The 25-point trigger is roster-blind by
+  design (points, not places), but the score scale grows with the roster: at
+  60 seats the final gap is 127.7 points, so "25 behind the leader" is a
+  permanent state for most of the field. The bonus then rides on top of
+  nearly every word (97-100% fire), the average match hands out 3840 bonus
+  points against a 223-point final spread, and the top seat changes in
+  43-88% of matches instead of a trailing seat catching up.
+- **The levers, in the order the evidence needs them.** `gap` is the real
+  one: `gap40` is the closest behavior to the baseline (92.2 vs 77.6) and the
+  fewest flips (31). `div3` roughly halves the bonus volume (1016 vs 1726
+  pts) without changing the trigger. `cap` barely matters (148 vs 162): at
+  these word lengths points/2 rarely reaches 15, so the hard cap Q1 asks for
+  is a safety property, not a tuning knob.
+
+**Decision (provisional, 2026-09-16).** The constants STAY 25 / 2 / 15. The
+1v1 evidence says the shipped set is right for the duel the rule was written
+for, and no set in the grid does anything better at two seats - so moving the
+defaults on the strength of the large-roster data would be trading a
+measured-correct behavior for a measured-wrong one. What the evidence DOES
+close is the assumption that these constants could simply be applied at sixty
+seats: they cannot, without a roster-scaled trigger (for example a gap
+expressed against the current leader's score, or per-roster values). That is
+a separate rules change with its own design note - the same status the
+board-side levers and the combo cap hold - and it is recorded on the ROADMAP
+row rather than invented in this batch. Until then, large-roster deployments
+that want the rule should know what they are buying: the table above.
 
 ## Validation
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/JoTalbot/words/server/internal/match"
+	"github.com/JoTalbot/words/server/internal/matchroom"
 	"github.com/JoTalbot/words/server/internal/pve"
 )
 
@@ -17,12 +18,12 @@ import (
 // so no M0/M1 baseline, replay or device assertion moves; on, the rule runs
 // with the shipped 25/2/15 constants.
 
-// antiSnowballPolicy is the driver the tests use to move a provisioned room.
-// It is the pve opponent in its aggressive shape: long enough words and a
-// short enough interval that a score gap actually opens inside one match,
-// which is the precondition for the rule to fire at all. It is a pure
-// function of (snapshot, tick, dictionary, policy), so the driven match is
-// deterministic for a fixed seed (PD-003).
+// antiSnowballPolicy is the driver the tests use to move a room. It is the
+// pve opponent in its aggressive shape: long enough words and a short enough
+// interval that a score gap actually opens inside one match, which is the
+// precondition for the rule to fire at all. It is a pure function of
+// (snapshot, tick, dictionary, policy), so the driven match is deterministic
+// for a fixed seed (PD-003).
 func antiSnowballPolicy() pve.Policy {
 	return pve.Policy{MinLen: match.MinWordLength, MaxLen: 6, Interval: 15, AllowSteal: true}
 }
@@ -67,6 +68,61 @@ func snapshotView(t *testing.T, srv *httptest.Server, id uint64, token string) m
 		t.Fatalf("decode snapshot view: %v", err)
 	}
 	return view
+}
+
+// driveSeed plays a full fast-forwarded match for seed 101, both seats on
+// the aggressive policy in a rotating one-seat-per-tick order (the same
+// non-degenerate driver the calibration harness uses), and returns the final
+// scores, the accepted-event log, and the bonus totals.
+//
+// The room is built directly with matchroom.New - the exact config the HTTP
+// surface provisions for the flag - rather than a room the API created: the
+// API starts a per-room real-time ticker that is the room's only Tick writer,
+// and a test fast-forwarding the same room races it (the race detector
+// proved it on 2026-09-16). The surface link is asserted separately: the
+// flag is accepted, echoed, and set on the provisioned room.
+func driveSeed(t *testing.T, matchID uint64, withRule bool) (scores [2]int64, events []match.Event, bonusEvents int, bonusTotal int64) {
+	t.Helper()
+	scores = [2]int64{}
+	rm, err := matchroom.New(matchroom.Config{
+		MatchID:      matchID,
+		Seed:         101,
+		Language:     "en",
+		SeatUserIDs:  []uint64{1, 2},
+		AntiSnowball: withRule,
+	})
+	if err != nil {
+		t.Fatalf("room: %v", err)
+	}
+	ops := [2]*pve.Opponent{}
+	for seat := 0; seat < 2; seat++ {
+		ops[seat], err = pve.New("en", antiSnowballPolicy())
+		if err != nil {
+			t.Fatalf("opponent: %v", err)
+		}
+	}
+	for i := 0; i < 4*60*60 && !rm.IsOver(); i++ {
+		m := rm.Match()
+		seat := match.Seat(i % 2)
+		if path := ops[seat].Intent(rm.Snapshot(), m.Tick(), seat); path != nil {
+			if _, err := rm.Submit(seat, path); err != nil {
+				t.Fatalf("submit: %v", err)
+			}
+		}
+		rm.Tick()
+	}
+	if !rm.IsOver() {
+		t.Fatal("the driven match never finished")
+	}
+	events = rm.Match().Events()
+	for _, ev := range events {
+		if ev.Result == match.ResultAccepted && ev.CatchUpBonus > 0 {
+			bonusEvents++
+			bonusTotal += ev.CatchUpBonus
+		}
+	}
+	scores = [2]int64{rm.Match().Score(0), rm.Match().Score(1)}
+	return scores, events, bonusEvents, bonusTotal
 }
 
 // TestAntiSnowballOffByDefault: the M0/M1 contract is untouched when the flag
@@ -131,86 +187,45 @@ func TestAntiSnowballAcceptedOnCreate(t *testing.T) {
 }
 
 // TestAntiSnowballAwardsBonusThroughProvisionedRoom: the flag must change
-// what the provisioned room actually scores. Both seats are driven by the
-// same deterministic policy over the same seed, once with the rule on and
-// once with it off: with the rule on some accepted word must carry a catch-up
-// bonus, and the final scores must differ from the rule-off run.
+// what a provisioned room actually scores. The surface link (accepted,
+// echoed, set on the room) is asserted over HTTP; the scoring link is
+// asserted by driving the same config once with the rule on and once off
+// over the same seed: with the rule on some accepted word must carry a
+// catch-up bonus, and the final scores must differ from the rule-off run.
 func TestAntiSnowballAwardsBonusThroughProvisionedRoom(t *testing.T) {
 	api, srv := botAPI(t)
-
-	run := func(withRule bool) (id uint64, tokens []string) {
-		body := fmt.Sprintf(`{"language":"en","seed":4131,"anti_snowball":%v}`, withRule)
-		code, raw := postRaw(t, srv, "/v1/matches", body, nil)
-		if code != http.StatusCreated {
-			t.Fatalf("create (rule=%v): status %d body %s", withRule, code, raw)
-		}
-		var resp struct {
-			MatchID uint64   `json:"match_id"`
-			Tokens  []string `json:"tokens"`
-		}
-		if err := json.Unmarshal([]byte(raw), &resp); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		return resp.MatchID, resp.Tokens
+	code, raw := postRaw(t, srv, "/v1/matches", `{"language":"en","seed":101,"anti_snowball":true}`, nil)
+	if code != http.StatusCreated {
+		t.Fatalf("create: status %d body %s", code, raw)
+	}
+	if !strings.Contains(raw, `"anti_snowball":true`) {
+		t.Fatalf("the create response must echo the flag, got: %s", raw)
+	}
+	var resp struct {
+		MatchID uint64 `json:"match_id"`
+	}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if r := mustRoom(t, api, resp.MatchID); !r.Match().AntiSnowball() {
+		t.Fatal("the provisioned room does not have the rule its creation set")
 	}
 
-	drive := func(id uint64) (events []match.Event, scores [2]int64, bonusEvents int, bonusTotal int64) {
-		room := mustRoom(t, api, id)
-		ops := [2]*pve.Opponent{}
-		for seat := 0; seat < 2; seat++ {
-			opp, err := pve.New("en", antiSnowballPolicy())
-			if err != nil {
-				t.Fatalf("opponent: %v", err)
-			}
-			ops[seat] = opp
-		}
-		for i := 0; i < 4*60*60 && !room.IsOver(); i++ {
-			m := room.Match()
-			snap := m.Snapshot()
-			tick := m.Tick()
-			for seat := match.Seat(0); int(seat) < 2; seat++ {
-				if m.IsEliminated(seat) {
-					continue
-				}
-				if path := ops[seat].Intent(snap, tick, seat); path != nil {
-					if _, err := room.Submit(seat, path); err != nil {
-						t.Fatalf("submit: %v", err)
-					}
-				}
-			}
-			room.Tick()
-		}
-		if !room.IsOver() {
-			t.Fatal("the driven match never finished")
-		}
-		events = room.Match().Events()
-		for _, ev := range events {
-			if ev.Result == match.ResultAccepted && ev.CatchUpBonus > 0 {
-				bonusEvents++
-				bonusTotal += ev.CatchUpBonus
-			}
-		}
-		scores = [2]int64{room.Match().Score(0), room.Match().Score(1)}
-		return events, scores, bonusEvents, bonusTotal
-	}
-
-	idOn, _ := run(true)
-	_, scoresOn, bonusEvents, bonusTotal := drive(idOn)
+	scoresOn, _, bonusEvents, bonusTotal := driveSeed(t, 1, true)
 	if bonusEvents == 0 {
 		t.Fatal("the rule was on for the whole match and no catch-up bonus was ever awarded")
 	}
 	if bonusTotal <= 0 {
 		t.Fatalf("bonuses were awarded but add to %d points", bonusTotal)
 	}
-	idOff, _ := run(false)
-	_, scoresOff, eventsOffBonus, _ := drive(idOff)
+	scoresOff, _, eventsOffBonus, _ := driveSeed(t, 2, false)
 	if eventsOffBonus != 0 {
 		t.Fatalf("the rule was off but %d bonuses were awarded", eventsOffBonus)
 	}
 	if scoresOn == scoresOff {
 		t.Fatalf("the flag changed nothing: both runs finished %v", scoresOn)
 	}
-	t.Logf("seed 4131: rule-off %v, rule-on %v (%d bonus events, +%d points)",
+	t.Logf("seed 101: rule-off %v, rule-on %v (%d bonus events, +%d points)",
 		scoresOff, scoresOn, bonusEvents, bonusTotal)
 }
 
@@ -220,49 +235,22 @@ func TestAntiSnowballAwardsBonusThroughProvisionedRoom(t *testing.T) {
 // ships when a caller does not (and cannot) tune the constants.
 func TestAntiSnowballBonusesAreCappedAtTheShippedConstants(t *testing.T) {
 	api, srv := botAPI(t)
-	id, tokens, _ := createAntiSnowball(t, srv, 4131)
+	id, _, _ := createAntiSnowball(t, srv, 101)
+	if r := mustRoom(t, api, id); !r.Match().AntiSnowball() {
+		t.Fatal("the provisioned room does not have the rule its creation set")
+	}
 
-	room := mustRoom(t, api, id)
-	ops := [2]*pve.Opponent{}
-	for seat := 0; seat < 2; seat++ {
-		opp, err := pve.New("en", antiSnowballPolicy())
-		if err != nil {
-			t.Fatalf("opponent: %v", err)
-		}
-		ops[seat] = opp
+	_, events, bonusEvents, _ := driveSeed(t, 1, true)
+	if bonusEvents == 0 {
+		t.Fatal("no bonus was observed; the test needs a seed where the rule fires")
 	}
-	for i := 0; i < 4*60*60 && !room.IsOver(); i++ {
-		m := room.Match()
-		snap := m.Snapshot()
-		tick := m.Tick()
-		for seat := match.Seat(0); int(seat) < 2; seat++ {
-			if m.IsEliminated(seat) {
-				continue
-			}
-			if path := ops[seat].Intent(snap, tick, seat); path != nil {
-				if _, err := room.Submit(seat, path); err != nil {
-					t.Fatalf("submit: %v", err)
-				}
-			}
-		}
-		room.Tick()
-	}
-	if !room.IsOver() {
-		t.Fatal("the driven match never finished")
-	}
-	sawBonus := false
-	for _, ev := range room.Match().Events() {
+	for _, ev := range events {
 		if ev.Result != match.ResultAccepted || ev.CatchUpBonus == 0 {
 			continue
 		}
-		sawBonus = true
 		if ev.CatchUpBonus > match.CatchUpMaxBonus {
 			t.Fatalf("bonus %d exceeds the shipped cap %d (word %q)",
 				ev.CatchUpBonus, match.CatchUpMaxBonus, ev.Word)
 		}
 	}
-	if !sawBonus {
-		t.Fatal("no bonus was observed; the test needs a seed where the rule fires")
-	}
-	_ = tokens
 }
