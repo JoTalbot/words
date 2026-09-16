@@ -154,6 +154,126 @@ for the same cells, which is the game, not the limiter). A run that pushes
 intent rate per seat is the next thing to measure, and the harness's
 `-intent-gap` is the knob.
 
+## Follow-up stages (2026-09-16, batch 35C, commit 9ffece0)
+
+The three REMAINING items above each became a stage. All ran on the OCI
+measurement host (4 vCPU, arm64, Go 1.27.1) which was UNDER CO-TENANT LOAD
+for the whole session (loadavg 4.8-11.5 from an unrelated project's browser
+processes; every artifact directory records the loadavg at stage start).
+The numbers are therefore upper bounds on cost and lower bounds on capacity -
+which is the honest direction for a follow-up stage whose headline findings
+are ratios and limits, not absolute throughput.
+
+### Postgres-backed stage (tools/loadtest-pg.sh)
+
+8 matches x 2 seats for 210 s - long enough for every match to FINISH inside
+the window (all 8 did, both legs), so the terminal result INSERT is inside
+the measurement, not after it. The pg leg runs against a THROWAWAY database
+the script creates, migrates and drops (`wordarena_lt`; the script refuses any
+non-throwaway name); the mem leg is the same stage back-to-back on the same
+box with the DSN unset.
+
+| metric (8x2, 210 s)      | Postgres leg | in-memory leg |
+|--------------------------|--------------|---------------|
+| create p50               | 0.39 ms      | 0.37 ms       |
+| intent RTT p50           | 1.04 ms      | 0.81 ms       |
+| intent RTT p99           | 6.4 ms       | 6.3 ms        |
+| server CPU               | 0.75% of 1 core | 0.71% of 1 core |
+| server RSS (end)         | 23.3 MB      | 20.9 MB       |
+| matches finished in window | 8/8        | 8/8           |
+| server-side intent processing (histogram) | 94% < 50 µs | n/a (not captured) |
+
+Verdict: **the durable store is not on the hot path.** Create latency, intent
+round trips, CPU and RSS are within noise of the in-memory leg while every
+result row was written at match end. That is by design - results persist when
+a match ends, not per intent - and now it is measured rather than assumed.
+Create p95 (33-35 ms both legs) is one slow create out of eight under host
+contention; treat p50 as the signal at this sample size.
+
+### Per-seat intent limit stage
+
+The per-seat limiter (`WORDARENA_INTENTS_PER_SEC`, default 60) is not a
+reject-and-continue limiter: the 61st intent in a rolling second KILLS the
+socket (`conn.Close(PolicyViolation, "intent rate limit exceeded")`). The
+harness now reports `seats_dropped` so that behaviour is a measured outcome
+instead of a silent stall.
+
+Stage: 4 matches x 2 seats, `-intent-gap 5ms` (200 intents/s/seat attempted
+against the 60/s budget), 30 s:
+
+- **seats_dropped: 8 of 8** - every seat's connection was killed by the
+  limiter.
+- **intents sent 488 = 61.0 per seat** - the limiter enforced exactly
+  budget+1 per seat before the kill; the in-flight 61st intent of each seat
+  (8 total) never received an ack, which is the observable cost of the kill.
+- No dial errors, no throttles: the per-CALLER mutation limit (120/min) never
+  engaged - this stage pushes the per-SEAT limit only, as intended.
+- After the kills the four rooms kept ticking to their natural end
+  (abandoned-room behaviour, consistent with the 32F drain measurement).
+
+Verdict: the per-seat budget is enforced precisely and per-seat (a seat
+breaching does not disturb the others), and the current design consequence -
+a hard disconnect rather than a retryable rejection - is now documented and
+measured. If product ever wants a gentler per-seat policy, that is a rules
+change with its own evidence, not a bug.
+
+### Generator off-box stage (tools/loadtest-offbox-target.sh)
+
+The generator ran on a DIFFERENT machine (2 vCPU x86_64 sandbox) against the
+target on the OCI host, through an SSH tunnel - no new listening surface: the
+isolated server stays loopback-only. This adds REAL network latency to the
+measurement (~140-190 ms path RTT, tunnel /healthz baseline p50 189.8 ms /
+p95 191.2 ms over 150 probes), which is the dimension the 32F stages
+explicitly did not cover. The new `wordarena_intent_process_us` histogram
+(`/metrics` JSON + Prometheus, Grafana panel 10) separates what the path
+costs from what the server costs.
+
+Stage A - 8 matches x 2 seats, 45 s, intent every 2 s:
+
+- client-observed intent RTT: p50 67.3 ms, p95 126.7 ms, p99 166.5 ms
+- create p50 63.9 ms (vs 0.4 ms on-box: the path, again)
+
+Stage B - 2 matches x 60 seats (120 clients), 40 s, intent every 2 s:
+
+- client-observed intent RTT: p50 131.7 ms, p95 145.4 ms, p99 188.9 ms
+- per-client wire 922 B/s (the top of the 32A band, consistent with the 32F
+  in-box ~900 B/s full-lobby figure), 108.1 KB/s aggregate for the two
+  lobbies
+- 2400/2400 intents acked, zero dropped seats, zero errors
+
+Server-side, both stages combined (10 matches, 2468 intents; the histogram
+count equals intents_received, which is itself a consistency check):
+
+- mean intent processing **0.57 ms**; 84% of intents < 50 µs, 92% < 100 µs,
+  95.5% < 2.5 ms; the 36 observations above 10 ms are the 60-seat fan-out
+  frames (encode-once-per-frame broadcast work), not queueing
+- server CPU for the whole 239 s window: 0.018 cores; RSS 12.7 -> 32.1 MB
+  with 10 live rooms at window end
+
+Verdict: **the path is ~99% of the latency** - a client-observed 67-132 ms
+round trip contains a 0.57 ms mean of server work. The server does not
+become the bottleneck when real network latency enters the picture; the
+generator's own box (2 vCPU) drove 120 clients without distress.
+
+### The port-safety incident (recorded, not hidden)
+
+The first Postgres-stage run of this batch silently drove the LIVE systemd
+service instead of its own isolated instance: the load scripts default to
+port 18080, and on the measurement host the live service listens on
+127.0.0.1:18080 - a comment in `loadtest-isolated.sh` claimed that port was
+"deliberately not the service port", which was true in the sandbox and CI
+runner where the tooling was developed and false on the host it measures on.
+Seventeen throwaway test matches landed on the live deployment - equivalent
+to a routine smoke run (no data impact, nothing rating-eligible), but exactly
+what the isolation rule forbids. The 32F numbers are unaffected: those runs
+predate the service's move to that port and their committed report shows a
+genuinely isolated instance (its server CPU/RSS sampling could only have
+come from the stage's own process). Fix: all three load scripts now REFUSE
+to build or start when anything already listens on the chosen port (the
+occupant is named), and after /healthz answers they assert the listener pid
+is the one they started - a foreign listener or an early crash of our own
+server both abort the stage loudly.
+
 ## Reproducing
 
 ```sh
@@ -165,6 +285,21 @@ MATCHES=3 SEATS=60 DURATION=30 tools/loadtest-isolated.sh
 
 # what an abandoned match costs: no clients at all
 tools/loadtest-isolated.sh 400 2 60 &   # then: go run ./server/cmd/loadtest -skip-clients ...
+
+# Postgres-backed stage vs in-memory, back to back (batch 35C)
+# On the measurement host pick a FREE port - the live service owns 18080
+# there and the scripts now refuse to run against it.
+WORDARENA_LOADTEST_PORT=28080 tools/loadtest-pg.sh 8 2 210
+
+# per-seat intent limit: 200 intents/s/seat against the 60/s budget
+WORDARENA_LOADTEST_PORT=28080 INTENT_GAP_MS=5 REPORT_JSON=perseat.json \
+  tools/loadtest-isolated.sh 4 2 30
+
+# generator off-box (two terminals, two machines):
+#   target host:  tools/loadtest-offbox-target.sh 240 28081
+#   generator:    ssh -N -L 28081:127.0.0.1:28081 <target-host>   # then
+#                 go run ./server/cmd/loadtest -url http://127.0.0.1:28081 \
+#                   -matches 8 -seats 2 -duration 45s -json offbox.json
 ```
 
 `tools/loadtest-isolated.sh` writes `loadtest-report.json` (machine-readable);
@@ -175,11 +310,13 @@ CI runs a two-match, three-second version of the same code path
 
 ## Not measured here (and why)
 
-- **Postgres-backed runs.** The migration path, the result row and the replay
-  fetch have their own cost profile; measuring them inside a room-transport test
-  would blur both. The isolated script deliberately omits a DSN.
 - **Multi-hour soak.** Room lifetime is 180 s, so a soak mostly measures
   whatever the harness does on minute three. The abandoned-room stage covers the
   interesting part (steady state with no clients) far more cheaply.
-- **Real network latency or loss.** The generator is on loopback. The M1 netem
-  tests cover adversarial conditions; this covers scale.
+- **Adversarial network conditions.** The off-box stage adds real WAN latency
+  (~190 ms path RTT) but not loss or jitter; the M1 netem tests cover
+  adversarial conditions, this covers scale and path decomposition.
+- **Profiled matches under load** (player_ids attached, profile rows and stats
+  fold on match end). The Postgres stage exercised match-result writes; the
+  profile path is the same single-write-at-end shape, but it has not been
+  staged separately.

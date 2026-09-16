@@ -198,8 +198,24 @@ Exit gate: two remote clients can complete repeated matches with identical final
   creations long before the box does, and rooms outlive their clients by design
   (measured drain 180.2 s = the full match length), so capacity is a product
   (creations/s x 180 s) rather than a count. Zero room leaks, dropped frames or
-  unhealthy states in any stage. REMAINING: Postgres-backed runs, a longer soak,
-  and latency measured with the generator off-box.
+  unhealthy states in any stage. The three follow-ups landed 2026-09-16
+  (batch 35C, docs/M2-LOAD-TESTING.md "Follow-up stages"): a Postgres-backed
+  stage on a throwaway database showed the durable store is NOT on the hot
+  path (210 s stages with every match finishing in-window: create p50
+  0.39 vs 0.37 ms, intent p99 6.4 vs 6.3 ms, CPU 0.75% vs 0.71% of one core
+  against the in-memory leg back to back); a per-seat intent-limit stage
+  (5 ms gap = 200/s/seat vs the 60/s budget) measured the limiter's exact
+  enforcement - every seat killed at 61.0 intents, `seats_dropped` now a
+  first-class report field; and a generator-off-box run (generator on another
+  machine over an SSH tunnel, ~190 ms path RTT) with a new server-side
+  `wordarena_intent_process_us` histogram proving the decomposition: of a
+  67-132 ms client-observed round trip, the server contributes a 0.57 ms mean
+  (84% of intents < 50 µs) - the path is ~99% of the latency. The same batch
+  added a port-safety guard to every load script after a default-port stage
+  was found to silently target the live service on the measurement host
+  (isolated since; incident recorded in the load-testing doc). REMAINING: a
+  multi-hour soak (the abandoned-room stage already covers its interesting
+  part) and profiled matches under load.
 
 ## M3 — Feature Complete Beta
 
