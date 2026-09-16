@@ -47,8 +47,19 @@ refuse_if_port_busy() {
   fi
 }
 assert_our_listener() {
+  # $1 = server pid, $2 = server log path. "Not our listener" has two very
+  # different causes and the first 35C mem-leg blip conflated them: someone
+  # else answered healthz (the hole this guard closes), or OUR server died
+  # between answering healthz and this check (a crash - the log is the
+  # evidence, so it is printed and preserved in REPORT_DIR).
+  if ! port_in_use; then
+    echo "OUR SERVER (pid $1) ANSWERED /healthz AND IS NOW GONE - it crashed at startup; log tail:" >&2
+    tail -10 "${2:-/dev/null}" >&2 || true
+    exit 1
+  fi
   if ! ss -tlnp 2>/dev/null | grep -q "pid=$1,"; then
-    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1)." >&2
+    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1):" >&2
+    ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
     exit 1
   fi
 }
@@ -103,6 +114,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
+  cp "$WORKDIR"/server-*.log "$REPORT_DIR"/ 2>/dev/null || true
   rm -rf "$WORKDIR"
   # The throwaway database is the script's own; dropping it is cleanup, not a
   # destructive act against shared state.
@@ -145,7 +157,7 @@ run_stage() { # $1 = label, $2 = report path, $3... = extra server env pairs
     kill -0 "$SERVER_PID" 2>/dev/null || { echo "server died:"; tail -5 "$WORKDIR/server-$label.log"; return 1; }
     sleep 0.5
   done
-  assert_our_listener "$SERVER_PID"
+  assert_our_listener "$SERVER_PID" "$WORKDIR/server-$label.log"
   "$WORKDIR/loadtest" \
     -url "http://127.0.0.1:$PORT" \
     -matches "$MATCHES" -seats "$SEATS" \

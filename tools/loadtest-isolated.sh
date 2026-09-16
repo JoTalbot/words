@@ -44,10 +44,17 @@ refuse_if_port_busy() {
   fi
 }
 assert_our_listener() {
-  # $1 = server pid. Fails when /healthz was answered by a process we did
-  # not start (the exact hole the guard exists to close).
+  # $1 = server pid, $2 = server log path. Two failure causes are kept
+  # distinct: a foreign listener answered /healthz (the hole this guard
+  # closes), or OUR server crashed between healthz and this check (the log
+  # is the evidence).
+  if ! port_in_use; then
+    echo "OUR SERVER (pid $1) ANSWERED /healthz AND IS NOW GONE - it crashed at startup; log tail:" >&2
+    tail -10 "${2:-/dev/null}" >&2 || true
+    exit 1
+  fi
   if ! ss -tlnp 2>/dev/null | grep -q "pid=$1,"; then
-    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1)." >&2
+    echo "REFUSING to continue: /healthz answered, but the listener on $PORT is not our server (pid $1):" >&2
     ss -tlnp 2>/dev/null | awk -v p=":$PORT" 'NR>1 && $4 ~ p"$" {print "  " $0}' >&2
     exit 1
   fi
@@ -115,7 +122,7 @@ for i in $(seq 1 60); do
   fi
   sleep 0.5
 done
-assert_our_listener "$SERVER_PID"
+assert_our_listener "$SERVER_PID" "$WORKDIR/server.log"
 
 echo "== load: $MATCHES matches x $SEATS seats for ${DURATION}s, intent every ${INTENT_GAP_MS}ms"
 "$HARNESS" \
