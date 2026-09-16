@@ -1,6 +1,6 @@
 id: M2-batch35c-loadtest-followups
 title: "Load-testing follow-ups from 32F: Postgres stage, generator off-box, per-seat intent limit"
-status: in_progress_runs_pending
+status: validated_local_green_ci_green_runs_measured_docs_done
 priority: high
 complexity: medium
 dependencies:
