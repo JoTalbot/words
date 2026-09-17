@@ -138,7 +138,7 @@ Exit gate: two remote clients can complete repeated matches with identical final
   device path declares itself at the queue, which is the one place a bot really
   appears today. Deliberately still open as *features* (not policy): a labelled
   practice/casual bot mode, a separate bot rating pool, and bot difficulty.
-- [~] anti-snowball mechanics - the catch-up rule is implemented as an
+- [x] anti-snowball mechanics (closed on evidence 35A/35D/36A/36D) - the catch-up rule is implemented as an
   **opt-in** server rule (batch 32C, docs/M2-ANTI-SNOWBALL.md): a seat at least
   `CatchUpGap`=25 points behind the leader earns half again on an accepted word,
   capped at 15, computed from non-eliminated scores in integer arithmetic so a
@@ -183,9 +183,26 @@ Exit gate: two remote clients can complete repeated matches with identical final
   paying losing seats cannot become catch-up at Royale size because "the leader"
   there is a rotating seat: each bonus moves the crown instead of closing a
   distance.
-  REMAINING (its own rules change with its own evidence): the board-side levers
-  (leader lock duration, steal economics) - the only family left that changes
-  who can score rather than who is paid.
+  Batch 36D then measured the last family, the board itself, with the catch-up
+  rule held OFF throughout: `BoardParams{LockTicks, StealDebitPercent}` over the
+  same grid, 768 pairs, all four baseline columns reproducing 36A's published
+  numbers exactly. Verdict, in both directions: the board DOES control the gap
+  where the ledger could not (`lock300` at 60 seats 129.8 -> 62.6, 21/24 pairs
+  closed, with total points falling rather than inflating - the first arm since
+  32C to flatten Royale size), but it buys that by ending the fight instead of
+  redistributing it (words per match 942 -> 285 at 60, 143 -> 44 in the duel),
+  and softening the steal debit is a snowball ACCELERATOR (+768% gap at 30 seats,
+  0/24 closed) that also inverts the scale-free reading - leader share improves
+  while the distance grows 3.9x, because removed debits mint points for everyone.
+  The sign of the lock even flips with roster size (at 8 seats `lock300` cuts the
+  gap 31.6% while raising the leader's share by 11.3 points), which is why no
+  constant here can be shipped as a number: a lock protects whoever holds cells,
+  and who that is depends on how big the pack is. So no shipped constant changed -
+  `LockTicks` stays 90, the debit stays full, `BoardParams` stays in the tree as
+  measurement infrastructure - and any reopening must be a roster-scaled rule at
+  n>=96 reporting words-per-match beside the gap, because a lever that closes the
+  distance by making the board quiet is not a catch-up win. See
+  docs/M2-ANTI-SNOWBALL.md for both tables.
 - [x] first PvE content - **batch 32E** (docs/M2-PVE.md): `POST /v1/matches`
   with `"pve": true` creates a 1v1 against an opponent the SERVER drives, so a
   single player can play a real match with no second client and no external

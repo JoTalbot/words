@@ -228,6 +228,12 @@ type Config struct {
 	// from an absent profile, and a position that is true here is disclosed
 	// to every seat, in the state view and in the finished result.
 	BotSeats []bool
+	// Board carries the board-side catch-up levers measured in M2 batch 36D:
+	// the claim/steal lock duration and the steal's debit fraction. The zero
+	// value is the shipped rule (see DefaultBoardParams), so every existing
+	// caller and replay is byte-for-byte unaffected. Like CatchUp it is a
+	// calibration parameter, not a client knob.
+	Board BoardParams
 }
 
 // WordValidator is the dictionary capability the match needs.
