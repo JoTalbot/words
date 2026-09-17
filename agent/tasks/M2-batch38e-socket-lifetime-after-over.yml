@@ -1,0 +1,25 @@
+id: M2-batch38e-socket-lifetime-after-over
+title: "Decide and, if warranted, implement the socket lifetime after a match ends (room removed, connection left open)"
+status: queued
+priority: normal
+complexity: small
+inputs:
+  - server/cmd/game/api.go runRoomTicker (removes the room ~3 s after the terminal frame, closes subscriber channels, returns)
+  - server/cmd/game/api.go handleWS (reader stays blocked in conn.Read until the client acts)
+  - docs/WIRE-PROTOCOL.md line ~271 (documents that the room is removed; says nothing about closing the socket)
+  - batch 38C measurement (artifacts-38c/fixed2-royale.json): a 195 s leg whose match ended at 24 s logged GET /v1/match/ws dur=3m15s - the client, not the server, ended every connection
+outputs:
+  - a written decision: either the socket is closed by the server after the room is removed (normal closure 1000/1001), or the current behaviour is pinned as intended in WIRE-PROTOCOL.md
+  - if a close is added - a client-contract note, a regression test, and a device/CI confirmation that the Unity client still fetches its result via the result endpoint after the close
+acceptance:
+  - the documented contract and the implementation agree, whichever way the decision goes
+  - no behaviour changes without the contract sentence and the test that pin it
+validation:
+  - go test ./cmd/game/
+  - one 4-seat leg showing the close origin (server vs client) in the close status histogram
+risk: medium
+file_ownership:
+  - server/cmd/game/
+  - docs/WIRE-PROTOCOL.md
+  - docs/M2-LOAD-TESTING.md (evidence text only)
+escalation: review

@@ -1,6 +1,6 @@
 id: M2-batch37e-loadtest-royale-accounting
 title: "Loadtest harness: mark post-over server closes as graceful; revisit royale word-search geometry"
-status: queued
+status: merged_green
 priority: low
 complexity: small
 inputs:
@@ -21,3 +21,8 @@ file_ownership:
   - server/cmd/loadtest/
   - docs/M2-LOAD-TESTING.md (verdict text only)
 escalation: none
+evidence:
+  - "PR #63 (merged 835a101). The task's premise was incomplete: the harness did not merely mis-count post-over closes - it read no deltas at all, so in delta mode it flew the board it received at dial time and never saw the terminal frame. That single defect produced BOTH 37B royale-leg readings (seats_dropped == seats and the accepted plateau)."
+  - "Fix: protocol.ApplyDelta under the base_version rule (a delta the seat cannot apply is dropped and counted as deltas_stale; the next full snapshot self-heals), the terminal frame recognised from either frame kind, post-terminal closes counted in seats_closed_after_over and never folded into seats_dropped (35C limiter accounting intact), websocket close statuses reported by code."
+  - "Measured on the same 4-seat 195 s leg against an isolated instance: pre-38C dropped=4 intents=368 accepted=15; classification-only dropped=4 closes 1011x4; delta-aware dropped=0 closes 1000x4 intents=48 accepted=12 deltas_stale=0. Artifacts artifacts-38c/prefix-royale.json, fixed-royale.json, fixed2-royale.json."
+  - "Royale note published in docs/M2-LOAD-TESTING.md 'Batch 38C': a small-roster Royale board is cleared in ~24 s (server log lifecycle=over ticks=721), post-over intents return MATCH_NOT_ACTIVE rather than closing the socket, and what the server removes ~3 s after the terminal frame is the room, not the socket."

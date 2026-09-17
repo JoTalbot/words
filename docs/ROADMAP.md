@@ -272,6 +272,18 @@ Exit gate: two remote clients can complete repeated matches with identical final
   goroutine leak nothing else saw - fixed in **batch 38A** (PR #61) with a
   regression test and a post-fix confirmation soak (v3: legs drain back to
   baseline goroutines/RSS). Verdict: docs/M2-LOAD-TESTING.md "Soak verdict".
+  Batch 38C then re-read the soak's two royale-leg findings and found they were
+  one harness defect, not two artifacts: the harness consumed only full
+  snapshots, and the server stops sending them once a subscriber is on deltas,
+  so the harness flew a board frozen at dial time and never observed the match
+  end (the terminal state arrives as a delta). It now reconstructs state with
+  `protocol.ApplyDelta` under the protocol's `base_version` rule, recognises the
+  terminal frame from either frame kind, and reports post-terminal closes in
+  their own field instead of counting them as drops. Corrected 4-seat leg:
+  `seats_dropped` 0 with normal closes (was 4 with 1011s). The same run also
+  established that a small-roster Royale board is cleared in ~24 s by a machine
+  client, so few-seat legs largely measure post-match time - a Royale-sized
+  roster is what measures scoring pressure. Task 37E is closed on this evidence.
 
 ## M3 — Feature Complete Beta
 
