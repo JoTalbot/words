@@ -32,6 +32,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// seatWindowKey identifies one seat of one match.
+//
+// The key was once the packed integer matchID<<1|seat, which is unique only for
+// a two-seat roster. At n seats, match m seat s packed to the same integer as
+// match m+1 seat s-2, so two unrelated matches shared one per-second budget and
+// a seat could be throttled by activity in another match entirely. The same
+// packing let clearSeatWindows name only seats 0 and 1, so every higher seat's
+// timestamps stayed in the map for the life of the process - a leak that grows
+// with the intents of every roster above two seats. A struct key cannot
+// collide, and it lets cleanup name exactly the seats of the match that ended.
+type seatWindowKey struct {
+	matchID uint64
+	seat    int
+}
+
 // API hosts the M0 dev transport: match creation over HTTP, live play over
 // WebSocket (binary Protobuf envelopes). Rooms are in-memory; the protocol
 // and the deterministic simulation are the product surface.
@@ -78,8 +93,9 @@ type API struct {
 	// intentsPerSec caps word intents per seat per second (transport-level
 	// abuse guard; does not affect match determinism). 0 disables the limit.
 	intentsPerSec int
-	// seatWindows holds recent intent timestamps per seat (matchID<<1|seat).
-	seatWindows map[uint64][]time.Time
+	// seatWindows holds recent intent timestamps per seat, keyed by the exact
+	// (match, seat) pair. See seatWindowKey for why the key is not an integer.
+	seatWindows map[seatWindowKey][]time.Time
 	seatWinMu   sync.Mutex
 
 	// profiles is the player registry (ProfileRepo: in-memory by default,
@@ -306,7 +322,7 @@ func newAPI(profiles ProfileRepo, resultRepo ResultRepo, pgDB *sql.DB) *API {
 		requireReadCap:    envBool("WORDARENA_REQUIRE_READ_CAPABILITY", false),
 		mm:                newMatchmaker(),
 		intentsPerSec:     envInt("WORDARENA_INTENTS_PER_SEC", 60),
-		seatWindows:       map[uint64][]time.Time{},
+		seatWindows:       map[seatWindowKey][]time.Time{},
 		profiles:          profiles,
 		profiled:          map[uint64]bool{},
 		resultRepo:        resultRepo,
@@ -406,7 +422,7 @@ func (a *API) allowIntent(matchID uint64, seat int) bool {
 	if a.intentsPerSec <= 0 {
 		return true
 	}
-	key := matchID<<1 | uint64(seat)
+	key := seatWindowKey{matchID: matchID, seat: seat}
 	now := time.Now()
 	cutoff := now.Add(-time.Second)
 
@@ -435,12 +451,15 @@ func (a *API) isProfiledMatch(id uint64) bool {
 	return a.profiled[id]
 }
 
-// clearSeatWindows drops the rate-limit state for a finished match.
-func (a *API) clearSeatWindows(matchID uint64) {
+// clearSeatWindows drops the rate-limit state for a finished match. The roster
+// size is required, because seats are no longer packed into an integer a caller
+// could enumerate from the match id alone.
+func (a *API) clearSeatWindows(matchID uint64, seats int) {
 	a.seatWinMu.Lock()
-	delete(a.seatWindows, matchID<<1)
-	delete(a.seatWindows, matchID<<1|1)
-	a.seatWinMu.Unlock()
+	defer a.seatWinMu.Unlock()
+	for seat := 0; seat < seats; seat++ {
+		delete(a.seatWindows, seatWindowKey{matchID: matchID, seat: seat})
+	}
 }
 
 // reapResults removes match results older than resultTTL. Called by the
@@ -1147,7 +1166,7 @@ func (a *API) runRoomTicker(id uint64, room *matchroom.Room) {
 				a.mu.Lock()
 				delete(a.rooms, id)
 				a.mu.Unlock()
-				a.clearSeatWindows(id)
+				a.clearSeatWindows(id, room.Seats())
 				a.pveMu.Lock()
 				delete(a.pve, id)
 				a.pveMu.Unlock()
