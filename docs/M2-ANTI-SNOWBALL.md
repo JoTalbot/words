@@ -261,6 +261,98 @@ parts:
    That is now evidence-motivated rather than speculative, and it is a
    separate rules change with its own batch.
 
+## The volume lever: a per-seat bonus budget (batch 36A)
+
+35D closed the selection family and named volume as the next lever: the harm at
+8+ seats tracked the total bonus points a match handed out (3840 pts @60 opens
+the final gap by 103%), and the fire rate stayed pinned at 100% for every
+threshold, because with tens of seats somebody is always far behind. So the
+question 36A asks is not *who* is helped but *how much*: `CatchUpParams.BonusBudget`,
+the maximum total catch-up bonus one seat may absorb in a match. Zero means no
+budget, which is exactly 32C/35A/35D; a budget clamps rather than gates, so the
+invariant "a seat's lifetime bonus == min(budget, unbounded)" holds to the point.
+
+Run: 24 seeds x rosters 2/8/30/60 x sets `default,b128,b64,b32,b16,b8` = 576
+variant matches + 96 baselines, the 35A/35D grid and seed list unchanged so the
+rows stay comparable. Executed on the sandbox host (2 vCPU, x86_64) rather than
+the OCI box, and that choice is evidence-backed rather than convenient: the
+`default` row reproduced the 35D published numbers **bit for bit** on different
+architecture (fire 87.5%, gap 20.1 -> 12.8, flip 12.5%) - which is PD-003
+holding across machines, and the cross-check that the harness did not move the
+simulation. Shard wall times 1638/1731 s (spread 1.06x, the 35D roster-outer
+order still working). Artifacts `artifacts-36a/` on the OCI host and in the
+session sandbox; binary `sha256 d4b65cb3...`.
+
+`vol%` is the set's bonus volume as a share of the unlimited run's, at the same
+roster - the quantity the lever is meant to control. `closed` counts pairs whose
+final leader-to-last gap got **smaller**, out of 24: the only column that says
+"catch-up happened".
+
+| set | vol% @2 | gap @2 | closed @2 | vol% @8 | gap @8 | closed @8 | vol% @30 | gap @30 | closed @30 | vol% @60 | gap @60 | closed @60 |
+|-----|---------|--------|-----------|---------|--------|-----------|----------|---------|------------|----------|---------|------------|
+| default | 100 | 20.1 -> 12.8 | 14 | 100 | 93.9 -> 157.0 | 2 | 100 | 66.8 -> 205.3 | 0 | 100 | 129.8 -> 263.5 | 0 |
+| b128 | 75.6 | 20.1 -> 13.8 | 14 | 94.6 | 93.9 -> 150.8 | 2 | 85.1 | 66.8 -> 175.0 | 0 | 84.9 | 129.8 -> 236.2 | 0 |
+| b64 | 49.6 | 20.1 -> 15.9 | 10 | 73.3 | 93.9 -> 127.4 | 2 | 52.3 | 66.8 -> 124.4 | 0 | 51.6 | 129.8 -> 186.4 | 0 |
+| b32 | 25.8 | 20.1 -> 15.9 | 9 | 48.9 | 93.9 -> 107.5 | 3 | 29.0 | 66.8 -> 93.9 | 0 | 27.3 | 129.8 -> 157.3 | 0 |
+| b16 | 13.2 | 20.1 -> 16.3 | 9 | 27.5 | 93.9 -> 98.6 | 2 | 16.0 | 66.8 -> 78.2 | 2 | 13.7 | 129.8 -> 142.5 | 0 |
+| b8 | 6.9 | 20.1 -> 17.3 | 9 | 14.1 | 93.9 -> 96.6 | 2 | 8.4 | 66.8 -> 72.6 | 3 | 6.9 | 129.8 -> 135.4 | 0 |
+
+**The lever works mechanically, and that is all it does.** Volume falls with the
+budget and the damage falls with the volume, monotonically, at every roster:
+@60 the gap inflation runs +103% -> +82% -> +43.5% -> +21.1% -> +9.7% -> +4.3%
+as the budget runs 128 -> 8. The safety invariant held on all 576 pairs (no
+match's total bonus exceeded roster x budget, zero exceptions), and winner
+instability at 60 seats tracks it the same way: flips 50% -> 29% -> 17% -> 17%
+-> 12.5% -> 8.3%. A budget therefore genuinely bounds what the rule can do.
+
+**It never buys catch-up at scale; it buys silence.** `closed` is 0/24 at 30 and
+60 seats for *every* budget - the same per-pair statement that made 35D's result
+negative - and at 8 seats it never exceeds 3/24, which is what cutting the volume
+to 14% of the unlimited run should produce: a rule that mostly does not fire
+meaningfully. The budget is a mute button, not a tuning knob.
+
+**And the mute is paid for out of the duel, where the rule is locked good.** At
+roster 2, closing pairs run 14/24 -> 10 -> 9 -> 9 -> 9 as the budget tightens,
+and the gap the rule closes falls 36.6% -> 21.1% -> 19.0% -> 13.9%. `b128` is the
+only setting that leaves the duel's per-pair behaviour untouched (14/24 closed,
+20.1 -> 13.8, 75.6% of the volume) - and at 60 seats it still opens the gap by
+82%. There is no point on this grid that is both duel-preserving and Royale-safe:
+the budget's effect at 60 requires a ceiling so low it removes a third of the
+duel's benefit.
+
+One number is worth recording without over-reading it: `b16` and `b8` at 30 seats
+close 2/24 and 3/24 pairs - the first *non-zero* closing counts any configuration
+in the whole 35A/35D/36A program has produced at 8+ seats. At n=24 that is noise,
+not a result (a 0/24 -> 3/24 shift is not distinguishable from chance), and it is
+listed here so a future pass does not have to rediscover it. If it were real it
+would say something specific: that the rule helps at scale only when it is nearly
+turned off - which is an argument for the board, not for the bonus.
+
+Saturation, for the record: at 60 seats a budget uses only 42-55% of its own
+ceiling on average (mean total 265-3262 against a 480-7680 ceiling). The budget
+is clipping the heavy tail, not the typical seat - consistent with 35D's finding
+that the pathology is repeated helping of the same chasers.
+
+**Decision (2026-09-17, closes the volume lever).**
+
+1. `BonusBudget` **stays in the code** as measured infrastructure, exactly as
+   `GapPercent` did after 35D: default 0 is the legacy unlimited behaviour (pinned
+   by test), the clamp is a safety property worth having, and the ledger makes
+   "why did this seat stop being helped" answerable from the event log.
+2. **Nothing is provisioned.** No budget at the duel (it costs 5 of 14 closing
+   pairs and a third of the measured benefit), and no budget at 8+ (it cannot
+   close a single pair there at 30/60 seats). The flag stays opt-in and the
+   Royale recommendation from 35D is unchanged: leave it OFF.
+3. **The point-redistribution family is now closed.** Selection (35A: thresholds
+   inflate at 8+), leader-relative selection (35D: still inflate, 0/24 close),
+   and volume (36A: bounded inflation, 0/24 close, duel degraded) have each been
+   measured with the same grid and the same seeds. A mechanic that pays losing
+   seats cannot be tuned into catch-up at Royale size, because at that size "the
+   leader" is not a person - it is a rotating seat, and every bonus moves the
+   crown instead of closing a distance. The remaining lever on the row is the
+   only one that changes who can score rather than who is paid: **board-side**
+   (leader lock duration, steal economics), with its own evidence.
+
 ## Validation
 
 `server/internal/match/antisnowball_test.go`:
@@ -273,4 +365,10 @@ parts:
 | `TestCatchUpBonusIsCapped` | The cap binds on the rule and through a real submission. |
 | `TestCatchUpBonusIgnoresEliminatedLeaders` | A spectator's frozen score does not define the gap. |
 | `TestCatchUpDoesNotRepriceSteals` | The steal debit is identical with the rule on and off. |
+| `TestCatchUpBudgetZeroIsTheLegacyUnlimitedBehaviour` | An unreachable budget is indistinguishable from none (32C/35A/35D data stays comparable). |
+| `TestCatchUpBudgetClampsTheWordThatRunsItOut` | The word that crosses the line earns the remainder, then nothing - a bound, not a cliff. |
+| `TestCatchUpBudgetIsPerSeatNotAMatchPool` | Every trailing seat can absorb the whole budget; it is not a shared pool. |
+| `TestCatchUpBudgetIsANeverExceededBound` | Lifetime bonus == min(budget, unbounded), exactly, over a sweep of budgets. |
+| `TestCatchUpNegativeBudgetAwardsNothing` | A nonsensical negative resolves to "allows nothing", never to "unlimited". |
+| `TestCatchUpBudgetReplaysExactly` | The ledger is derived: same driven words, same fingerprint. |
 | `TestAntiSnowballIsDeterministicAndParticipatesInTheFingerprint` | Same log, same outcome; the rule is visible in the fingerprint. |
