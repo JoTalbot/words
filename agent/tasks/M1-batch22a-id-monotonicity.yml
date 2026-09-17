@@ -3,7 +3,7 @@ title: Resume durable match ids after a restart (no cross-match result aliasing)
 owner: backend
 priority: critical
 complexity: small
-status: verified_local_pending_ci
+status: merged_green
 found_by: live re-verification of the promoted OCI deployment (infra/smoke.sh against the systemd service)
 inputs:
   - server/cmd/game/store.go (ResultRepo)

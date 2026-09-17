@@ -5,7 +5,7 @@ title: >-
 owner: orchestrator (gameplay/product lane, Q11 settled as part of this batch)
 priority: high
 complexity: medium
-status: merged_pending_ci
+status: merged_green
 inputs:
   - docs/ROADMAP.md M2 row "first PvE content"
   - docs/M2-BOT-POLICY.md and docs/PRODUCT-DECISIONS.md Q5 (the disclosure rules

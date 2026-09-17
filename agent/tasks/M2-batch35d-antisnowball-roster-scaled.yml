@@ -1,6 +1,6 @@
 id: M2-batch35d-antisnowball-roster-scaled
 title: "Anti-snowball roster-scaled (leader-relative) trigger: mechanism + calibration sweep"
-status: results_documented_decision_negative_pr_open
+status: merged_green
 priority: high
 complexity: medium
 dependencies:

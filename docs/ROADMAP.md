@@ -179,7 +179,12 @@ Exit gate: two remote clients can complete repeated matches with identical final
   practice match replays like any other and the opponent has no privileged path
   in the simulation. Ships behind `WORDARENA_ALLOW_BOT_SEATS` (default off), 1v1
   only, and polite by default (3-4 letter words, 1.5 s between them, never
-  steals). REMAINING: difficulty selection and any tutorial framing.
+  steals). Difficulty selection landed in **batch 35B** (PR #52, merged):
+  `pve_difficulty: easy|normal|hard` on `POST /v1/matches`, unknown names and
+  difficulty-without-pve refused with 400, and `hard` measured to play
+  strictly more words than `easy` on the same seed - the preset changes the
+  opponent, not the label. REMAINING: tutorial framing (Q11 leaves it open by
+  name, and nothing is blocked on it).
 - [x] guild foundation - **batch 32G** (docs/M2-GUILDS.md): guilds, rosters and
   the identity primitive they need, because the server had no durable way to
   say who a caller is. `POST /v1/players` now returns a per-profile owner token

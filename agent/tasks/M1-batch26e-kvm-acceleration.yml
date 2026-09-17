@@ -3,7 +3,7 @@ title: Stop the hosted emulator booting with -accel off, the root cause of the d
 owner: qa-infra
 priority: high
 complexity: small
-status: validated_static_pending_ci
+status: merged_green
 risk: medium
 escalation: none
 

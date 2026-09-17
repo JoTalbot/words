@@ -5,7 +5,7 @@ title: >-
 owner: orchestrator (gameplay/product lane, Q12 settled as part of this batch)
 priority: high
 complexity: large
-status: merged_pending_ci
+status: merged_green
 inputs:
   - docs/ROADMAP.md M2 row "guild foundation" (flagged as needing a design note
     first)

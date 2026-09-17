@@ -215,3 +215,11 @@ jobs:
 
       - name: Validate the task graph
         run: python3 tools/check-task-yaml.py
+
+      # The same guarantee for the file sessions actually resume from. It was
+      # broken twice in ways nothing read: an unquoted ": " made it
+      # unparseable, and a key repeated inside session 5 silently dropped one
+      # of its two values. Task files are the graph, current.yml is the
+      # handoff, and a handoff a reader cannot load is worse than none.
+      - name: Validate the resume state file
+        run: python3 tools/check-state-yaml.py

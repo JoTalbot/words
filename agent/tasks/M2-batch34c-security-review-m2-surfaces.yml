@@ -5,7 +5,7 @@ title: >-
 owner: orchestrator (security lane)
 priority: high
 complexity: medium
-status: validated_local_ci_pending
+status: merged_green
 inputs:
   - server/cmd/game/guild_api.go, guild.go, profile.go, store_pg.go (the 32G
     identity + guild surface)

@@ -5,7 +5,7 @@ title: >-
 owner: orchestrator (protocol/architecture lane)
 priority: critical
 complexity: large
-status: merged_pending_device_leg_untouched
+status: merged_green
 inputs:
   - proto/wordarena/v1/match.proto (MatchStateSnapshot, ServerEnvelope)
   - server/internal/protocol/convert.go (SnapshotToProto)

@@ -7,8 +7,7 @@ main_head_at_session_start: e867ebb
 session:
   5:
     what: "Batch 35D end-to-end: GapPercent mechanism + tests, balanced sharding, server sweep, negative-result decision, docs, PR #54"
-    merges_this_session: []   # 35A/35B/35C merged in sessions 3-4 (PRs #51/#52/#53); 35D PR #54 open
-    merges_this_session: ["35D PR #54 -> 5b22fcd"]
+    merges_this_session: ["35D PR #54 -> 5b22fcd"]   # 35A/35B/35C merged in sessions 3-4 (PRs #51/#52/#53)
     next_action: "pick next batch: combo cap (volume lever, 35D evidence points here), board-side levers, or guild product-input items"
 
 m2_remaining:
@@ -33,7 +32,7 @@ server:
 
 sandbox:
   artifacts_35d: /home/user/artifacts-35d/ (sweep-full.json + 4 shards + run-meta.json)
-  analyze_script: /home/user/analyze-35d.py (NOTE: first version used wrong field names; the inline python in session used the real schema: pair-level bonus_fired/final_gap_off/final_gap_on/winner_flipped, variant bonus_points/ bonus_events OMITTED when zero — always .get(...,0))
+  analyze_script: "/home/user/analyze-35d.py (NOTE: first version used wrong field names; the inline python in session used the real schema: pair-level bonus_fired/final_gap_off/final_gap_on/winner_flipped, variant bonus_points/ bonus_events OMITTED when zero — always .get(...,0))"
   ssh_tunnel: id ...b1166232 port 28081 may still run — kill when convenient (not needed)
 
 resume_from:

@@ -1,6 +1,6 @@
 id: M2-batch35a-antisnowball-calibration
 title: "Anti-snowball calibration: per-match HTTP opt-in + simulation sweep (rebuild of lost batch 34B)"
-status: code_complete_sweep_done_results_documented_pending_ci
+status: merged_green
 priority: high
 complexity: large
 dependencies:

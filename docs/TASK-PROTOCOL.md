@@ -136,6 +136,15 @@ prints the status vocabulary it sees, so vocabulary drift stays visible without
 being frozen into an enum. `tools/normalize-task-yaml.py` is the repair tool and
 is never run by CI.
 
+The same rule covers the handoff file: `tools/check-state-yaml.py` (also in
+Container-smoke) requires `agent/state/current.yml` to parse, to carry
+`last_verified_commit`, `session`, `m2_remaining`, `facts_non_relitigable`,
+`server` and `resume_from`, and to have no key repeated inside one mapping.
+Both checks exist because that file was committed twice in a state a session
+could not read - once unparseable (an unquoted `: ` inside a note), once with
+`session.5.merges_this_session` written twice so the first value vanished
+without a word. A duplicate key is valid YAML, so only a textual scan finds it.
+
 Why this exists: when the rule was introduced, 13 of 28 task files could not be
 parsed at all, and several others had silently become single-entry mappings
 because a description contained ": " — for example a validation step written as
