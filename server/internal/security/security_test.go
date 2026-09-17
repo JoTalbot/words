@@ -163,6 +163,44 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
+func TestClientIPCFConnectingIPPrecedence(t *testing.T) {
+	// Behind Cloudflare (the Q8 stage-1 quick tunnel), CF-Connecting-IP is
+	// the only edge-guaranteed source: the edge REPLACES any client-supplied
+	// value, while X-Forwarded-For is only appended to, so its first entry
+	// stays client-controlled. trustProxy must therefore key on
+	// CF-Connecting-IP when present - otherwise one abuser could mint
+	// unlimited per-caller identities by varying the XFF first entry.
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "127.0.0.1:1234"                     // cloudflared always shows up as loopback
+	r.Header.Set("X-Forwarded-For", "1.1.1.1, 2.2.2.2") // client-injected first entry
+	r.Header.Set("CF-Connecting-IP", "203.0.113.50")
+	if got := ClientIP(r, true); got != "203.0.113.50" {
+		t.Errorf("trusted proxy with CF header: got %q, want CF-Connecting-IP (XFF first entry is client-controlled behind the edge)", got)
+	}
+	// A client sending both headers must not be able to steer the key: the
+	// spoofed XFF first entry loses to the edge-replaced CF value.
+	r.Header.Set("X-Forwarded-For", "6.6.6.6")
+	r.Header.Set("CF-Connecting-IP", "203.0.113.51")
+	if got := ClientIP(r, true); got != "203.0.113.51" {
+		t.Errorf("spoof attempt via XFF first entry: got %q, want the CF edge value", got)
+	}
+	// Without the CF header (non-Cloudflare proxy) the documented XFF
+	// behaviour is unchanged.
+	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r2.RemoteAddr = "10.0.0.5:8080"
+	r2.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	if got := ClientIP(r2, true); got != "10.0.0.1" {
+		t.Errorf("no CF header: got %q, want the XFF fallback", got)
+	}
+	// And with trust off, CF-Connecting-IP is as ignored as XFF.
+	r3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r3.RemoteAddr = "198.51.100.9:9000"
+	r3.Header.Set("CF-Connecting-IP", "203.0.113.60")
+	if got := ClientIP(r3, false); got != "198.51.100.9" {
+		t.Errorf("untrusted proxy with CF header: got %q, want the socket peer", got)
+	}
+}
+
 func TestValidateNickname(t *testing.T) {
 	ok := []string{"alice", "smoke-bot", "O.B_2", "Жасмин", "Укр_Мова", "x"}
 	for _, n := range ok {
