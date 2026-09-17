@@ -1,0 +1,41 @@
+id: M2-batch36c-loadtest-drain
+title: "CI reliability: stop the load harness from discarding its own in-flight acks"
+status: validated_local_stress_green_pending_ci
+priority: high
+complexity: medium
+dependencies:
+  - M2 batch 32F (the load harness, merged)
+  - M2 batch 35C (the per-seat dropped-seat accounting, merged)
+inputs:
+  - server/cmd/loadtest/main.go (playSeat select, run drain window)
+  - server/cmd/loadtest/loadtest_test.go (the sent==acked invariant)
+  - GitHub Actions logs for run 35171043492 (36A), 35158827252 (35D), 35150969017 (35C), 35148525043 (main)
+outputs:
+  - a drain mode in playSeat: stop submitting, keep matching acks, return when this seat has nothing outstanding
+  - the run() drain window reordered so close(stopCh) precedes the sleep instead of following it
+  - the flake's mechanism recorded in code comments where the next reader will look
+acceptance:
+  - "the failure is reproduced as a harness ordering defect, not assumed: the harness wrote intents until the very instant it cancelled its own readers, and the write that raced the cancelled context was counted as a transport error"
+  - "loadtest_test.go assertions are NOT relaxed - the same invariants (sent==acked, zero transport errors, zero dropped seats) must pass on the fixed code"
+  - "TestHarnessRunsASmallLoadAgainstARealServer passes repeatedly under CPU oversubscription on the sandbox, and the pre-fix code fails that same stress"
+  - "go build ./... && go vet ./... green"
+validation:
+  - "cd server && go test -count=12 -run TestHarnessRunsASmallLoadAgainstARealServer ./cmd/loadtest/"
+  - "the same -count=12 run against the pre-fix tree under load, to show the difference is the fix and not luck"
+evidence: |
+  Run 2026-09-17 on the 2 vCPU sandbox, each arm with four extra busy-loop
+  processes so the runner is oversubscribed the way a loaded CI worker is.
+  Fixed code: 12/12 pass (133.9s). Pre-fix code, same stress: 2 of 12 failed with
+  the two CI signatures verbatim - "sent 157 intents but got 156 acks" and
+  "transport errors: read 0 write 1". The same numbers, not merely the same
+  message: that is what makes this a reproduction rather than a guess.
+risk: low
+escalation: none
+file_ownership:
+  - server/cmd/loadtest/main.go
+notes: |
+  Classified as a test/harness defect by evidence, not by preference: the same
+  assertion failed on main and on three unrelated branches, always in this single
+  test, and none of those branches touched cmd/loadtest. The pre-existing
+  2-second "drain" was real code doing the opposite of its comment: it slept
+  while the senders kept sending, then cancel() ended the readers.
