@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-17 (session 10: 39B Royale capacity curve, 40A M3 behavioral-signal kickoff, live promoted to 53a016c)
+# Updated: 2026-09-17 (session 11: 41A signal pair 2, 39C intent decomposition measured, 41B telemetry-drain test fix, live promoted to 6e8fac0)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "53a016c"
+last_verified_commit: "6e8fac0"
 
 session:
   7:
@@ -45,6 +45,15 @@ session:
     merges_this_session: ["39B PR #71 -> 3082238", "40A PR #70 -> 53a016c (second push added dashboard panel 11 after the drift gate caught the un-plotted metrics)"]
     next_action: "M3 measurement lane is open and owner-independent: richer signals per docs/M3-ANTI-CHEAT.md Known limits (word-length vs submit-timing impossibilities, dictionary-oracle probing patterns, cross-match aggregation per user once identity matures), and the optional Royale wire diet is now de-ranked by 39A data (word_event fan-out dominates). The release gate still waits only on the seven owner questions in GitHub issue #1. Nothing in M3 measurement is blocked and no owner answer is required to continue this lane."
 
+  11:
+    what: "Session 11 continued the M3 measurement lane and closed the 39B tooling limitation, again without owner input. Three batches merged (41A signals pair 2, 39C harness decomposition, 41B a test race the new signals exposed), the live service was promoted to main and fully re-verified. The seven owner questions are unchanged and still gate nothing in engineering."
+    batch_41a: "MERGED via PR #73 -> 1e84eac. Behavioral signals pair 2, measurement only: word_probe (the SAME word string rejected 5 times in one match - dictionary-oracle probing, not typos; only the three rejection classes advance it; per (seat, word) episode) and flash_path (>= 4-cell path within 400 ms of that seat previous submit, once per seat per match; server clock only). Both edge-triggered with fixed thresholds, exported as fixed-cardinality counters with panel 11 targets - the batch-20 drift gate required the plots and got them. 4 new deterministic tests."
+    batch_39c: "MERGED via PR #74 (code) + PR #75 (evidence) -> 6e8fac0. The load harness now parses wordarena_intent_process_us out of GET /metrics and the report carries server_intent_process_us {count, sum_us, mean_us, p95_us_floor} - closing the limitation 39B recorded. Verification leg 2x60 (240 s, isolated on 127.0.0.1:18105, main b402d8a build): client RTT p50 12.0 ms / p95 41.9 ms vs server submit mean 571 us / p95 floor 2.5 ms - the server is about 5 percent of the median path, so the 39B generator-side reading STANDS, now measured; the server mean reproduces the 35C off-box 0.57 ms exactly at 60x the seats; the submit tail is roster-shaped (1v1: 84 percent under 50 us; a 60-seat room p95: 2.5 ms floor) but small in absolute terms. Every future leg ships this decomposition for free."
+    batch_41b: "MERGED via PR #76 -> 5e4e780. The first CI run of the 39C evidence branch failed Go tests with telemetry stats dropped 1/0 errors: TestTelemetryJSONLExport stopped the API after the first three WRITTEN events, and with 41A signals adding legitimate events to the same stream, Stop caught the exporter mid-flight and counted buffered work as dropped. Fix: waitForTelemetryDrain waits until written covers enqueued before Stop, so the exporter-health assertion stays deterministic whatever events gameplay emits next. Test-only. The 39C branch then merged main (41B) for a green gate - the documented pattern."
+    promotion: "LIVE PROMOTED to 6e8fac0 at 2026-09-17 ~14:05 UTC (sha24 dde68c71eafced0f6bad1b51, prev kept, copy-then-rename, restart). Verified: service active NRestarts=0, /healthz ok, /readyz ready storage=postgres, all five behavioral counters live in /metrics, infra/smoke.sh 27 passed / 0 failed (postgres), deterministic exit gate 6/6 PASS reproducing the baseline scores exactly (43:45 / 37:60 / 44:40)."
+    merges_this_session: ["41A PR #73 -> 1e84eac", "39C PR #74 -> b402d8a", "39C evidence PR #75 -> 6e8fac0 (after merging 41B main for a green gate)", "41B PR #76 -> 5e4e780"]
+    next_action: "M3 measurement lane continues owner-independently: cross-match aggregation per user stays parked on identity maturity; candidate next signals and the boundary remain in docs/M3-ANTI-CHEAT.md. Optional measurement: add the server-intent decomposition column to the capacity-curve table on the next multi-room leg. The release gate still waits only on the seven owner questions in GitHub issue #1."
+
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
@@ -63,7 +72,7 @@ facts_non_relitigable:
 server:
   host: 129.213.177.56
   key: "/home/user/.ssh/oci_server_key (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 53a016c); live binary /opt/words/bin/wordarena-server serves 53a016c (sha24 5b4467c25c6de39fffbdc581, promoted 2026-09-17 ~13:25 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
+  deploy_checkout: "/opt/words (clean, main 6e8fac0); live binary /opt/words/bin/wordarena-server serves 6e8fac0 (sha24 dde68c71eafced0f6bad1b51, promoted 2026-09-17 ~14:05 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
   live_service: "wordarena.service active on 24acdd7 (promoted 2026-09-17 10:33 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
   tunnel_url: "https://hour-define-resistant-roan.trycloudflare.com (ephemeral quick tunnel; re-read from /var/log/words-tunnel.log after any tunnel restart and refresh the WORDS_SERVER_URL repo variable - a stale URL fails DNS, which is exactly what happened this session)"
   worktrees: "wt/batch18 and wt/proto-version remain (historical, untouched)"
@@ -77,6 +86,5 @@ sandbox:
   ssh_key: "/home/user/.ssh/oci_server_key (chmod 600)"
 
 resume_from:
-  - "Session 10 merged 39B (capacity curve) and 40A (M3 behavioral signals, measurement only) and promoted live to 53a016c with smoke 27/0 and the exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
-  - "Continue the M3 measurement lane without owner input: the next signal candidates and the boundary are in docs/M3-ANTI-CHEAT.md (Known limits). Optional measurement work: scrape wordarena_intent_process_us in the capacity legs to close the 39B RTT-decomposition limitation."
-  - "The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running, so nothing is stalled."
+  - "Session 11 merged 41A (word_probe + flash_path), 39C (harness server-intent decomposition + measured 2x60 evidence), 41B (telemetry drain test fix) and promoted live to 6e8fac0 with smoke 27/0 and exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
+  - "Continue the M3 measurement lane per docs/M3-ANTI-CHEAT.md (boundary + candidate signals); the capacity curve gains a server-decomposition column on its next leg. The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running."
