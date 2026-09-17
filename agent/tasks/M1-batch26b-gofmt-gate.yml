@@ -3,7 +3,7 @@ title: Make formatting a merge precondition and clear the 8 files that had drift
 owner: qa-infra
 priority: normal
 complexity: trivial
-status: verified_local_pending_ci
+status: merged_green
 risk: low
 escalation: none
 

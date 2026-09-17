@@ -3,7 +3,7 @@ title: Unguessable match codes and a per-match read capability for result/replay
 owner: backend-security
 priority: high
 complexity: medium
-status: verified_local_pending_ci
+status: merged_green
 dependencies:
   - M1-batch21a-security-hardening
   - M1-batch19-schema-migrations

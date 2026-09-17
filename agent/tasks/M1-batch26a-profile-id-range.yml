@@ -3,7 +3,7 @@ title: Refuse out-of-range profile ids at the HTTP boundary instead of the pgx e
 owner: backend-security
 priority: high
 complexity: small
-status: verified_local_live_pending_ci
+status: merged_green
 risk: low
 escalation: none
 

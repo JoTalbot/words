@@ -3,7 +3,7 @@ title: Make the smoke replay assertion test match state instead of the capabilit
 owner: qa-infra
 priority: normal
 complexity: trivial
-status: verified_live_pending_ci
+status: merged_green
 risk: low
 escalation: none
 

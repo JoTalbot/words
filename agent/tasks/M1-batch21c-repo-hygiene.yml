@@ -3,7 +3,7 @@ title: Stop tracking build output and keep it out permanently
 owner: qa-infra
 priority: normal
 complexity: small
-status: verified_local_pending_ci
+status: merged_green
 delegated_to: local-llm qwen2.5:7b (draft) / orchestrator (implementation)
 inputs:
   - git ls-files

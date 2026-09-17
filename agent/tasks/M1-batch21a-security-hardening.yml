@@ -3,7 +3,7 @@ title: Transport abuse hardening and the M1 security review
 owner: backend-security
 priority: critical
 complexity: large
-status: verified_local_pending_ci
+status: merged_green
 inputs:
   - server/cmd/game/api.go (all HTTP/WS handlers)
   - server/cmd/game/main.go (listener timeouts)

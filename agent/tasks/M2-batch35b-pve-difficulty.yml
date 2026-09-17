@@ -1,6 +1,6 @@
 id: M2-batch35b-pve-difficulty
 title: "PvE difficulty selection: named presets (easy/normal/hard) behind the existing gate"
-status: code_complete_suite_green_pending_ci
+status: merged_green
 priority: normal
 complexity: medium
 dependencies:

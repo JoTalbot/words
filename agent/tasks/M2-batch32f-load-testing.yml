@@ -5,7 +5,7 @@ title: >-
 owner: orchestrator (infrastructure lane)
 priority: high
 complexity: medium
-status: merged_pending_ci
+status: merged_green
 inputs:
   - docs/LOAD-BASELINE.md (the 32A byte budget - 0.6-0.9 KB/s per client at 60
     seats, ~50 KB/s per lobby) and the frame layout it was derived from
