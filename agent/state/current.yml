@@ -4,7 +4,7 @@
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: 23e4a03   # main after PR #59 (37C); CI 6/6 green on the branch head pre-merge, suite 16/16 green locally
+last_verified_commit: e22504a   # main after PR #60 (37D pprof); CI 6/6 green pre-merge, suite 16/16 green locally
 
 session:
   7:
@@ -14,6 +14,7 @@ session:
     worktrees_pruned: "wt-35a/wt-35b/wt-35c removed from /opt/words worktree list; wt-35d (separate clone) deleted - every branch tip was an ancestor of origin/main (verified before removal). Historical wt/batch18 and wt/proto-version left untouched."
     batch_37c: "MERGED via PR #59 -> 23e4a03. ClientIP keys on CF-Connecting-IP when trustProxy is set (XFF-first was client-controllable behind Cloudflare - a per-IP limit built on it would have been strictly worse than the shared budget it replaced). Finding + dispositions in docs/SECURITY-EXPOSURE.md. Live config UNTOUCHED (trustProxy stays off; flipping it + /metrics deny is the stage-2 deploy step). One safe stage-2 prerequisite now landed without the owner domain."
     guild_items_analysis: "all six Q12-open items evaluated session 7 (micro-LLM draft reviewed and corrected by the orchestrator - its quality was insufficient to commit from, per protocol). Conclusion: each genuinely needs product input; the SAFE DEFAULT is the shipped status quo for every one (single owner, open-join foundation, cap 50 placeholder, guilds never affect matchmaking, owner token grows later). They block nothing in M2 - they are candidates for ONE consolidated owner question at the gate, not stallers."
+    batch_37d: "MERGED via PR #60 -> e22504a. Opt-in loopback-only pprof listener (WORDARENA_PPROF_ADDR, default off, own socket+mux, non-loopback refused at startup). Enables the profiled-matches half of the load-testing row. Profiled leg already executed against an isolated instance on 127.0.0.1:18100 (12x2, 300 s): created=12, 0 errors, 236/236 acks, p50 0.42 ms p99 3.8 ms, RSS 13.8->22.7 MB; 30 s CPU profile shows 0.83% CPU with top frames runtime syscalls/futex (idle-dominant; in-app frames tickLocks/writeFrame/protobuf <= 4% each) - the honest reading is that 12-room 1v1 load is far below the box, heap inuse 7.4 MB with the dictionary snapshot at 2.6 MB and NO leak signal. Captures in /home/ubuntu/artifacts-37b/ (cpu-profile-30s.pb.gz, heap-*.pb.gz, goroutine-*.txt)."
     soak_37b: "RUNNING since 05:18 UTC: 12 legs x 600 s against one isolated in-memory server on 127.0.0.1:18099 (never the live port; guard enforced), cycle 8x2/12x2/2x8. Leg-01 clean: created=8, 0 create/dial errors, 150/150 intents acked, p50 0.64 ms p99 5.5 ms, active_matches back to 0. Harness creates its cohort ONCE per leg (~180 s live window inside 600 s legs) - the duty cycle is measured and will be documented in the verdict, quiescent gaps double as quiescent-baseline-return checks. ETA ~07:20 UTC; artifacts /home/ubuntu/artifacts-37b/."
     next_action: "finish 37B (verdict into docs/M2-LOAD-TESTING.md, closes the load-testing REMAINING line); then the M2 gate is reachable except owner-blocked items (Q8 stage-2 domain, B2 uk licence, guild product inputs)."
 
