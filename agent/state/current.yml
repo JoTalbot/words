@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-17 (session 9: recovery verified session-8 closure; batch 39A corrected Royale-sized leg published, delta-mode caveat lifted)
+# Updated: 2026-09-17 (session 10: 39B Royale capacity curve, 40A M3 behavioral-signal kickoff, live promoted to 53a016c)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "7a542fe"
+last_verified_commit: "53a016c"
 
 session:
   7:
@@ -37,6 +37,14 @@ session:
     merges_this_session: ["39A PR #68 -> 7a542fe (CI + Container smoke green on the PR head; main checks re-verified after merge)"]
     next_action: "Engineering queue is empty again; the gate is the seven owner questions (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs). Optional non-blocking engineering if a future session must act without owner input: a multi-room Royale capacity leg (2x60 and up) to turn the single-room 39A numbers into a capacity curve, or a word_event wire diet now that 39A re-ranked the costs. Neither is a blocker."
 
+  10:
+    what: "Session 10 continued autonomously with the owner questions unanswered, on the two fallback items the resume note queued. Batch 39B turned the 39A single-room numbers into a capacity curve; batch 40A started the M3 behavioral anti-cheat row with the measurement-only layer; the live service was promoted to main and fully re-verified. No owner question was answered, so the gate list is unchanged and still blocks nothing in engineering."
+    batch_39b: "MERGED via PR #71 -> 3082238. Sequential isolated legs on the OCI host (ports 18103/18104, port guard, exact-pid teardown), main 5431786 builds. 2x60 (120 clients): CPU 2.35 percent of one core, RTT p50 15.2 ms, 418 B/s per client, zero anomalies. 4x60 (240 clients): CPU 5.09 percent, RTT p50 32.0 ms, 434 B/s per client, zero anomalies. CPU is linear at ~1.2-1.3 percent per 60-seat room (~75-80 full Royale lobbies before one core saturates), per-client wire is flat across room counts, RSS is sublinear (+4-7 MB per lobby), all six matches ran the full 180 s budget, and the RTT growth across sizes is recorded as generator-side with the histogram-decomposition limitation named. Section in docs/M2-LOAD-TESTING.md, artifacts in artifacts-39b/."
+    batch_40a: "MERGED via PR #70 -> 53a016c. M3 row 3 (behavioral anti-cheat signals) started with the half that needs no product decision: MEASUREMENT ONLY. Two deterministic per-seat signals on the intent path - rejection_streak (20 consecutive rejections, once per episode, re-armed by acceptance, MATCH_NOT_ACTIVE never counts) and metronomic_cadence (cv < 5 percent over >= 8 gaps, mean 200 ms..10 s; bursts belong to the rate limiter, idle is not a cadence) - plus an intent_rate_limited counter. Fixed-cardinality /metrics + Prometheus + behavior_signal JSONL events; per-seat context lives in events, never in metric labels. The enforcement boundary and its four owner-gated conditions are pinned in docs/M3-ANTI-CHEAT.md per the AGENTS.md multi-signal rule. 7 deterministic tests; the full cmd/game suite green. PROCESS CATCH: the first CI run failed BOTH gates that check the Grafana dashboard - the batch-20 drift guard correctly refuses emitted-but-never-plotted metrics. Fixed by panel 11 (behavioral signals) instead of weakening anything; the guard is exactly why the dashboard and the code cannot drift apart."
+    promotion: "LIVE PROMOTED to 53a016c at 2026-09-17 ~13:25 UTC by docs/M1-OPS.md: reset to origin/main, go vet clean, build sha24 5b4467c25c6de39fffbdc581, previous binary kept as .prev, copy-then-rename install, restart. Verified: installed sha equals the build, service active NRestarts=0, /healthz ok, /readyz ready storage=postgres, all four 40A metrics present in live /metrics, infra/smoke.sh 27 passed / 0 failed (SMOKE_EXPECT_STORAGE=postgres), deterministic exit gate 6/6 PASS reproducing the recorded baseline scores exactly (43:45 / 37:60 / 44:40, terminal_snapshots_equal and client_streams_equal true), quick tunnel still serving the APK-facing URL with edge 200."
+    merges_this_session: ["39B PR #71 -> 3082238", "40A PR #70 -> 53a016c (second push added dashboard panel 11 after the drift gate caught the un-plotted metrics)"]
+    next_action: "M3 measurement lane is open and owner-independent: richer signals per docs/M3-ANTI-CHEAT.md Known limits (word-length vs submit-timing impossibilities, dictionary-oracle probing patterns, cross-match aggregation per user once identity matures), and the optional Royale wire diet is now de-ranked by 39A data (word_event fan-out dominates). The release gate still waits only on the seven owner questions in GitHub issue #1. Nothing in M3 measurement is blocked and no owner answer is required to continue this lane."
+
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
@@ -55,7 +63,7 @@ facts_non_relitigable:
 server:
   host: 129.213.177.56
   key: "/home/user/.ssh/oci_server_key (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 7a542fe); live binary /opt/words/bin/wordarena serves 24acdd7 - main since 24acdd7 carried docs/tasks/state only, so live code equals main code (promoted 2026-09-17 10:33 UTC)"
+  deploy_checkout: "/opt/words (clean, main 53a016c); live binary /opt/words/bin/wordarena-server serves 53a016c (sha24 5b4467c25c6de39fffbdc581, promoted 2026-09-17 ~13:25 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
   live_service: "wordarena.service active on 24acdd7 (promoted 2026-09-17 10:33 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
   tunnel_url: "https://hour-define-resistant-roan.trycloudflare.com (ephemeral quick tunnel; re-read from /var/log/words-tunnel.log after any tunnel restart and refresh the WORDS_SERVER_URL repo variable - a stale URL fails DNS, which is exactly what happened this session)"
   worktrees: "wt/batch18 and wt/proto-version remain (historical, untouched)"
@@ -69,6 +77,6 @@ sandbox:
   ssh_key: "/home/user/.ssh/oci_server_key (chmod 600)"
 
 resume_from:
-  - "Session 9 closed the last queued engineering item (39A, PR #68 -> 7a542fe); main checks green after merge. No engineering work is queued."
-  - "The release gate now waits only on the seven owner questions published in GitHub issue #1: Q8 stage-2 (stable domain, edge per-IP limits, /metrics deny, public-token decision), B2 uk dictionary licence, Q1/Q2 confirmation of shipped prototype constants, Q7 soft-launch geography, Q6 LPI calibration, Q11 PvE tutorial framing, Q12 guild product inputs. Every one already has a safe documented default running, so nothing is stalled while they wait."
-  - "If a future session must act without owner answers: optional non-blocking work is a multi-room Royale capacity leg (2x60 and up) or a word_event wire diet (39A re-ranked the wire costs); both are improvements, not blockers."
+  - "Session 10 merged 39B (capacity curve) and 40A (M3 behavioral signals, measurement only) and promoted live to 53a016c with smoke 27/0 and the exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
+  - "Continue the M3 measurement lane without owner input: the next signal candidates and the boundary are in docs/M3-ANTI-CHEAT.md (Known limits). Optional measurement work: scrape wordarena_intent_process_us in the capacity legs to close the 39B RTT-decomposition limitation."
+  - "The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running, so nothing is stalled."
