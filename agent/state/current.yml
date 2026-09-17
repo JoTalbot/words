@@ -4,7 +4,7 @@
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: 662e786   # main after PR #58; CI + Container smoke green on the merge commit (runs at 05:03 UTC)
+last_verified_commit: 23e4a03   # main after PR #59 (37C); CI 6/6 green on the branch head pre-merge, suite 16/16 green locally
 
 session:
   7:
@@ -12,7 +12,10 @@ session:
     merges_this_session: ["36D PR #58 -> 662e786 (CI + Container smoke green on the merge commit)"]
     hygiene_37a: "task graph reopened clean - 71 files at start had 7 pending_* + 10 pending/awaiting/blocked suffixes, all closed on documented evidence (PRs #55/#57/#58, ROADMAP M1-exit device runs 34449018045/34772130697/34773815149/34782169182, live exit-gate history). tools/check-task-yaml.py: 72 files, 0 problems, vocabulary merged_green x43 / verified_device x10 / verified_live_oci x4."
     worktrees_pruned: "wt-35a/wt-35b/wt-35c removed from /opt/words worktree list; wt-35d (separate clone) deleted - every branch tip was an ancestor of origin/main (verified before removal). Historical wt/batch18 and wt/proto-version left untouched."
-    next_action: "batch 37B - multi-hour soak + profiled matches under load (the only REMAINING item on the load-testing row), then PvE tutorial framing and the guild product-input items analysis."
+    batch_37c: "MERGED via PR #59 -> 23e4a03. ClientIP keys on CF-Connecting-IP when trustProxy is set (XFF-first was client-controllable behind Cloudflare - a per-IP limit built on it would have been strictly worse than the shared budget it replaced). Finding + dispositions in docs/SECURITY-EXPOSURE.md. Live config UNTOUCHED (trustProxy stays off; flipping it + /metrics deny is the stage-2 deploy step). One safe stage-2 prerequisite now landed without the owner domain."
+    guild_items_analysis: "all six Q12-open items evaluated session 7 (micro-LLM draft reviewed and corrected by the orchestrator - its quality was insufficient to commit from, per protocol). Conclusion: each genuinely needs product input; the SAFE DEFAULT is the shipped status quo for every one (single owner, open-join foundation, cap 50 placeholder, guilds never affect matchmaking, owner token grows later). They block nothing in M2 - they are candidates for ONE consolidated owner question at the gate, not stallers."
+    soak_37b: "RUNNING since 05:18 UTC: 12 legs x 600 s against one isolated in-memory server on 127.0.0.1:18099 (never the live port; guard enforced), cycle 8x2/12x2/2x8. Leg-01 clean: created=8, 0 create/dial errors, 150/150 intents acked, p50 0.64 ms p99 5.5 ms, active_matches back to 0. Harness creates its cohort ONCE per leg (~180 s live window inside 600 s legs) - the duty cycle is measured and will be documented in the verdict, quiescent gaps double as quiescent-baseline-return checks. ETA ~07:20 UTC; artifacts /home/ubuntu/artifacts-37b/."
+    next_action: "finish 37B (verdict into docs/M2-LOAD-TESTING.md, closes the load-testing REMAINING line); then the M2 gate is reachable except owner-blocked items (Q8 stage-2 domain, B2 uk licence, guild product inputs)."
 
 m2_remaining:
   - "load testing - multi-hour soak + profiled matches under load (32F/35C covered the rest) = batch 37B, starts this session"

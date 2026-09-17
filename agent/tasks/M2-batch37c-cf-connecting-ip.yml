@@ -1,0 +1,25 @@
+id: M2-batch37c-cf-connecting-ip
+title: "Caller identity behind Cloudflare: key rate limits on CF-Connecting-IP, not spoofable XFF-first"
+status: merged_green
+priority: high
+complexity: small
+inputs:
+  - server/internal/security/security.go ClientIP
+  - docs/SECURITY-EXPOSURE.md (stage-1 exposure review)
+  - Q8 stage 2 prerequisite (docs/PRODUCT-DECISIONS.md)
+outputs:
+  - CF-Connecting-IP precedence in ClientIP with spoof-resistance test
+  - finding + dispositions appended to docs/SECURITY-EXPOSURE.md
+acceptance:
+  - CF header wins over a client-injected XFF first entry when trustProxy is set
+  - XFF fallback unchanged for non-Cloudflare proxies; trustProxy off behaviour byte-identical
+  - full server suite green on the branch; CI green on the PR
+validation:
+  - go test ./internal/security/ (TestClientIP, TestClientIPCFConnectingIPPrecedence)
+  - go test ./... (full suite run locally pre-push, 16/16 packages)
+risk: low
+file_ownership:
+  - server/internal/security/security.go
+  - server/internal/security/security_test.go
+  - docs/SECURITY-EXPOSURE.md
+escalation: none

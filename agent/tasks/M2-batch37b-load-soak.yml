@@ -1,0 +1,25 @@
+id: M2-batch37b-load-soak
+title: "Multi-hour soak of an isolated server: cross-leg churn, quiescent-baseline returns, RSS/FD/thread drift"
+status: running
+priority: normal
+complexity: medium
+inputs:
+  - tools/loadtest-isolated.sh (port safety pattern reused: WORDARENA_LOADTEST_PORT=18099, never the live 18080)
+  - server/cmd/loadtest (harness; creates its cohort once per leg - matches run their full ~180 s course)
+  - /home/ubuntu/artifacts-37b/ (legs, samples, server log, run-meta)
+outputs:
+  - 12 legs x 600 s against one isolated in-memory server (cycle 8x2 / 12x2 / 2x8 seats)
+  - per-leg JSON reports + per-sample RSS/FD/thread/loadavg sidecars + metrics scrapes
+  - verdict appended to docs/M2-LOAD-TESTING.md
+acceptance:
+  - all 12 legs complete with create_errors=0, dial_errors=0, seats_dropped=0
+  - post-leg active_matches returns to 0 every leg (no room leaks)
+  - RSS/FD/threads at leg end vs start drift is reported honestly (quiesced between legs)
+  - duty cycle (cohort created once per leg, ~180 s live window inside 600 s leg) is documented in the verdict
+validation:
+  - artifacts under /home/ubuntu/artifacts-37b/ plus docs/M2-LOAD-TESTING.md soak section
+risk: low
+file_ownership:
+  - docs/M2-LOAD-TESTING.md
+  - /home/ubuntu/artifacts-37b/ (host-only artifacts)
+escalation: none
