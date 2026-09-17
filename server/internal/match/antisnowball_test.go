@@ -439,3 +439,200 @@ func TestCatchUpScaledTriggerIsDeterministicInTheFingerprint(t *testing.T) {
 		t.Fatal("the scaled trigger is not deterministic")
 	}
 }
+
+// --- batch 36A: the volume lever (per-seat catch-up bonus budget) ----------
+//
+// 35D measured that at 8+ seats the harm tracks the TOTAL bonus volume rather
+// than which seats the trigger selects, so the budget is the lever the
+// evidence points at. These tests pin its contract: zero is the legacy
+// unlimited behaviour, it binds per seat, it clamps the word that runs a seat
+// out rather than denying it, it can never over-award, and it stays
+// deterministic.
+
+// budgetMatch builds the fixture match with a runaway leader, so every other
+// seat is eligible under any threshold and the only variable left is budget.
+func budgetMatch(t *testing.T, budget int) *Match {
+	t.Helper()
+	m := catchUpMatchWithParams(t, CatchUpParams{BonusBudget: budget})
+	m.players[0].Score = 1000
+	return m
+}
+
+// driveSeat plays the fixture's four disjoint words from one seat and returns
+// the per-word bonuses it earned, its score and the match fingerprint.
+func driveSeat(t *testing.T, m *Match, seat Seat) (bonuses []int, score int64, fp string) {
+	t.Helper()
+	for _, w := range []string{"cat", "dog", "fun", "run"} {
+		ev := submitWord(t, m, seat, w)
+		if ev.Result != ResultAccepted {
+			t.Fatalf("fixture word %q was %v", w, ev.Result)
+		}
+		bonuses = append(bonuses, int(ev.CatchUpBonus))
+	}
+	return bonuses, m.players[seat].Score, m.Fingerprint()
+}
+
+func TestCatchUpBudgetZeroIsTheLegacyUnlimitedBehaviour(t *testing.T) {
+	// The zero value must be a no-op: an unreachable budget is indistinguish-
+	// able from none, which is what keeps 32C/35A/35D data comparable and
+	// every existing baseline intact.
+	unlimited := budgetMatch(t, 0)
+	ub, us, uf := driveSeat(t, unlimited, 1)
+
+	huge := budgetMatch(t, 1<<20)
+	hb, hs, hf := driveSeat(t, huge, 1)
+
+	if us == 0 || ub[0] == 0 {
+		t.Fatal("the fixture awarded no bonus, so no budget could bind: the test is vacuous")
+	}
+	if !reflect.DeepEqual(ub, hb) || us != hs || uf != hf {
+		t.Fatalf("an unreachable budget changed the game: %v/%d/%s vs %v/%d/%s", ub, us, uf, hb, hs, hf)
+	}
+	if got := unlimited.CatchUpSpent(1); got != sum(ub) {
+		t.Fatalf("the ledger holds %d, the awarded bonuses sum to %d", got, sum(ub))
+	}
+}
+
+func TestCatchUpBudgetClampsTheWordThatRunsItOut(t *testing.T) {
+	// The point of a budget is a bound, not a cliff: the word that crosses the
+	// line earns exactly the remainder, and the next one earns nothing.
+	first := budgetMatch(t, 0)
+	b0, _, _ := driveSeat(t, first, 1)
+	if b0[0] < 2 {
+		t.Fatalf("the fixture's first bonus is %d, too small to split", b0[0])
+	}
+
+	// Budget == the first award: the second word must find nothing left.
+	exact := budgetMatch(t, b0[0])
+	e, _, _ := driveSeat(t, exact, 1)
+	if e[0] != b0[0] {
+		t.Fatalf("with budget %d the first word earned %d", b0[0], e[0])
+	}
+	for i, got := range e[1:] {
+		if got != 0 {
+			t.Fatalf("word %d earned %d after the seat used its whole budget", i+2, got)
+		}
+	}
+	if spent := exact.CatchUpSpent(1); spent != b0[0] {
+		t.Fatalf("ledger %d != budget %d", spent, b0[0])
+	}
+
+	// One point more: the second word earns exactly that point and no more.
+	one := budgetMatch(t, b0[0]+1)
+	o, _, _ := driveSeat(t, one, 1)
+	if o[1] != 1 {
+		t.Fatalf("expected the clamp to award the 1 remaining point, got %d (full: %v)", o[1], o)
+	}
+	if o[2] != 0 || o[3] != 0 {
+		t.Fatalf("words after the budget ran out still earned bonuses: %v", o)
+	}
+}
+
+func TestCatchUpBudgetIsPerSeatNotAMatchPool(t *testing.T) {
+	// A shared pool would starve the second and third trailing seat. Each seat
+	// must be able to absorb the whole budget, because the object of the lever
+	// is "how much help one seat gets", not "how much help the field gets".
+	// The three seats submit three disjoint words, so each is helped by the
+	// rule exactly once. A slice, not a map: the fixture's submission order is
+	// part of what makes it reproducible.
+	type play struct {
+		seat Seat
+		word string
+	}
+	plays := []play{{1, "cat"}, {2, "dog"}, {3, "fun"}}
+	// Two points, because on this fixture board "cat" and "dog" are worth 5
+	// and the shipped divisor halves them to 2: the smallest budget that
+	// binds every seat while still being below "fun"'s unbounded 3, which is
+	// the clamp case.
+	budget := 2
+
+	// What each seat would earn with no budget at all - the reference for
+	// "did the budget bind here, or was the word too small to notice".
+	free := budgetMatch(t, 0)
+	want := make([]int, len(plays))
+	for i, pl := range plays {
+		want[i] = int(submitWord(t, free, pl.seat, pl.word).CatchUpBonus)
+		if want[i] < budget {
+			t.Fatalf("seat %d's unbounded bonus is %d, below the %d budget: the test cannot tell a pool from a per-seat budget", pl.seat, want[i], budget)
+		}
+	}
+
+	m := budgetMatch(t, budget)
+	for i, pl := range plays {
+		ev := submitWord(t, m, pl.seat, pl.word)
+		if ev.Result != ResultAccepted {
+			t.Fatalf("seat %d word %q was %v", pl.seat, pl.word, ev.Result)
+		}
+		if int(ev.CatchUpBonus) != budget {
+			t.Fatalf("seat %d earned %d with budget %d (unbounded would be %d): a shared pool starves every seat but the first",
+				pl.seat, ev.CatchUpBonus, budget, want[i])
+		}
+	}
+}
+
+func TestCatchUpBudgetIsANeverExceededBound(t *testing.T) {
+	// The property the calibration depends on: across the whole match no seat's
+	// bonus total exceeds the budget, and it equals min(budget, unlimited).
+	unlimited := budgetMatch(t, 0)
+	ub, _, _ := driveSeat(t, unlimited, 1)
+	want := sum(ub)
+	for _, budget := range []int{1, 3, 7, 15, 40, want} {
+		m := budgetMatch(t, budget)
+		got, _, _ := driveSeat(t, m, 1)
+		if s := sum(got); s != min(want, budget) {
+			t.Fatalf("budget %d handed out %d, want min(%d,%d)=%d (per word: %v)",
+				budget, s, want, budget, min(want, budget), got)
+		}
+		for _, b := range got {
+			if b < 0 {
+				t.Fatalf("budget %d produced a negative bonus %v", budget, got)
+			}
+		}
+	}
+}
+
+func TestCatchUpNegativeBudgetAwardsNothing(t *testing.T) {
+	// Zero is taken (it means "no budget"), so a nonsensical negative resolves
+	// to "the budget allows nothing" - mirroring MaxBonus's documented
+	// exception rather than silently becoming the opposite of what a caller
+	// wrote.
+	m := budgetMatch(t, -1)
+	got, score, _ := driveSeat(t, m, 1)
+	for _, b := range got {
+		if b != 0 {
+			t.Fatalf("a negative budget awarded %d: %v", b, got)
+		}
+	}
+	base := budgetMatch(t, -CatchUpMaxBonus) // still negative: same reading
+	bg, _, _ := driveSeat(t, base, 1)
+	if !reflect.DeepEqual(got, bg) {
+		t.Fatalf("negative budgets resolved inconsistently: %v vs %v", got, bg)
+	}
+	if score == 0 {
+		t.Fatal("the words themselves stopped scoring: the budget must not touch the base points")
+	}
+}
+
+func TestCatchUpBudgetReplaysExactly(t *testing.T) {
+	// The ledger is derived state, so it must rebuild bit for bit from the same
+	// driven words; a budget that drifted would change scores and be caught by
+	// the fingerprint (PD-003).
+	run := func() (string, int) {
+		m := budgetMatch(t, 9)
+		_, _, fp := driveSeat(t, m, 1)
+		return fp, m.catchUp.BonusBudget
+	}
+	fpA, budgetA := run()
+	fpB, budgetB := run()
+	if fpA != fpB || budgetA != budgetB {
+		t.Fatalf("the budget is not deterministic: %s/%d vs %s/%d", fpA, budgetA, fpB, budgetB)
+	}
+}
+
+func sum(xs []int) int {
+	var s int
+	for _, x := range xs {
+		s += x
+	}
+	return s
+}

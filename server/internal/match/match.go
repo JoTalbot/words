@@ -39,6 +39,16 @@ type Match struct {
 	// divergent simulation.
 	players []PlayerState
 	log     []Event
+	// catchUpSpent is the per-seat catch-up bonus ledger (batch 36A): how
+	// many bonus points each seat has absorbed, which is what
+	// CatchUpParams.BonusBudget caps. It is DERIVED state, not canonical: it
+	// moves only inside applyWord, in lockstep with the bonus that is already
+	// recorded on the event (Event.CatchUpBonus) and folded into the score.
+	// That is why it is not folded into Fingerprint - a divergent ledger
+	// necessarily diverges a score and an event, which the existing
+	// fingerprint already catches, while folding it in would move every
+	// golden fixture for no new safety.
+	catchUpSpent []int
 	// boardCells is the roster-derived board size (Q10); fixed at
 	// construction so every wave of a match has the same shape.
 	boardCells int
@@ -73,6 +83,7 @@ func New(cfg Config) (*Match, error) {
 		return nil, fmt.Errorf("match: seats %d out of range [%d,%d]", seats, MinSeats, MaxSeats)
 	}
 	m.players = make([]PlayerState, seats)
+	m.catchUpSpent = make([]int, seats)
 	for i := range m.players {
 		m.players[i].Seat = Seat(i)
 		// Q5: bot-ness is declared, never inferred. A declaration beyond the
@@ -454,6 +465,10 @@ func (m *Match) evaluate(ev Event) Event {
 	if bonus := m.CatchUpBonus(seat, points); bonus > 0 {
 		ev.CatchUpBonus = int64(bonus)
 		points += bonus
+		// The ledger is what makes BonusBudget meaningful, so it moves in the
+		// same statement as the score it just clamped - never in the query,
+		// which is also called by read-only paths.
+		m.recordCatchUpBonus(seat, bonus)
 	}
 	p.Score += int64(points)
 	p.LastAcceptTick = m.tick
