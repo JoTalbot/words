@@ -39,6 +39,9 @@ type Config struct {
 	// CatchUp carries the rule's constants; the zero value is the 25/2/15
 	// batch 32C set (see match.CatchUpParams).
 	CatchUp match.CatchUpParams
+	// Board carries the board-side levers (M2 batch 36D); the zero value is
+	// the shipped rule. See match.BoardParams.
+	Board match.BoardParams
 	// BotSeats declares simulated-player seats for this room, indexed by seat
 	// (M2 batch 32D, Q5). Nil means no seat is a bot, which is what every
 	// existing caller gets. See docs/M2-BOT-POLICY.md.
@@ -154,6 +157,7 @@ func New(cfg Config) (*Room, error) {
 		Seats:        len(userIDs),
 		AntiSnowball: cfg.AntiSnowball,
 		CatchUp:      cfg.CatchUp,
+		Board:        cfg.Board,
 		BotSeats:     cfg.BotSeats,
 	})
 	if err != nil {

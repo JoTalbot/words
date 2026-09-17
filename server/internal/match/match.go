@@ -27,8 +27,10 @@ type Match struct {
 	suddenDeath bool
 	// antiSnowball enables the opt-in catch-up rule; catchUp is its resolved
 	// constant set (zero config = the 25/2/15 default); see antisnowball.go.
-	antiSnowball  bool
-	catchUp       CatchUpParams
+	antiSnowball bool
+	catchUp      CatchUpParams
+
+	board         BoardParams
 	inSuddenDeath bool
 
 	cells []Cell
@@ -74,6 +76,7 @@ func New(cfg Config) (*Match, error) {
 		suddenDeath:  cfg.SuddenDeath,
 		antiSnowball: cfg.AntiSnowball,
 		catchUp:      cfg.CatchUp.normalized(),
+		board:        cfg.Board.normalized(),
 	}
 	seats := cfg.Seats
 	if seats == 0 {
@@ -479,13 +482,17 @@ func (m *Match) evaluate(ev Event) Event {
 	for _, id := range fresh {
 		c := &m.cells[id]
 		if c.State != CellFree && c.Owner != seat {
-			// Debit the actual victim, whichever seat that is.
-			m.players[c.Owner].Score -= int64(c.CreditedValue)
+			// Debit the actual victim, whichever seat that is. The share
+			// taken back is the board parameter (batch 36D): the shipped
+			// rule debits the full credited value, and the fraction is
+			// floored per cell so the arithmetic is integer-only and
+			// therefore replayable.
+			m.players[c.Owner].Score -= int64(c.CreditedValue * m.board.StealDebitPercent / boardDebitPercentFull)
 		}
 		credited := scoring.CellCreditedValue(scoring.LetterValue(dictionary.Language(m.Lang), c.Letter), mult)
 		c.Owner = seat
 		c.State = CellOwnedLocked
-		c.LockRemainingTicks = LockTicks
+		c.LockRemainingTicks = m.board.LockTicks
 		c.CreditedValue = credited
 	}
 	m.stateVer++

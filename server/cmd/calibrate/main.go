@@ -165,8 +165,10 @@ type sweepOut struct {
 }
 
 // driver plays one full match and returns its record. antiSnowball selects
-// the rule; params its constants.
-func driver(seatCount int, seed int64, policy pve.Policy, antiSnowball bool, params match.CatchUpParams, matchID uint64) matchRecord {
+// the rule; params its constants. board is the board-side lever set (batch 36D)
+// and is passed through even when the rule is off, because the board sweep runs
+// with catch-up deliberately disabled.
+func driver(seatCount int, seed int64, policy pve.Policy, antiSnowball bool, params match.CatchUpParams, board match.BoardParams, matchID uint64) matchRecord {
 	userIDs := make([]uint64, seatCount)
 	for i := range userIDs {
 		userIDs[i] = uint64(i + 1)
@@ -178,6 +180,7 @@ func driver(seatCount int, seed int64, policy pve.Policy, antiSnowball bool, par
 		SeatUserIDs:  userIDs,
 		AntiSnowball: antiSnowball,
 		CatchUp:      params,
+		Board:        board,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("calibrate: room: %v", err))
@@ -263,14 +266,19 @@ func finalGap(scores []int64) int64 {
 	return hi - lo
 }
 
-func parseSets(val string) ([]string, error) {
+// parseSets splits and checks the -sets list. It accepts any name from either
+// lever family and stops at syntax; whether a name belongs to the family the run
+// selected is decided where the arms are resolved, so that check can say which
+// mode asked for it. (Batch 36D added a second family and this split is what
+// keeps the two tables from having to agree on a value type.)
+func parseSets(val string, known func(string) bool) ([]string, error) {
 	var out []string
 	for _, part := range strings.Split(val, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		if _, ok := constantSets[part]; !ok {
+		if !known(part) {
 			return nil, fmt.Errorf("unknown set %q", part)
 		}
 		out = append(out, part)
@@ -300,6 +308,33 @@ func parseInts(kind, val string, min, max int) ([]int, error) {
 	return out, nil
 }
 
+// boardSets is the batch 36D grid of board-side levers (docs/M2-ANTI-SNOWBALL.md).
+// The arms are measured against the shipped board with the catch-up rule OFF:
+// 36A closed the point-minting family, and the question it leaves is whether a
+// point can MOVE on the board instead. Mixing both levers in one run would not
+// answer that, so the baseline row is the plain ruleset.
+//
+// "debit0" requests the no-debit board with a negative value: 0 means "the
+// shipped full debit" in BoardParams, exactly as 0 means "unlimited" in
+// BonusBudget. The sweep table spells the convention out rather than hiding it.
+var boardSets = map[string]match.BoardParams{
+	"lock45":         {LockTicks: 45},
+	"lock180":        {LockTicks: 180},
+	"lock300":        {LockTicks: 300},
+	"debit75":        {StealDebitPercent: 75},
+	"debit50":        {StealDebitPercent: 50},
+	"debit25":        {StealDebitPercent: 25},
+	"debit0":         {StealDebitPercent: -1},
+	"lock45-debit50": {LockTicks: 45, StealDebitPercent: 50},
+}
+
+// boardParamsString renders an arm for the artifact, resolved through the same
+// normalization the match applies, so the file records the EFFECTIVE constants.
+func boardParamsString(b match.BoardParams) string {
+	b = b.Normalized()
+	return fmt.Sprintf("lock=%d,debit=%d", b.LockTicks, b.StealDebitPercent)
+}
+
 type gridPair struct {
 	seed   int64
 	roster int
@@ -317,6 +352,7 @@ func main() {
 		shards    = flag.Int("shards", 1, "total shards")
 		limit     = flag.Int("limit", 0, "run at most N pairs (0 = all; for smoke runs)")
 		mergeCSV  = flag.String("merge", "", "merge the given shard JSON files into one output (empty = run)")
+		mode      = flag.String("mode", "catchup", "which lever family -sets names: catchup (CatchUpParams, batches 32C-36A) or board (BoardParams, batch 36D)")
 	)
 	flag.Parse()
 
@@ -364,11 +400,49 @@ func main() {
 		fmt.Fprintln(os.Stderr, "calibrate:", err)
 		os.Exit(1)
 	}
-	sets, err := parseSets(*setCSV)
+	sets, err := parseSets(*setCSV, func(name string) bool {
+		if _, ok := constantSets[name]; ok {
+			return true
+		}
+		_, ok := boardSets[name]
+		return ok
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "calibrate:", err)
 		os.Exit(1)
 	}
+	// An arm names one sweep column. Resolving every name here means a typo
+	// fails in the first second instead of after a grid-long run.
+	type arm struct {
+		name  string
+		anti  bool
+		catch match.CatchUpParams
+		board match.BoardParams
+		label string
+	}
+	arms := make([]arm, 0, len(sets))
+	for _, name := range sets {
+		switch *mode {
+		case "board":
+			b, ok := boardSets[name]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "calibrate: -mode board has no set %q\n", name)
+				os.Exit(1)
+			}
+			arms = append(arms, arm{name: name, board: b, label: boardParamsString(b)})
+		case "catchup":
+			p, ok := constantSets[name]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "calibrate: -mode catchup has no set %q\n", name)
+				os.Exit(1)
+			}
+			arms = append(arms, arm{name: name, anti: true, catch: p, label: paramsString(p)})
+		default:
+			fmt.Fprintf(os.Stderr, "calibrate: -mode must be catchup or board, got %q\n", *mode)
+			os.Exit(1)
+		}
+	}
+
 	if _, ok := policies[*policy]; !ok {
 		fmt.Fprintln(os.Stderr, "calibrate: unknown policy", *policy)
 		os.Exit(1)
@@ -409,18 +483,18 @@ func main() {
 			break
 		}
 		done++
-		base := driver(p.roster, p.seed, policies[*policy], false, match.CatchUpParams{}, uint64(i*1000+1))
-		for _, setName := range sets {
+		base := driver(p.roster, p.seed, policies[*policy], false, match.CatchUpParams{}, match.BoardParams{}, uint64(i*1000+1))
+		for _, a := range arms {
 			var pr = pairRecord{
 				Seed:        p.seed,
 				Roster:      p.roster,
-				Set:         setName,
-				Params:      paramsString(constantSets[setName]),
+				Set:         a.name,
+				Params:      a.label,
 				Baseline:    base,
 				FinalGapOff: finalGap(base.Scores),
 				Winner:      base.Winner,
 			}
-			vr := driver(p.roster, p.seed, policies[*policy], true, constantSets[setName], uint64(i*1000+2))
+			vr := driver(p.roster, p.seed, policies[*policy], a.anti, a.catch, a.board, uint64(i*1000+2))
 			pr.Variant = vr
 			pr.FinalGapOn = finalGap(vr.Scores)
 			pr.WinnerOn = vr.Winner

@@ -1,0 +1,64 @@
+id: M2-batch36d-board-levers
+title: "Anti-snowball board levers: claim/steal lock duration and the steal debit fraction"
+status: code_complete_sweep_running_pending_ci
+priority: normal
+complexity: large
+dependencies:
+  - M2 batch 32C (the catch-up rule, merged)
+  - M2 batch 35A (constant-set calibration, merged - duel constants locked)
+  - M2 batch 35D (leader-relative trigger, merged - NEGATIVE)
+  - M2 batch 36A (volume budget, merged - closed the point-redistribution family and named the board as what is left)
+inputs:
+  - server/internal/match/types.go (LockTicks constant, Config)
+  - server/internal/match/match.go (the single lock-assignment and steal-debit site)
+  - server/internal/matchroom/room.go (room config plumbing)
+  - server/cmd/calibrate/main.go (the 35A/35D/36A sweep harness)
+outputs:
+  - match.BoardParams { LockTicks, StealDebitPercent } with Normalized() (0 = shipped: lock 90, debit 100%; negative debit = no debit)
+  - Config.Board plumbed through matchroom.Config.Board; clamped to lock<=600 ticks and debit 0..100
+  - per-cell floored integer debit (no float in the score path, so replays stay exact)
+  - calibrate -mode board with the arms lock45/180/300, debit75/50/25/0, lock45-debit50, resolved into one `arm` list so both families share the grid
+  - internal/match board tests + a harness-level no-op/zero-value test
+  - docs/M2-ANTI-SNOWBALL.md batch 36D section with the measured table and the decision
+acceptance:
+  - "go build ./... && go vet ./... && go test -count=1 ./... green"
+  - "the zero value is provably the shipped rule: BoardParams{}.Normalized() == DefaultBoardParams() and a driven match with an omitted board is fingerprint-identical to one spelling the defaults (TestBoardZeroValueIsTheShippedRule), with no golden fixture or replay moved"
+  - "the lock is asserted at its EXACT boundary in both directions (N-1 ticks still protected, N ticks released), because the 35A-era test used N+1 and never measured the edge"
+  - "a fresh claim cannot be recaptured inside its own wave even at LockTicks=1 - the ordering property this lever could have destroyed"
+  - "the debit is the credited value times the percent, floored PER CELL, and the test computes the expectation the same way rather than halving a sum"
+  - "the debit fraction never reprices the stealing word: the stealer's score is identical at 100/50/0 while the victim's is strictly monotone (TestBoardDebitFractionLeavesTheStealersWordScoreAlone)"
+  - "nonsense normalizes instead of erroring (clamped), and the harness refuses a set name from the wrong family before the grid starts"
+  - "the sweep measures the board against the 35A grid at rosters 2/8/30/60, 24 seeds, and the decision is written from those numbers, not from intent"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+  - "artifacts-36d/run-sweep.sh -> calibrate -mode board -sets lock45,...,lock45-debit50 -rosters 2,8,30,60 -shards 2, then -merge"
+  - "the gap comparison is read together with total score per match: a lever that lowers the gap by slowing scoring for everyone is NOT a catch-up result, so the table reports both"
+risk: medium
+escalation: strong-model
+file_ownership:
+  - server/internal/match/boardlevers.go
+  - server/internal/match/boardlevers_test.go
+  - server/internal/match/match.go
+  - server/internal/match/types.go
+  - server/internal/matchroom/room.go
+  - server/cmd/calibrate/main.go
+  - server/cmd/calibrate/determinism_test.go
+  - docs/M2-ANTI-SNOWBALL.md
+  - docs/ROADMAP.md (the anti-snowball row only)
+  - agent/tasks/M2-batch36d-board-levers.yml
+notes: |
+  Deliberately NOT a request field, for the same reason as 36A's budget: PD-007
+  and the server-authoritative rule keep fairness and physics out of the
+  unauthenticated create-match surface. These are calibration parameters.
+
+  The two levers are one batch because they are the same object of study: the
+  steal. LockTicks sets how long a cell is off the market, StealDebitPercent
+  sets what the previous owner pays when it is taken. Measuring one while the
+  other is pinned would attribute an interaction to a single cause, so the grid
+  includes a combined arm (lock45-debit50) as well.
+
+  StealDebitPercent > 100 (a steal that costs the victim more than the cell was
+  worth) is refused by the clamp, not because it is uninteresting: it makes the
+  board punitive in a way no product decision has proposed, and it can drive
+  scores further negative. If it is ever wanted it should arrive as its own
+  decision with its own evidence.
