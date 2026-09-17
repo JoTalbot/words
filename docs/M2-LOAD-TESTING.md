@@ -449,3 +449,52 @@ after the end of a match holds one goroutine and one socket per seat.
 Artifacts (Arena sandbox, `artifacts-38c/`): `prefix-royale.json`,
 `fixed-royale.json`, `fixed2-royale.json`.
 
+
+### Batch 39A: the corrected Royale-sized leg (2026-09-17)
+
+The 38C section ends by naming what its 4-seat leg could not measure: scoring
+pressure needs a Royale-sized roster. This batch ran exactly that - the same
+isolated-instance discipline on the OCI host (own server on 127.0.0.1:18102,
+in-memory storage, port-safety guard, teardown by exact pid), 1 match x 60
+seats for 240 s, one client per seat, an intent every 2 s, built from main
+5431786 (wordarena sha256 3c9cabfe..., loadtest sha256 4d31d008...).
+
+Headline: **a Royale-sized match runs the full 180 s budget**
+(`lifecycle=over id=1 ticks=5400 tie=false`) - unlike the 4-seat match that
+ended at 24 s, a 6x10 board with three cull waves never runs out of
+contention, so this leg measures scoring pressure end to end. The corrected
+accounting holds at size:
+
+| metric (1x60, 240 s leg) | value |
+|---|---|
+| creates / dial errors | 1 (p50 18.9 ms, n=1) / 0 |
+| seats dropped / closed-after-over | 0 / 0 - all 60 closes are 1000 normal |
+| intents | 3360 sent = 3360 acked (14.0/s); accepted 56; blocked_by_rule 3304 (spectator rejections after the 60->40->26 culls share this class with ordinary rule blocks); skipped-no-word 1980 of 5340 decision points |
+| intent round trip | p50 6.4 ms / p95 20.2 ms / p99 32.3 ms / max 48.0 ms |
+| wire | 212,460 frames, 6.08 MB - **422 B/s per client, 24.7 KB/s aggregate** |
+| frames by kind (bytes) | word_event 201,600 (5.03 MB) / delta 10,680 (0.85 MB) / snapshot 180 (0.20 MB) |
+| deltas_stale | 0 - the base_version rule never had to self-heal |
+| server | CPU 1.3% of one core (3.1 s), RSS 12.4 -> 28.1 MB, drain 1.0 s to active_matches=0 |
+
+What the corrected leg changes in earlier readings:
+
+- **The 32A/32F byte estimates were high, not low.** The predicted band for a
+  60-seat client was 0.6-0.9 KB/s with ~50 KB/s per lobby; measured under real
+  scoring pressure it is 422 B/s and ~25 KB/s. Deltas are part of the gap; the
+  rest is that the estimate assumed saturated churn while a real match has
+  idle stretches (the sent-counter plateaus in the leg log are the
+  skipped-no-word periods, reported honestly rather than padded with junk
+  intents).
+- **At Royale size the dominant wire cost is word_event fan-out (~83% of
+  bytes), not state frames** - the opposite ranking from the 1v1 analysis that
+  motivated deltas. The proposed stable-lock-field saving (~27% of the delta)
+  is a saving of the small half; a wire diet at Royale size starts from
+  word_event or it starts wrong.
+- **Lifecycle behaviour is clean at size**: no seat was dropped, no close
+  after the terminal frame was miscounted, every close is 1000 normal, and the
+  drain after the last client left took 1.0 s.
+
+Artifacts (OCI host, `artifacts-39a/`): `report-royale60.json`,
+`harness-royale60.stdout.log`, `server-royale60.log`, `build-sha-royale60.txt`.
+This closes the load-testing row's delta-mode caveat: the royale reference
+numbers going forward are these.
