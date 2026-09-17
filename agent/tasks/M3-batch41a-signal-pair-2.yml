@@ -1,0 +1,32 @@
+id: M3-batch41a-signal-pair-2
+title: "Behavioral signals pair 2: word_probe (dictionary-oracle repetition) and flash_path (faster-than-human multi-cell cadence), measurement only"
+status: merged_green
+priority: normal
+complexity: medium
+inputs:
+  - "docs/M3-ANTI-CHEAT.md Known limits (the two candidates named by batch 40A)"
+  - "server/cmd/game/behaviorsignal.go (40A tracker), the observe call site in api.go, panel 11 of the Grafana dashboard"
+outputs:
+  - "two new edge-triggered signals with fixed thresholds: word_probe (5 identical rejections of one word per match), flash_path (>=4 cells within 400 ms of the previous submit, once per seat per match)"
+  - "two new counters in /metrics + Prometheus + panel 11 targets (the drift gate requires the plots)"
+  - "docs/M3-ANTI-CHEAT.md signals table + validation text updated; 4 new deterministic tests"
+acceptance:
+  - "probe counts only the three rejection classes; accepted and MATCH_NOT_ACTIVE outcomes never advance a probe counter"
+  - "probe fires exactly once per (seat, word) episode; a different word is its own episode"
+  - "flash fires exactly once per seat per match, only for >=4-cell paths under a 400 ms gap; short fast paths and slow multi-cell submits stay quiet"
+  - "no signal influences admission, scoring, ordering or outcome (observe-and-publish only)"
+validation:
+  - "go test ./cmd/game/"
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with the new panel targets)"
+risk: medium
+file_ownership:
+  - "server/cmd/game/behaviorsignal.go"
+  - "server/cmd/game/behaviorsignal_test.go"
+  - "server/cmd/game/api.go (observe call + metrics JSON)"
+  - "server/cmd/game/telemetry.go (snapshot + prometheus)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (panel 11 targets)"
+  - "docs/M3-ANTI-CHEAT.md"
+escalation: review
+notes: "Both thresholds are fixed in code like the 40A set, so scrapes stay comparable. Flash deliberately uses the SUBMIT gap (not frame timing or client timestamps) - server clock only."

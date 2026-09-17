@@ -635,6 +635,8 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// docs/M3-ANTI-CHEAT.md).
 		"behavior_metronomic_events":       m.BehaviorMetronomicEvents,
 		"behavior_rejection_streak_events": m.BehaviorStreakEvents,
+		"behavior_word_probe_events":       m.BehaviorWordProbeEvents,
+		"behavior_flash_path_events":       m.BehaviorFlashPathEvents,
 		"intent_rate_limited_total":        m.IntentRateLimited,
 		"behavior_max_rejection_streak":    m.BehaviorMaxRejectionStreak,
 	})
@@ -1985,7 +1987,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		// Behavioral signals (M3 batch 40A): observe the submit outcome and
 		// publish any edge-triggered signal. Measurement only - nothing here
 		// influences the seat, the room or the result.
-		for _, sig := range a.behavior.observe(seatWindowKey{matchID: id, seat: int(seat)}, time.Now(), frame.Result) {
+		for _, sig := range a.behavior.observe(seatWindowKey{matchID: id, seat: int(seat)}, time.Now(), frame.Result, frame.Word, len(ids)) {
 			a.publishTelemetry(telemetryEvent{
 				Type:    "behavior_signal",
 				Signal:  sig,

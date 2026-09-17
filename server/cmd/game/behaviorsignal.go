@@ -1,6 +1,6 @@
 package main
 
-// Behavioral anti-cheat signals (M3 batch 40A) - MEASUREMENT ONLY.
+// Behavioral anti-cheat signals (M3 batches 40A + 41A) - MEASUREMENT ONLY.
 //
 // Nothing in this file may reject, delay, score, rank or otherwise influence
 // a request, a seat or a match outcome. These are per-seat rolling signals
@@ -10,26 +10,40 @@ package main
 // separate, owner-gated decision and must weigh them together, in context,
 // against a declared policy (docs/M3-ANTI-CHEAT.md owns that boundary).
 //
-// Signal: rejection streak. A seat whose consecutive rejected intents
+// Signals, in the order they landed:
+//
+// 40A rejection streak - a seat whose consecutive rejected intents
 // (not-in-dictionary, blocked-by-rule, invalid input) reach a high threshold.
 // Fired exactly once per streak episode; an accepted word re-arms it.
 // MATCH_NOT_ACTIVE refusals are the designed post-over close (batch 38C) and
 // do not count - hammering after the match ended is rate-limiter business.
 //
-// Signal: metronomic cadence. Inter-submit gaps whose coefficient of
-// variation stays machine-tiny while the mean sits in human-plausible
-// territory. Humans jitter; clock-like regularity over a window of gaps is
-// machine behaviour. Bursts under the mean floor are excluded on purpose:
-// faster-than-200ms cadences are the per-seat intent rate limiter's domain
-// and already surface as intent_rate_limited.
+// 40A metronomic cadence - inter-submit gaps whose coefficient of variation
+// stays machine-tiny while the mean sits in human-plausible territory.
+// Bursts under the mean floor are excluded on purpose: faster-than-200ms
+// cadences are the per-seat intent rate limiter's domain and already surface
+// as intent_rate_limited.
+//
+// 41A word probe - the SAME word string rejected repeatedly within one
+// match. A typo varies; probing the dictionary oracle repeats. Fired once
+// per (seat, word) at the threshold-th identical rejection, and only on the
+// three rejection classes - an accepted word cannot be a probe by
+// definition, and MATCH_NOT_ACTIVE is a designed refusal, not an answer.
+//
+// 41A flash path - a multi-cell path submitted back-to-back faster than a
+// person can read the board and gesture it. Fired once per seat per match.
+// Single-cell and short paths are excluded (a held-down tap is not a
+// pattern), and so are slower multi-cell submits - the signal is the
+// COMBINATION of path length and machine cadence.
 //
 // Concurrency model: each seat has exactly ONE writer - the websocket reader
-// goroutine that calls observe. Per-seat scalars and the gap ring are
-// therefore single-writer, read by any /metrics scrape through atomics (a
-// scrape may see a half-updated ring; that is acceptable for a signal and
-// never a correctness concern, because nothing consumes it authoritatively).
-// The seat->state map is a sync.Map: one LoadOrStore per seat per match,
-// deleted per finished match alongside the rate-limit windows.
+// goroutine that calls observe. Per-seat scalars, the probe map and the gap
+// ring are therefore single-writer, read by any /metrics scrape through
+// atomics (a scrape may see a half-updated ring; that is acceptable for a
+// signal and never a correctness concern, because nothing consumes it
+// authoritatively). The seat->state map is a sync.Map: one LoadOrStore per
+// seat per match, deleted per finished match alongside the rate-limit
+// windows.
 
 import (
 	"math"
@@ -41,10 +55,11 @@ import (
 )
 
 const (
-	// signalRejectionStreak and signalMetronomic name the signals in
-	// behavior_signal telemetry events and in tests.
+	// Signal names, used in behavior_signal telemetry events and in tests.
 	signalRejectionStreak = "rejection_streak"
 	signalMetronomic      = "metronomic_cadence"
+	signalWordProbe       = "word_probe"
+	signalFlashPath       = "flash_path"
 
 	// rejectionStreakSignalAt is the consecutive-rejection count that fires
 	// the streak signal once per episode. 20 in a row has no human-plausible
@@ -68,14 +83,32 @@ const (
 	// cadenceMaxMeanMs excludes idle stretches, which are not a cadence.
 	cadenceMinMeanMs = 200
 	cadenceMaxMeanMs = 10000
+
+	// wordProbeRepeatAt: the same word string rejected this many times in one
+	// match fires the probe signal once. Five identical failures is already
+	// oracle probing; a struggling player varies their attempts.
+	wordProbeRepeatAt = 5
+
+	// flashPathCells / flashPathGapMs: a path of at least this many cells
+	// submitted within this many milliseconds of the seat's previous intent
+	// fires the flash signal once per seat. Reading a board and selecting
+	// four cells takes a person longer than a fraction of a second; scripts
+	// submit 4-cell paths back-to-back all day.
+	flashPathCells = 4
+	flashPathGapMs = 400
 )
 
 type seatBehavior struct {
 	lastSubmit atomic.Int64                  // unix nanos of the last observed intent (0 = none)
 	streak     atomic.Int64                  // consecutive rejected intents (accepted resets)
 	flagged    atomic.Bool                   // metronomic signal already fired for this seat
+	flashFlag  atomic.Bool                   // flash-path signal already fired for this seat
 	gaps       [cadenceRingSize]atomic.Int64 // most recent inter-submit gaps, nanos
 	gapCount   atomic.Int64                  // total gaps appended (ring index = (n-1) mod size)
+
+	// probeCounts is written only by the seat's reader goroutine, so a plain
+	// map is safe here; it dies with the seat state on clear().
+	probeCounts map[string]int
 }
 
 // behaviorTracker holds the per-seat behavioral signal state plus the
@@ -88,6 +121,8 @@ type behaviorTracker struct {
 
 	metronomicEvents   atomic.Uint64
 	streakEvents       atomic.Uint64
+	wordProbeEvents    atomic.Uint64
+	flashPathEvents    atomic.Uint64
 	rateLimited        atomic.Uint64
 	maxRejectionStreak atomic.Int64
 }
@@ -96,16 +131,21 @@ type behaviorTracker struct {
 // any signals that fired at this instant (edge-triggered; an empty result is
 // the common case). It also bumps the process-lifetime event counters, so
 // every caller gets the same bookkeeping. now is a parameter so tests can
-// drive deterministic cadences.
-func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.WordResult) []string {
+// drive deterministic cadences; word is the submitted word (may be empty);
+// cells is the submitted path length.
+func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.WordResult, word string, cells int) []string {
 	v, _ := t.seats.LoadOrStore(key, &seatBehavior{})
 	b := v.(*seatBehavior)
+	if b.probeCounts == nil {
+		b.probeCounts = make(map[string]int)
+	}
 	var signals []string
 
-	// --- cadence (any result; a submit is a submit) ------------------------
+	// --- cadence + flash path (any result; a submit is a submit) -----------
 	prev := b.lastSubmit.Swap(now.UnixNano())
 	if prev > 0 {
-		if gap := now.UnixNano() - prev; gap > 0 {
+		gap := now.UnixNano() - prev
+		if gap > 0 {
 			n := b.gapCount.Add(1)
 			b.gaps[int(n-1)%cadenceRingSize].Store(gap)
 		}
@@ -120,9 +160,16 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 				}
 			}
 		}
+		// Flash path: fast back-to-back MULTI-CELL submits. Once per seat.
+		if cells >= flashPathCells && gap > 0 &&
+			gap < int64(flashPathGapMs)*int64(time.Millisecond) &&
+			b.flashFlag.CompareAndSwap(false, true) {
+			t.flashPathEvents.Add(1)
+			signals = append(signals, signalFlashPath)
+		}
 	}
 
-	// --- rejection streak (designed refusals excluded) ---------------------
+	// --- rejection streak + word probe (designed refusals excluded) --------
 	switch res {
 	case match.ResultAccepted:
 		b.streak.Store(0)
@@ -137,6 +184,14 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 		if n == rejectionStreakSignalAt {
 			t.streakEvents.Add(1)
 			signals = append(signals, signalRejectionStreak)
+		}
+		// Word probe: the same string failing over and over in one match.
+		if word != "" {
+			b.probeCounts[word]++
+			if b.probeCounts[word] == wordProbeRepeatAt {
+				t.wordProbeEvents.Add(1)
+				signals = append(signals, signalWordProbe)
+			}
 		}
 	}
 	return signals

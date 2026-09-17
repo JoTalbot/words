@@ -36,6 +36,8 @@ The day any enforcement consumes these signals, it must:
 |---|---|---|---|
 | `rejection_streak` | a seat accumulates consecutive rejected intents (`rejected_not_in_dict`, `blocked_by_rule`, `invalid_input`) | 20 consecutive; an accepted word resets; `MATCH_NOT_ACTIVE` (the designed post-over refusal, batch 38C) never counts | streak episode (re-armed by acceptance) |
 | `metronomic_cadence` | inter-submit gaps become machine-regular: coefficient of variation (stddev/mean) < 5% over ≥ 8 gaps while the mean sits in 200 ms..10 s | cv 0.05; mean floor 200 ms excludes bursts (the per-seat intent rate limiter's domain); mean ceiling 10 s excludes idle stretches | seat per match |
+| `word_probe` (41A) | the SAME word string is rejected again and again in one match | 5 identical rejections of one word; only the three rejection classes advance the counter; a different word is its own episode | (seat, word) episode per match |
+| `flash_path` (41A) | a path of ≥ 4 cells arrives back-to-back within 400 ms of the seat's previous submit | cells ≥ 4 AND gap < 400 ms; short paths and slower multi-cell submits are excluded | seat per match |
 
 Plus one counter that existed as a telemetry event since M1 and is now also a
 metric: `intent_rate_limited_total` (websocket connections closed by the
@@ -49,10 +51,13 @@ already measures it and it reflects the server, not the player).
 ## Where signals surface
 
 - `/metrics` (JSON): `behavior_metronomic_events`,
-  `behavior_rejection_streak_events`, `intent_rate_limited_total`,
+  `behavior_rejection_streak_events`, `behavior_word_probe_events`,
+  `behavior_flash_path_events`, `intent_rate_limited_total`,
   `behavior_max_rejection_streak` (running max, process lifetime).
 - `/metrics/prometheus`: `wordarena_behavior_metronomic_events_total`,
   `wordarena_behavior_rejection_streak_events_total`,
+  `wordarena_behavior_word_probe_events_total`,
+  `wordarena_behavior_flash_path_events_total`,
   `wordarena_intent_rate_limited_total`,
   `wordarena_behavior_max_rejection_streak`.
 - JSONL telemetry: `behavior_signal` events carrying `signal`, `match_id`,
@@ -83,12 +88,13 @@ change with a test update, not a config knob.
 
 ## Known limits (honest)
 
-- A disciplined cheat that jitters its cadence and stays under the streak
-  threshold is invisible here — by design these are cheap, deterministic,
-  zero-risk signals, not a detection ceiling. Richer signals (word-length vs
-  submit-timing impossibilities, dictionary-oracle probing patterns,
-  cross-match aggregation per user) are the natural next batches and reuse
-  this file's boundary and export paths.
+- A disciplined cheat that jitters its cadence, varies its words and paces
+  its multi-cell submits is invisible here — by design these are cheap,
+  deterministic, zero-risk signals, not a detection ceiling. The natural next
+  candidates reuse this file's boundary and export paths: cross-match
+  aggregation per user (needs the identity layer to mature, see below),
+  cell-path geometry vs dictionary structure, and longitudinal deltas of the
+  signals this file already produces.
 - The gap ring may be read mid-write by a scrape (single-writer ring, atomic
   slots): a scrape can see a slightly mixed window. Nothing consumes these
   values authoritatively, so the race is benign by construction.
@@ -102,4 +108,7 @@ change with a test update, not a config knob.
 (`behaviorsignal_test.go`): streak edge semantics (once per episode, re-arm,
 `MATCH_NOT_ACTIVE` exclusion, running max), metronomic firing exactly once
 per seat, human jitter never flagging, burst and idle cadences excluded,
+word-probe episode semantics (fires at the 5th identical rejection, per
+word, immune to accepted/MATCH_NOT_ACTIVE outcomes), flash-path firing once
+for fast multi-cell spam while short paths and slow submits stay quiet, and
 state clearing with process-lifetime counters surviving.
