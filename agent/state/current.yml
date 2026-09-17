@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-17 (session 8: recovery, 38B state-gate repair, 38C load accounting, 38D intent-window key)
+# Updated: 2026-09-17 (session 9: recovery verified session-8 closure; batch 39A corrected Royale-sized leg published, delta-mode caveat lifted)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "791b622"
+last_verified_commit: "7a542fe"
 
 session:
   7:
@@ -31,6 +31,12 @@ session:
     issue_1_disposition: "GitHub issue #1 ('Pre-production: lock core gameplay and networking decisions', untouched since 2026-09-08) now carries a disposition table: all eight original bullets are either decided/implemented with evidence (items 3,4,6,8) or explicitly still open as product validation (items 1,2 = Q1/Q2 prototype constants; 5 = a formal appeal flow, deliberately unbuilt because nothing auto-penalises; 7 = Q6 LPI). The same comment lists the SEVEN owner questions the gate actually waits on: Q8 stage 2 (domain + edge per-IP limits + /metrics deny + public-token decision), B2 uk licence data, Q1/Q2 confirmation of shipped prototype numbers, Q7 soft-launch geography, Q6 LPI calibration, Q11 PvE tutorial framing, Q12 guild inputs."
     next_action: "Engineering-side session complete: main 791b622 with CI + Container smoke green on every merge commit, live service on 24acdd7 verified by smoke 27/0 and the deterministic exit gate 6/6, device leg green against it, roadmap/task graph/state consistent (76 task files, 0 problems; no queued engineering work). What remains is NOT engineering: the seven owner questions above, each of which already has a safe documented default running in production, so nothing is stalled while they wait. If a future session must act without those answers, the safest next engineering work is the optional per-lobby wire saving (stable lock field, ~27 percent of the delta) or a Royale-sized corrected load leg - both are improvements, not blockers."
 
+  9:
+    what: "Session 9 on a fresh Arena sandbox. Recovery found main 5431786 with every gate green and session 8 fully closed (38B-38E merged, live promoted to 24acdd7 and verified, device leg green), so nothing was redone. The one open engineering item left by the state file - the corrected Royale-sized load leg named by the 38C section - became batch 39A."
+    batch_39a: "MERGED via PR #68 -> 7a542fe (all six checks green on the PR head). 1x60 seats, 240 s, isolated instance on 127.0.0.1:18102 on the OCI host (port guard, in-memory storage, teardown by exact pid), built from main 5431786 (wordarena 3c9cabfe, loadtest 4d31d008). The match ran the FULL 180 s budget (lifecycle=over ticks=5400 tie=false) - unlike the 24 s 4-seat match of 38C, a Royale-sized board never runs out of contention, so the leg measures scoring pressure end to end. Corrected accounting holds at size: seats_dropped 0, seats_closed_after_over 0, closes 1000 normal x60, deltas_stale 0. Measured: intents 3360 sent = 3360 acked (accepted 56, blocked_by_rule 3304 - the 34 spectator seats after the two culls share this class with ordinary rule blocks; skipped-no-word 1980 of 5340 decision points), RTT p50 6.4 / p95 20.2 / p99 32.3 / max 48.0 ms, wire 212460 frames / 6.08 MB = 422 B/s per client / 24.7 KB/s aggregate, frames by kind word_event 201600 (5.03 MB) vs delta 10680 (0.85 MB) vs snapshot 180 (0.20 MB), server CPU 1.3 percent of one core, RSS 12.4 -> 28.1 MB, drain 1.0 s. Reading corrections published in docs/M2-LOAD-TESTING.md Batch 39A: the 32A/32F byte estimates were high (0.6-0.9 KB/s per client and about 50 KB/s per lobby vs measured 422 B/s and about 25 KB/s), and word_event fan-out (about 83 percent of bytes) - not snapshots or deltas - dominates the wire at Royale size, so the stable lock field is no longer the top wire item. One protocol-discipline catch: the first task-file draft repeated the documented list-item failure (items containing a colon-space parsed as mappings) and was rejected by tools/check-task-yaml.py BEFORE any commit landed on main; fixed by quoting every list item, the same rule the state file follows. Artifacts on the host in artifacts-39a/."
+    merges_this_session: ["39A PR #68 -> 7a542fe (CI + Container smoke green on the PR head; main checks re-verified after merge)"]
+    next_action: "Engineering queue is empty again; the gate is the seven owner questions (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs). Optional non-blocking engineering if a future session must act without owner input: a multi-room Royale capacity leg (2x60 and up) to turn the single-room 39A numbers into a capacity curve, or a word_event wire diet now that 39A re-ranked the costs. Neither is a blocker."
+
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
@@ -49,7 +55,7 @@ facts_non_relitigable:
 server:
   host: 129.213.177.56
   key: "/home/user/.ssh/oci_server_key (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 45a1a72); live binary /opt/words/bin/wordarena-server serves d671f6b, installed 2026-09-17 09:13 UTC"
+  deploy_checkout: "/opt/words (clean, main 7a542fe); live binary /opt/words/bin/wordarena serves 24acdd7 - main since 24acdd7 carried docs/tasks/state only, so live code equals main code (promoted 2026-09-17 10:33 UTC)"
   live_service: "wordarena.service active on 24acdd7 (promoted 2026-09-17 10:33 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
   tunnel_url: "https://hour-define-resistant-roan.trycloudflare.com (ephemeral quick tunnel; re-read from /var/log/words-tunnel.log after any tunnel restart and refresh the WORDS_SERVER_URL repo variable - a stale URL fails DNS, which is exactly what happened this session)"
   worktrees: "wt/batch18 and wt/proto-version remain (historical, untouched)"
@@ -63,6 +69,6 @@ sandbox:
   ssh_key: "/home/user/.ssh/oci_server_key (chmod 600)"
 
 resume_from:
-  - "PRs in flight: 38B (state gate), 38C (load harness delta reconstruction plus seat-end accounting), 38D (intent window key). Merge order does not matter - the three touch disjoint files: agent/state/current.yml, server/cmd/loadtest/, server/cmd/game/api.go"
-  - "after merging: confirm Container smoke is green on main again (it was red at 45a1a72 and 3aa15a7 - the exact reason 38B exists), then re-run live promotion only if 38D is judged worth a restart (its collision is unreachable at 1v1, so promotion is a consistency choice, not a behaviour one)"
-  - "everything this session promised is now closed: gates green on main, live promoted and verified, docs/roadmap/task graph consistent. Next session starts from the owner-question list (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, guild product inputs, tutorial framing) or from a new engineering task; queued beside it: 38E (socket lifetime after a match ends, decision required before any code change because it is a client contract)."
+  - "Session 9 closed the last queued engineering item (39A, PR #68 -> 7a542fe); main checks green after merge. No engineering work is queued."
+  - "The release gate now waits only on the seven owner questions published in GitHub issue #1: Q8 stage-2 (stable domain, edge per-IP limits, /metrics deny, public-token decision), B2 uk dictionary licence, Q1/Q2 confirmation of shipped prototype constants, Q7 soft-launch geography, Q6 LPI calibration, Q11 PvE tutorial framing, Q12 guild product inputs. Every one already has a safe documented default running, so nothing is stalled while they wait."
+  - "If a future session must act without owner answers: optional non-blocking work is a multi-room Royale capacity leg (2x60 and up) or a word_event wire diet (39A re-ranked the wire costs); both are improvements, not blockers."
