@@ -262,8 +262,20 @@ func (l *Limiter) reapLocked(now time.Time) {
 // X-Forwarded-For is attacker-controlled on a directly exposed listener:
 // trusting it unconditionally would let a single abuser mint unlimited
 // identities.
+//
+// Header precedence when trustProxy is set (batch 37C): CF-Connecting-IP
+// first, then X-Forwarded-For, then X-Real-IP. The order is a spoofing
+// property, not a preference: Cloudflare REPLACES any client-supplied
+// CF-Connecting-IP at the edge, so behind cloudflared it always carries the
+// edge-observed address, while a client CAN inject arbitrary first entries
+// into X-Forwarded-For (the edge only appends). Reading XFF first behind
+// Cloudflare would let one abuser mint unlimited rate-limit identities -
+// exactly the failure trustProxy exists to prevent.
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
+		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+			return strings.ToLower(cf)
+		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			first := strings.TrimSpace(strings.Split(xff, ",")[0])
 			if first != "" {

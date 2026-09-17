@@ -85,9 +85,40 @@ with zero configuration change (it was never changed). No data impact:
 matches are session-scoped; in-flight matches drop and their clients
 reconnect or re-queue.
 
+## Finding 2026-09-17 (batch 37C) - caller identity behind the tunnel
+
+Severity: medium, known surface, mitigations already queued in stage 2.
+
+1. Room-table exhaustion through unauthenticated match creation is
+   PRE-EXISTING, not introduced by M2: rooms outlive their clients by
+   design (32F measured a 180 s drain), so a caller creating matches at the
+   mutation budget (120/min) can hold ~360 concurrent rooms and push the
+   service to its room cap. `pve:true` (WORDARENA_ALLOW_BOT_SEATS=true on
+   the live deployment since 2026-09-14, for the practice mode) only
+   simplifies the farm: the server drives a bot in each room without the
+   caller keeping a socket open. The ceiling is unchanged.
+2. WORDARENA_TRUST_PROXY_HEADERS=true was UNSAFE behind Cloudflare before
+   this patch: ClientIP keyed on the FIRST X-Forwarded-For entry, which a
+   client controls end-to-end (the edge only appends). Enabling per-IP
+   limits on that basis would have let one abuser mint unlimited rate-limit
+   identities - worse than the shared budget it replaces.
+   Disposition: FIXED in code (batch 37C). ClientIP now prefers
+   CF-Connecting-IP, which Cloudflare replaces with the edge-observed
+   address; XFF remains the documented fallback for non-Cloudflare proxies.
+   Behaviour with trustProxy off (current live config) is unchanged.
+3. Interim posture is fail-closed: with trustProxy off, all tunnel callers
+   share one 120/min mutation budget (keyed 127.0.0.1). An abuser cannot
+   bypass it, only exhaust it for everyone; reads and in-flight matches are
+   unaffected, and the budget refills every minute.
+
+Stage-2 prerequisite delivered by this patch; flipping
+WORDARENA_TRUST_PROXY_HEADERS on the live service is a deploy-config step
+to take together with the /metrics deny decision, not silently.
+
 ## Open items
 
-- Stage 2: domain + edge per-IP limits + /metrics deny + token decision
+- Stage 2: domain + edge per-IP limits (code prerequisite landed in 37C:
+  CF-Connecting-IP-aware caller identity) + /metrics deny + token decision
   (docs/PRODUCT-DECISIONS.md Q8, step 2).
 - Re-verify live (smoke + exit gate) after the tunnel is up, from both
   the host (loopback) and a device (public URL).
