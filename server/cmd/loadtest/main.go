@@ -1090,7 +1090,7 @@ loop:
 		drainStart := time.Now()
 		for time.Since(drainStart) < cfg.WaitDrain {
 			time.Sleep(time.Second)
-			_, _, n := serverSnapshot(cfg.URL)
+			_, _, n, _ := serverSnapshot(cfg.URL)
 			rep.ActiveMatchesEnd = n
 			if n == 0 {
 				break
