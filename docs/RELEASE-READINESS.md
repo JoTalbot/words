@@ -68,11 +68,26 @@ Open items before the M1 gate can be declared:
    observation channel, a host load spike makes the deployment unobservable
    for ~15 minutes (measured load1 8.6 -> 15-min average 256-276, kswapd
    active, ~2650 tasks) while `wordarena.service` itself stayed healthy.
-3b. Security finding S-2 — sequential match ids make finished-match results
-   enumerable. Accepted for the loopback deployment, blocked on
-   `agent/tasks/M1-batch21g-match-codes.yml` before any public exposure.
-3c. Deployment drift — the live systemd binary is `5dbcc42`; main is ahead by
-   six batches. Promotion plus re-verification is the next ops step.
+3b. Security finding S-2 — sequential match ids made finished-match results
+   enumerable. **CLOSED 2026-09-17**: the task this was blocked on,
+   `agent/tasks/M1-batch21g-match-codes.yml`, is `merged_green` (PR #11) and the
+   finding carries its own disposition in `docs/SECURITY-REVIEW-M1.md` ("fixed
+   2026-09-11 by batch 21g"). The remedy is match ids kept internal behind a
+   128-bit code plus a stored read capability, and it is asserted by
+   `infra/smoke.sh` on every run — code and capability present and distinct, and
+   the code route resolving 404 rather than 400 while a match is active. That
+   script passed 27/0 against the live service on 2026-09-17, so the closure
+   rests on the deployed build, not only on the merge.
+3c. Deployment drift — **CLOSED 2026-09-17**: the live systemd binary is
+   `1a0815e`, which is `main` at promotion time. Promoted at 02:27:03 UTC from
+   `22fb7af` (which was itself three batches behind), verified by
+   `sha256sum` of the installed binary against the freshly built one, then
+   `infra/smoke.sh` 27/0 with `SMOKE_EXPECT_STORAGE=postgres`, the deterministic
+   exit gate 6/6 with the recorded baseline scores reproduced exactly
+   (`43:45 / 37:60 / 44:40`, `terminal_snapshots_equal` and `client_streams_equal`
+   both true), `NRestarts=0`, and match ids resuming from Postgres at 9312. The
+   promotion also corrected the deploy procedure in `docs/M1-OPS.md`: installing
+   with `cp` onto a running binary fails `ETXTBSY`, so the step is copy-then-rename.
 4. B2 uk dictionary legal review — distribution blocker only.
 
 ## M0 Release Readiness
