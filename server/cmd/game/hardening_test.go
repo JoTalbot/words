@@ -284,3 +284,64 @@ func TestWSRejectsOversizedFrame(t *testing.T) {
 	}
 	t.Fatal("connection stayed open after oversized frame")
 }
+
+// TestIntentWindowIsKeyedByMatchAndSeat pins the key of the per-seat intent
+// budget. It used to be the packed integer matchID<<1|seat, which only two
+// seats can share: match 1 seat 2 packed to the same key as match 2 seat 0, so
+// one match's activity spent another match's budget. The case is written at
+// seat 2 deliberately - that is the first seat the old packing aliased.
+func TestIntentWindowIsKeyedByMatchAndSeat(t *testing.T) {
+	api := NewAPI()
+	api.intentsPerSec = 3
+
+	for i := 1; i <= 3; i++ {
+		if !api.allowIntent(1, 2) {
+			t.Fatalf("intent %d on match 1 seat 2 was refused inside its own budget", i)
+		}
+	}
+	if api.allowIntent(1, 2) {
+		t.Fatal("match 1 seat 2 exceeded its own per-second budget")
+	}
+	// The aliased pair from the old packing: (1, 2) and (2, 0).
+	if !api.allowIntent(2, 0) {
+		t.Error("match 2 seat 0 was throttled by match 1 seat 2; the window key still collides")
+	}
+	// Neighbours inside the same match keep separate budgets too.
+	if !api.allowIntent(1, 3) {
+		t.Error("match 1 seat 3 was throttled by match 1 seat 2; seats share one window")
+	}
+}
+
+// TestClearSeatWindowsReleasesEverySeat covers the second half of the same
+// defect: cleanup named only seats 0 and 1, so every higher seat kept its
+// timestamps in the map for the lifetime of the process. The assertion is at a
+// high seat number on purpose - a 60-seat roster is a shipped configuration.
+func TestClearSeatWindowsReleasesEverySeat(t *testing.T) {
+	api := NewAPI()
+	api.intentsPerSec = 1
+
+	if !api.allowIntent(7, 60) {
+		t.Fatal("first intent on match 7 seat 60 was refused")
+	}
+	if api.allowIntent(7, 60) {
+		t.Fatal("match 7 seat 60 exceeded a one-intent budget")
+	}
+	// A second match, to prove cleanup does not reach into another match.
+	if !api.allowIntent(8, 0) {
+		t.Fatal("first intent on match 8 seat 0 was refused")
+	}
+
+	api.clearSeatWindows(7, 61)
+
+	// Checked before any further intent, because an allowed intent re-inserts
+	// its own key: only match 8's seat 0 window may survive the cleanup.
+	if n := len(api.seatWindows); n != 1 {
+		t.Errorf("seat window map holds %d entries after clearing a 61-seat match, want 1 (match 8 seat 0)", n)
+	}
+	if !api.allowIntent(7, 60) {
+		t.Error("seat 60 kept its window after its match ended: cleanup does not release high seats")
+	}
+	if api.allowIntent(8, 0) {
+		t.Error("clearing match 7 released match 8's window: cleanup reaches across matches")
+	}
+}
