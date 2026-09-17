@@ -45,6 +45,15 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// Opt-in profiling (batch 37D): only when WORDARENA_PPROF_ADDR is set,
+	// loopback-only, on its own listener and mux - never on the public one.
+	// A startup failure here must not take the game down with it.
+	if pp := os.Getenv("WORDARENA_PPROF_ADDR"); pp != "" {
+		if _, err := startPProf(pp); err != nil {
+			log.Printf("pprof disabled: %v", err)
+		}
+	}
+
 	serveErr := make(chan error, 1)
 	go func() {
 		log.Printf("wordarena game service listening on %s", server.Addr)

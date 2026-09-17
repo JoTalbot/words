@@ -222,3 +222,15 @@ Two consequences worth knowing before a promotion:
   bot. The exit-gate baselines remain valid as a physics regression, but they
   are no longer mistakable for ranked results.
 - `infra/smoke.sh` does not enqueue, so it is unaffected.
+
+## Profiling (opt-in, batch 37D)
+
+`WORDARENA_PPROF_ADDR=127.0.0.1:6060` starts a second, loopback-only
+listener serving the standard net/http/pprof handlers (heap, goroutine,
+CPU profile, trace). It is off by default, binds its own socket with its
+own mux (never the public api mux), refuses non-loopback addresses at
+startup (a misconfiguration logs and is skipped, never fatal), and the Q8
+stage-1 tunnel never proxies it (the tunnel forwards only the game port).
+Example: `curl 127.0.0.1:6060/debug/pprof/heap > heap.pb.gz` and
+`go tool pprof -top heap.pb.gz`. Profiling is unauthenticated by design -
+keep it loopback and do not proxy it.

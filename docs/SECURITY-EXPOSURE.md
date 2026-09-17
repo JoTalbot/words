@@ -117,6 +117,9 @@ to take together with the /metrics deny decision, not silently.
 
 ## Open items
 
+- Opt-in pprof listener (37D, default off): loopback-only by enforced
+  startup check, own mux/socket, never proxied by the tunnel (it forwards
+  only the game port); unauthenticated by design - do not expose.
 - Stage 2: domain + edge per-IP limits (code prerequisite landed in 37C:
   CF-Connecting-IP-aware caller identity) + /metrics deny + token decision
   (docs/PRODUCT-DECISIONS.md Q8, step 2).
