@@ -267,6 +267,11 @@ Exit gate: two remote clients can complete repeated matches with identical final
   (isolated since; incident recorded in the load-testing doc). REMAINING: a
   multi-hour soak (the abandoned-room stage already covers its interesting
   part) and profiled matches under load.
+  The multi-hour soak line closed in **batch 37B** (soak v2: 12/12 legs,
+  88 matches, create/dial errors 0): it caught a websocket connection-lifecycle
+  goroutine leak nothing else saw - fixed in **batch 38A** (PR #61) with a
+  regression test and a post-fix confirmation soak (v3: legs drain back to
+  baseline goroutines/RSS). Verdict: docs/M2-LOAD-TESTING.md "Soak verdict".
 
 ## M3 — Feature Complete Beta
 

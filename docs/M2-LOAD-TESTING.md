@@ -320,3 +320,73 @@ CI runs a two-match, three-second version of the same code path
   fold on match end). The Postgres stage exercised match-result writes; the
   profile path is the same single-write-at-end shape, but it has not been
   staged separately.
+
+## Soak verdict (M2 batch 37B, 2026-09-17)
+
+Two-hour-plus soak of one isolated in-memory server instance (never the
+live service; `WORDARENA_LOADTEST_PORT` discipline throughout, isolated
+`WORDARENA_ADDR=127.0.0.1:18099`, detached from the long-lived proxy
+connection so sandbox network timeouts cannot touch it). All artifacts under
+`/home/ubuntu/artifacts-37b/` (v1, v2, v3 subdirectories).
+
+**Soak v1** (`e22504a`, 06:00-06:20): 5 complete legs (cycle 8x2 / 12x2 / 2x8
+seats, 600 s per leg), then the run was truncated by an OPERATOR ERROR, not
+by the product: a `pkill -f "wordarena$"` typed during an unrelated repro
+setup matched the soak server is own path suffix and gracefully SIGTERMed it
+(server.log: "signal terminated received: shutting down", 06:09:07). Legs
+7-12 failed fast against the dead listener. Rule codified (state facts):
+kill long-lived test instances by EXACT PID files only on this shared host.
+v1 partial data: RSS 12.8 -> 23.9 MB across 5 legs with a decelerating
+slope, fds flat at 6, threads 9 -> 11, 44 matches / 3300 intents, zero
+create/dial errors.
+
+**Soak v2** (12/12 legs, 06:30-08:31, 88 matches, 9384 intents): the soak did
+exactly what a soak exists for and caught a real defect.
+
+- **Defect found: handleWS goroutine-leak deadlock (fixed, batch 38A /
+  PR #61).** The goroutine series climbed perfectly linearly 7 -> 455 across
+  the 12 legs = +2 per closed websocket connection, and NEVER decreased
+  between legs despite active_matches returning to 0. Goroutine pprof at
+  soak end: 224 handlers parked in handleWS at the `<-done` tail + 224
+  writer goroutines parked in their select. Root cause: the handler tail
+  waits for the writer (`<-done`), while the writer is only exit path was
+  `r.Context().Done()` - which is cancelled when the handler RETURNS, i.e.
+  never for a client-initiated disconnect. Fix: writer + all its writes now
+  run on a context the handler cancels BEFORE waiting on `<-done`.
+  Regression test `TestWSGoroutinesReapedOnClientDisconnect`: pre-fix
+  abandon-cycle deltas 5,5 (4 handler goroutines + 1 room ticker), post-fix
+  1,1 = only the legitimate `runRoomTicker` of each still-resumable match
+  (SeatTTL semantics preserved by design). Post-fix confirmation soak v3
+  (`d202e4b`, 3 legs, otherwise identical protocol): goroutines and RSS
+  return to baseline between legs (see v3 series in artifacts).
+- **RSS 13.2 -> 33.7 MB with matching heap-inuse only 0.54 -> 3.56 MB:**
+  the growth was almost entirely leaked-goroutine stacks plus allocator
+  retention, NOT accumulated match state. Post-38A that reclaimable class
+  is gone. fds flat 6-7, threads flat 9-13 across the whole run.
+- **Correctness/header integrity:** create_errors=0 and dial_errors=0 on
+  every leg; active_matches returned to 0 between legs every leg (no room
+  leaks); zero server restarts or error-level log lines across 2 h.
+- **Royale (2x8) legs measure transport and room churn, not scoring
+  pressure.** ~95% of royale intents were rejected (BLOCKED_BY_RULE,
+  NOT_IN_DICT, MATCH_NOT_ACTIVE after a match is over+3 s close), and the
+  accepted count plateaued at wave boundaries (cull -> spectator). The
+  word-search geometry on the royale-scaled board is the harness side of
+  that; follow-up task 37E is queued for the harness. `seats_dropped` on
+  royale legs is likewise a HARNESS ACCOUNTING artifact: `runRoomTicker`
+  closes rooms at over+3 s by design, royale matches always end mid-leg, so
+  the close counts still-connected seats as "dropped". Neither number
+  indicates a product defect.
+- Duty cycle documented: the harness creates its cohort once per leg and
+  drives it for the leg is duration; a match is ~180 s live span ends well
+  inside the 600 s leg, so later leg minutes exercise disconnect/close
+  handling (which is precisely how the leak surfaced).
+
+**Outcome:** launch-scale transport is stable across the tested envelope
+(matches/8..12 concurrent, seats 2..8, ~40 conn churn events/leg sustained
+over 2 h). The one defect the soak surfaced is fixed, regression-guarded,
+and re-confirmed by a post-fix soak; the M2 load-testing line is satisfied
+by the combination of the earlier stage suite + this soak.
+
+(The earlier "Not measured here: multi-hour soak" note above is superseded
+by this section - it predicted a soak would mostly measure empty harness
+time; instead it found the one defect that every shorter stage missed.)

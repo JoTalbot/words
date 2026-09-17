@@ -1,6 +1,6 @@
 id: M2-batch37b-load-soak
 title: "Multi-hour soak of an isolated server: cross-leg churn, quiescent-baseline returns, RSS/FD/thread drift"
-status: running
+status: verified
 priority: normal
 complexity: medium
 inputs:
@@ -23,3 +23,23 @@ file_ownership:
   - docs/M2-LOAD-TESTING.md
   - /home/ubuntu/artifacts-37b/ (host-only artifacts)
 escalation: none
+
+result: |
+  Soak v2 run 2026-09-17 06:30-08:31 UTC: 12/12 legs complete, 88 matches,
+  9384 intents, create_errors=0 / dial_errors=0 every leg, active_matches
+  returned to 0 between legs, zero restarts. The soak FOUND one real
+  product defect (handleWS goroutine-leak deadlock, +2 goroutines per
+  closed websocket connection, 7 -> 455 across the run) - fixed in batch
+  38A / PR #61 (d202e4b) with regression test
+  TestWSGoroutinesReapedOnClientDisconnect (pre-fix deltas 5,5, post 1,1)
+  and post-fix confirmation soak v3. accepted-composition on royale legs
+  is harness semantics (wave-boundary culls); seats_dropped on royale is a
+  harness accounting artifact of the over+3s room close - follow-up task
+  37E queued. Verdict appended to docs/M2-LOAD-TESTING.md. Soak v1 was
+  truncated by operator error (pkill pattern matched the soak server path;
+  graceful SIGTERM in log); codified as state fact: exact PID kills only.
+evidence: |
+  /home/ubuntu/artifacts-37b/{v1,v2,v3}/ (legs JSON, per-leg pprof heap +
+  goroutine captures, sample sidecars, server.log, aggregate2.py summary),
+  /home/ubuntu/artifacts-37b/incident-note.txt,
+  docs/M2-LOAD-TESTING.md "Soak verdict (M2 batch 37B)".
