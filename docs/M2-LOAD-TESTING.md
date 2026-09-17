@@ -498,3 +498,51 @@ Artifacts (OCI host, `artifacts-39a/`): `report-royale60.json`,
 `harness-royale60.stdout.log`, `server-royale60.log`, `build-sha-royale60.txt`.
 This closes the load-testing row's delta-mode caveat: the royale reference
 numbers going forward are these.
+
+### Batch 39B: the Royale capacity curve (2026-09-17)
+
+Batch 39A measured ONE 60-seat room; capacity planning needs the shape under
+several. Same discipline as 39A (isolated instance on its own port with the
+port-safety guard, in-memory storage, teardown by exact pid), sequential legs
+on the OCI host, built from main 5431786:
+
+| leg | rooms x seats | clients | intents sent = acked | RTT p50 / p95 / p99 ms | wire per client | server CPU (of one core) | RSS | anomalies |
+|---|---|---|---|---|---|---|---|---|
+| 39A | 1x60 | 60 | 3360 | 6.4 / 20.2 / 32.3 | 422 B/s | 1.31% | 12.4 -> 28.1 MB | none |
+| 39B | 2x60 | 120 | 6480 | 15.2 / 46.0 / 75.1 | 418 B/s | 2.35% | 12.5 -> 36.3 MB | none |
+| 39B | 4x60 | 240 | 13320 | 32.0 / 103.6 / 261.5 | 434 B/s | 5.09% | 12.5 -> 51.2 MB | none |
+
+Every match in every leg ran the FULL 180 s budget (`ticks=5400`), drain
+after the last client left was 0.0 s, and the corrected accounting held
+everywhere: seats_dropped 0, seats_closed_after_over 0, deltas_stale 0.
+
+Readings:
+
+- **Server CPU is linear at ~1.2-1.3% of one core per 60-seat room.** On the
+  4-vCPU host that extrapolates to roughly 75-80 simultaneous full Royale
+  lobbies before one core is saturated by room work - the ticker is nowhere
+  near the practical ceiling; the ceilings 32F already found (the mutation
+  budget, rooms outliving their clients by design) govern first.
+- **Per-client wire is flat across room counts** (418-434 B/s): fan-out cost
+  belongs to the room, not the crowd; aggregate egress scales with rooms at
+  ~25 KB/s per lobby (loopback here, but the shape is what an edge would see).
+- **Client-observed RTT grows with client count** (6.4 -> 15.2 -> 32.0 ms
+  p50). Limitation recorded honestly: this harness run did not scrape the
+  server-side `wordarena_intent_process_us` histogram, so the decomposition
+  is not measured here - but the 35C off-box stage measured the server share
+  at sub-millisecond means, and server CPU stays idle-dominant (<= 5% of one
+  core while driving 240 clients), so the growth reads as generator-side
+  queueing (one process driving 240 WebSocket clients) plus loopback
+  scheduling, not server processing. A future leg should scrape the server
+  histogram to close that gap.
+- **RSS is sublinear**: +8.1 MB from 1 to 2 rooms, +14.9 MB from 2 to 4 -
+  roughly 4-7 MB per additional 60-seat lobby at this scale. Memory stays
+  the first resource to watch per room (32F), and these legs say its slope
+  is gentle.
+- **Machine lobby scores vary widely** (one match ended 0:209, three ended
+  0:0): machine clients on a 60-cell board often stall after the culls. The
+  legs measure transport and lifecycle under full-budget matches; the score
+  variance is recorded rather than tuned away.
+
+Artifacts (OCI host, `artifacts-39b/`): `report-royale60x2.json`,
+`report-royale60x4.json`, harness stdout logs, server logs, build shas.

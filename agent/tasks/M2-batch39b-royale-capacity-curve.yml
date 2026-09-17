@@ -1,0 +1,26 @@
+id: M2-batch39b-royale-capacity-curve
+title: "Capacity curve for multi-room Royale: 2x60 and 4x60 legs on the 39A discipline"
+status: merged_green
+priority: normal
+complexity: small
+inputs:
+  - "Batch 39A single-room leg + the 38C-fixed harness at main 5431786"
+  - "tools/loadtest-isolated.sh discipline and the batch 35C port-safety guard (isolated ports 18103/18104 on the OCI host)"
+outputs:
+  - "OCI host artifacts-39b/ with report-royale60x2.json, report-royale60x4.json, harness logs, server logs, build shas"
+  - "docs/M2-LOAD-TESTING.md Batch 39B capacity-curve section"
+acceptance:
+  - "sequential 2x60 and 4x60 legs, 240 s each, isolated instances, port guard passed, teardown by exact pid"
+  - "every match runs the full 180 s budget (ticks=5400); seats_dropped 0, seats_closed_after_over 0, deltas_stale 0 in both legs"
+  - "capacity curve published with the RTT-decomposition limitation recorded honestly"
+validation:
+  - "python3 tools/check-task-yaml.py"
+  - "docs-only change - CI gates must stay green"
+risk: low
+file_ownership:
+  - "docs/M2-LOAD-TESTING.md"
+  - "agent/tasks/M2-batch39b-royale-capacity-curve.yml"
+evidence:
+  - "2x60 - 120 clients, create p50 0.5 ms, intents 6480 sent = 6480 acked, RTT p50 15.2 / p95 46.0 / p99 75.1 ms, 418 B/s per client (11.48 MB total), server CPU 2.35 percent of one core, RSS 12.5 to 36.3 MB, drain 0.0 s"
+  - "4x60 - 240 clients, create p50 0.5 ms, intents 13320 sent = 13320 acked, RTT p50 32.0 / p95 103.6 / p99 261.5 ms, 434 B/s per client (23.83 MB total), server CPU 5.09 percent of one core, RSS 12.5 to 51.2 MB, drain 0.0 s"
+  - "CPU scales linearly at about 1.2 to 1.3 percent of one core per 60-seat room; per-client wire is flat across room counts; all six matches ran the full 180 s budget; the client-observed RTT growth is recorded as generator-side with the decomposition limitation named"
