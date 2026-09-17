@@ -271,6 +271,19 @@ tooling:
   a disconnected player. After the match ends subscribers first receive the
   terminal `over=true` snapshot, then the room is removed ~3 s later;
   further connects get 404.
+- **The socket is not closed by the server when the room is removed** (batch
+  38E, decision, not an accident): the connection stays open until one side
+  closes it, and a client that has seen the terminal frame may close
+  immediately or keep reading - no further frame will arrive. The finished
+  result stays readable over HTTP (`GET /v1/matches/{id}/result`, and the
+  replay route once it exists for the match), so a client never needs the
+  socket to be kept alive to learn the outcome. A server-initiated close with
+  `1000`/`1001` was considered and declined for M2: it would be a client-visible
+  contract change for no correctness gain, and the current behaviour is what the
+  device smoke and the load harness both exercise. Measured basis: a 195 s
+  harness leg whose match ended at 24 s logged `GET /v1/match/ws ... dur=3m15s`
+  - the client, not the server, ended every connection
+  (docs/M2-LOAD-TESTING.md, "Batch 38C").
 
 ### Seat-token rotation (M1)
 
@@ -295,7 +308,8 @@ refreshes the deadline.
 - A seat may disconnect and reconnect with the same token any time before
   the match ends; the simulation never pauses and the token remains valid.
 - After the match ends, the room is removed ~3 s later; reconnect then
-  returns 404.
+  returns 404. The socket already open is NOT closed by that removal - see
+  the socket-lifetime paragraph in section 9.
 - Seat substitution / rotation is out of scope for M0; tokens are
   match-scoped and do not carry across matches.
 
