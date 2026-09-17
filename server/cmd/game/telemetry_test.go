@@ -95,7 +95,11 @@ func TestTelemetryJSONLExport(t *testing.T) {
 	}
 	c0.close()
 
-	waitForTelemetryWrites(t, api, 3)
+	// Wait for a full drain (everything enqueued is written), not just the
+	// first few writes: behavior signals (batch 41A) add legitimate events
+	// to this stream, and a mid-flight Stop would count buffered work as
+	// dropped, which is an exporter-health fact this test pins to zero.
+	waitForTelemetryDrain(t, api)
 	api.Stop()
 
 	events := readTelemetryJSONL(t, path)
@@ -153,6 +157,24 @@ func waitForTelemetryWrites(t *testing.T, api *API, want uint64) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("telemetry writes = %d, want >= %d", api.metricsSnapshot().TelemetryEventsWritten, want)
+}
+
+// waitForTelemetryDrain waits until every event accepted into the exporter
+// buffer has been written (written >= enqueued), so a Stop immediately after
+// cannot legitimately count buffered work as dropped. Unlike a fixed write
+// count, this stays correct whatever events gameplay emits next.
+func waitForTelemetryDrain(t *testing.T, api *API) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		snap := api.metricsSnapshot()
+		if snap.TelemetryEventsEnqueued > 0 && snap.TelemetryEventsWritten >= snap.TelemetryEventsEnqueued {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	snap := api.metricsSnapshot()
+	t.Fatalf("telemetry never drained: written=%d enqueued=%d", snap.TelemetryEventsWritten, snap.TelemetryEventsEnqueued)
 }
 
 func readTelemetryJSONL(t *testing.T, path string) []map[string]any {
