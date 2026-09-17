@@ -1,0 +1,23 @@
+id: M2-batch37e-loadtest-royale-accounting
+title: "Loadtest harness: mark post-over server closes as graceful; revisit royale word-search geometry"
+status: queued
+priority: low
+complexity: small
+inputs:
+  - server/cmd/loadtest/main.go read loop (seats_dropped counts any server-side close mid-run)
+  - server/cmd/game/api.go runRoomTicker (closes the room at over+3s by design)
+  - batch 37B soak findings (royale legs: dropped == seats, accepted-plateau at wave boundary, ~95 percent blocked rejects)
+outputs:
+  - harness distinguishes expected post-over closes from unexpected mid-match kills (e.g. via observed terminal frame or close status)
+  - note on royale-mode intent outcomes (cull spectators + scaled-board geometry) so future royale load legs read correctly
+acceptance:
+  - a royale leg no longer reports seats_dropped for closes that follow the terminal snapshot
+  - existing per-seat-limiter drop accounting (35C) remains intact (its stage contract is unchanged)
+validation:
+  - go test ./cmd/loadtest/
+  - one manual royale leg showing dropped==0 after the terminal frame
+risk: low
+file_ownership:
+  - server/cmd/loadtest/
+  - docs/M2-LOAD-TESTING.md (verdict text only)
+escalation: none
