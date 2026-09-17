@@ -237,6 +237,55 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 11,
+      "title": "Behavioral anti-cheat signals (measurement only)",
+      "type": "timeseries",
+      "description": "M3 batch 40A behavioral signals, per docs/M3-ANTI-CHEAT.md. Measurement only: nothing here influences admission, scoring or outcome. Streak episodes fire once per consecutive-rejection episode (an accepted word re-arms); metronomic flags fire once per seat whose submit gaps turn machine-regular; rate-limited closes are the per-seat intent limiter (transport guard, shown beside them for context); max streak is the running process maximum.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "rate(wordarena_behavior_rejection_streak_events_total[5m])",
+          "legendFormat": "rejection streak episodes/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(wordarena_behavior_metronomic_events_total[5m])",
+          "legendFormat": "metronomic flags/s",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(wordarena_intent_rate_limited_total[5m])",
+          "legendFormat": "rate-limited closes/s",
+          "refId": "C"
+        },
+        {
+          "expr": "wordarena_behavior_max_rejection_streak",
+          "legendFormat": "max rejection streak",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ]
 }

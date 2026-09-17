@@ -1,0 +1,35 @@
+id: M3-batch40a-behavior-signals
+title: "M3 kickoff: behavioral anti-cheat signals - measurement layer only (rejection streak, metronomic cadence), enforcement stays owner-gated"
+status: merged_green
+priority: normal
+complexity: medium
+inputs:
+  - "AGENTS.md constraint - anti-cheat is multi-signal risk assessment, never an automatic ban from one heuristic"
+  - "server/cmd/game/api.go intent path (handleWS SubmitWithSeq site), allowIntent / clearSeatWindows per-seat windows (38D keyed state)"
+  - "server/cmd/game/telemetry.go metrics + JSONL exporter patterns (fixed-cardinality JSON, Prometheus text, edge events)"
+outputs:
+  - "server/cmd/game/behaviorsignal.go - per-seat behavior tracker (single-writer ring, sync.Map), two signals, fixed thresholds"
+  - "server/cmd/game/behaviorsignal_test.go - 8 deterministic tests (edge semantics, exclusions, jitter/burst/idle, clear semantics)"
+  - "/metrics + /metrics/prometheus + behavior_signal JSONL events; docs/M3-ANTI-CHEAT.md owns the enforcement boundary"
+acceptance:
+  - "no signal may influence admission, scoring, ordering or outcome - verified by review and by the code path being observe-and-publish only"
+  - "MATCH_NOT_ACTIVE never advances the streak (38C's designed post-over refusal)"
+  - "bursts under 200 ms mean and idle gaps over 10 s never fire the cadence signal"
+  - "human-jitter cadence never fires; exact-interval cadence fires exactly once per seat per match"
+  - "streak signal fires exactly once per episode and re-arms after an accepted word"
+  - "per-seat state cleared on match end; process-lifetime counters survive"
+  - "metrics stay fixed-cardinality (per-seat context only in JSONL events)"
+validation:
+  - "go test ./cmd/game/"
+  - "go vet ./..."
+  - "gofmt -l (must be empty)"
+  - "python3 tools/check-task-yaml.py"
+risk: medium
+file_ownership:
+  - "server/cmd/game/behaviorsignal.go"
+  - "server/cmd/game/behaviorsignal_test.go"
+  - "server/cmd/game/api.go (intent-path hook, rate-limit counter, metrics keys)"
+  - "server/cmd/game/telemetry.go (snapshot fields, prometheus lines, Signal field)"
+  - "docs/M3-ANTI-CHEAT.md"
+escalation: review
+notes: "Enforcement policy is deliberately NOT here: docs/M3-ANTI-CHEAT.md 'The enforcement boundary' lists the four conditions any future enforcement change must satisfy, and Q-enforcement joins the owner-question list only when the owner asks for enforcement. This batch is the observable half that needed no product decision."
