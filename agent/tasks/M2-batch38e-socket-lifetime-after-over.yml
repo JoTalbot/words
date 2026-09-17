@@ -1,6 +1,6 @@
 id: M2-batch38e-socket-lifetime-after-over
 title: "Decide and, if warranted, implement the socket lifetime after a match ends (room removed, connection left open)"
-status: queued
+status: done_decision_recorded_no_code_change
 priority: normal
 complexity: small
 inputs:
@@ -23,3 +23,17 @@ file_ownership:
   - docs/WIRE-PROTOCOL.md
   - docs/M2-LOAD-TESTING.md (evidence text only)
 escalation: review
+decision: >
+  Keep the current behaviour and pin it in the contract. The server removes the
+  room ~3 s after the terminal frame and does NOT close the socket; the client
+  closes when it is done. A server-initiated close (1000/1001) was evaluated and
+  declined for M2: it changes client-visible behaviour for no correctness gain, a
+  client already learns the outcome from the terminal frame plus the durable
+  result endpoint, and the behaviour now has a measured basis (batch 38C leg:
+  a 195 s run whose match ended at 24 s ended only when the client closed).
+  Recorded in docs/WIRE-PROTOCOL.md section 9 and section 3.1 - if a future
+  session wants the close, it must start from that text rather than from scratch.
+evidence:
+  - "docs/WIRE-PROTOCOL.md section 9: explicit socket-lifetime paragraph; section 3.1 cross-references it."
+  - "No code change, therefore no behaviour change: no regression risk for the Unity client's result fetch."
+  - "Reopening requires a product/owner input only if the socket count at scale becomes a measured problem - the 37B soak showed the goroutine side of this path is stable (v3 drains to baseline)."
