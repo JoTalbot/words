@@ -17,37 +17,4 @@ session:
     batch_37d: "MERGED via PR #60 -> e22504a. Opt-in loopback-only pprof listener (WORDARENA_PPROF_ADDR, default off, own socket+mux, non-loopback refused at startup). Enables the profiled-matches half of the load-testing row. Profiled leg already executed against an isolated instance on 127.0.0.1:18100 (12x2, 300 s): created=12, 0 errors, 236/236 acks, p50 0.42 ms p99 3.8 ms, RSS 13.8->22.7 MB; 30 s CPU profile shows 0.83% CPU with top frames runtime syscalls/futex (idle-dominant; in-app frames tickLocks/writeFrame/protobuf <= 4% each) - the honest reading is that 12-room 1v1 load is far below the box, heap inuse 7.4 MB with the dictionary snapshot at 2.6 MB and NO leak signal. Captures in /home/ubuntu/artifacts-37b/ (cpu-profile-30s.pb.gz, heap-*.pb.gz, goroutine-*.txt)."
     soak_37b: "v1 (05:18-06:09) TRUNCATED BY OPERATOR ERROR: a repro setup ran pkill matching the soak server too (graceful signal-terminated in the log) - NOT a product crash; legs 1-5 complete, incident-note.txt kept. v2 RELAUNCHED 06:30 UTC at build 9b7cfb4, same 12-leg design plus per-leg pprof heap/goroutine captures; ETA ~08:33 UTC; artifacts /home/ubuntu/artifacts-37b/v2/. Findings secured: (a) royale-leg seats_dropped is a HARNESS ACCOUNTING artifact - runRoomTicker closes the room at over+3s by design; (b) royale accepted-plateau + ~95pct rejects consistent with cull-spectator rejects + harness word-search geometry on the scaled board - royale legs measure transport/room churn, not scoring. v1 duty cycle: cohort created once per leg, RSS 12.8 -> 23.9 MB over 5 legs, decelerating slope, heap inuse ~7.4 MB."
 
-    next_action: "finish 37B (v2 complete ~08:33 UTC -> aggregator -> verdict into docs/M2-LOAD-TESTING.md, closes the load-testing REMAINING line); after that M2 is reachable except owner-blocked items (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, guild product inputs, tutorial-framing UX evidence)."
-
-
-m2_remaining:
-  - "load testing - multi-hour soak + profiled matches under load (32F/35C covered the rest) = batch 37B, starts this session"
-  - "PvE - tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
-  - "guild product-input items - chat+moderation, invite-only join, co-owners, roster cap number, guild-vs-guild matchmaking and rewards (PRODUCT-DECISIONS.md names each as needing product input; earlier M2 questions were owner-delegated to the agent, these were NOT - evaluate per item whether a safe documented default exists, else candidate human-blocker)"
-  - "60-player row - bot backfill decided NO by the 32D bot policy; the remaining ~27 percent delta saving (stable lock field) is a client-contract change, optional, not blocking"
-
-facts_non_relitigable:
-  - "01-16: see git history of this file (live service owns 127.0.0.1:18080 - load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops; port-safety guard in every load script; the simulation is machine-independent so sweeps may run off-host; load tests must stay on the OCI host)"
-  - "17: task-graph hygiene rule proven by 37A - close task files only against documented evidence (PR number, CI/device run id from the ROADMAP exit tables, or a live verification), never by assumption; run tools/check-task-yaml.py after any edit and keep the status vocabulary meaningful"
-  - "18: GitHub REST merge via API works with the gho_ token in ~/.git-credentials (format https://JoTalbot:TOKEN@github.com - never write the token into the repo). Check-runs on a merge commit can lag ~1-2 min; poll before reporting green"
-  - "19: live promotion to 662e786 deliberately SKIPPED this session - 36D defaults are behavior-identical to 1a0815e, so a restart buys nothing; next behavior-changing merge promotes as usual"
-  - "20: kill long-running test servers by EXACT PID files only - a pkill -f pattern during a repro setup matched and stopped the soak v1 server too (both paths end in wordarena); the graceful signal-terminated log made the cause provable (06:09:07 UTC; incident-note.txt in artifacts-37b)"
-
-server:
-  host: 129.213.177.56
-  key: "/home/user/.ssh/oci_server_key.pem (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 662e786; live binary at /opt/words/bin/wordarena-server still serves build 1a0815e)"
-  worktrees: "only wt/batch18 and wt/proto-version remain (historical); /tmp merge-gate worktrees are transient"
-  go: "/home/ubuntu/go-toolchain/bin/go (go1.27.1); GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35"
-  live_service: "wordarena.service active since 2026-09-17 02:27:03 UTC, NRestarts=0, healthz ok, on build 1a0815e"
-  ollama: "qwen2.5:3b loaded; host load1 was 1.55-2.0 at session start - inside the capacity guard for the micro-LLM worker (refuses above 4.80)"
-  artifacts: "artifacts-36a (36A sweep), artifacts-36d (36D sweep) on the host; 37B soak artifacts land in /home/ubuntu/artifacts-37b/"
-
-sandbox:
-  note: "fresh Arena sandbox this session (previous sandbox home was wiped with its artifacts) - work happens on the OCI host over SSH; nothing sandbox-local is load-bearing"
-  ssh_key: "/home/user/.ssh/oci_server_key.pem (chmod 600, written this session from the handoff message)"
-
-resume_from:
-  - "37B soak: check /home/ubuntu/artifacts-37b/ (legs, server-metrics, rss samples, summary sidecar) - if the soak wrapper (nohup, nice) is still running, let it finish; then write the verdict into docs/M2-LOAD-TESTING.md and close the load-testing REMAINING line"
-  - "after 37B: PvE tutorial framing (small, server-side framing only per Q11) OR guild product-input items analysis - check first whether each guild item has a safe documented default; ones that genuinely need product input become a single explicit human-question list, not stallers"
-  - "token: ssh host cat ~/.git-credentials (gho_ token works for REST merge + Actions queries; check-runs lag ~1-2 min after a merge)"
+    next_action: session wrap complete; all verifiable lines green, M2 load-testing CLOSED (37B). Next session: owner-blocked items only (Q8 stage-2 domain + /metrics + token decision, B2 uk licence, guild inputs, tutorial-framing UX evidence), then queued 37E harness fix + parked allowIntent key fix (api.go:411) as one small batch.
