@@ -1,0 +1,32 @@
+id: M2-batch39a-royale-corrected-leg
+title: "Run the corrected Royale-sized load leg with the 38C harness and publish the numbers (lift the delta-mode caveat)"
+status: merged_green
+priority: high
+complexity: small
+inputs:
+  - server/cmd/loadtest (38C delta-aware harness) and server/cmd/game at main 5431786
+  - tools/loadtest-isolated.sh discipline + the batch 35C port-safety guard (the live service owns 127.0.0.1:18080 on the OCI host; this leg used 18102)
+  - docs/M2-LOAD-TESTING.md "Batch 38C" section, which names the missing Royale-sized leg
+outputs:
+  - OCI host artifacts-39a/: report-royale60.json, harness-royale60.stdout.log, server-royale60.log, build-sha-royale60.txt
+  - docs/M2-LOAD-TESTING.md "Batch 39A" section with the corrected numbers
+  - ROADMAP caveat lift (load row + 60-player wire note) and state m2_remaining update
+acceptance:
+  - one 1x60 leg, 240 s, isolated instance on 127.0.0.1:18102, port guard passed, teardown by exact pid from the pid file
+  - the match reaches its terminal frame over the real transport (lifecycle=over ticks=5400 tie=false - the full 180 s budget)
+  - corrected accounting holds at size: seats_dropped 0, seats_closed_after_over 0, all closes 1000 normal, deltas_stale 0
+  - numbers published in docs/M2-LOAD-TESTING.md; the delta-mode caveat text removed from state m2_remaining
+validation:
+  - python3 tools/check-task-yaml.py
+  - python3 tools/check-state-yaml.py
+  - docs-only change: no go build/test impact, CI gates must stay green
+risk: low
+file_ownership:
+  - docs/M2-LOAD-TESTING.md
+  - docs/ROADMAP.md
+  - agent/state/current.yml
+  - agent/tasks/M2-batch39a-royale-corrected-leg.yml
+evidence:
+  - "artifacts-39a/report-royale60.json: clients 60, create p50 18.9 ms (n=1) errors 0, dial errors 0, intents 3360 sent = 3360 acked, accepted 56, blocked_by_rule 3304, skipped-no-word 1980, RTT p50 6.4 / p95 20.2 / p99 32.3 / max 48.0 ms, 212460 frames / 6.08 MB / 422 B/s per client / 24.7 KB/s aggregate, frames by kind word_event 201600 (5.03 MB) vs delta 10680 (0.85 MB) vs snapshot 180 (0.20 MB), deltas_stale 0, seats_dropped 0, seats_closed_after_over 0, closes 1000 normal x60, server CPU 1.3 percent of one core, RSS 12.4 -> 28.1 MB, drain 1.0 s"
+  - "artifacts-39a/server-royale60.log: lifecycle=over id=1 ticks=5400 winner=2 tie=false - a Royale-sized match runs the full 180 s budget, unlike the 24 s 4-seat match in 38C"
+  - "reading corrections published: the 32A/32F byte estimates were high (measured 422 B/s per client and about 25 KB/s per lobby) and word_event fan-out, not snapshots or deltas, dominates the wire at Royale size (about 83 percent of bytes)"

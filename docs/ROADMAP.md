@@ -125,6 +125,8 @@ Exit gate: two remote clients can complete repeated matches with identical final
   remaining wire saving, if ever worth taking, is replacing the per-second lock
   countdown with a stable lock field (~27 % of the delta), which is a
   client-contract change rather than a server optimisation.
+  (Batch 39A re-ranked this: at Royale size word_event fan-out is ~83% of
+  wire bytes, so the stable lock field is no longer the top wire item.)
 - [x] bot strategy and disclosure policy - **Q5 decided 2026-09-14** (owner
   delegated the choice) and implemented in batch 32D
   (docs/M2-BOT-POLICY.md): a bot is DECLARED by the server and never inferred,
@@ -271,7 +273,11 @@ Exit gate: two remote clients can complete repeated matches with identical final
   88 matches, create/dial errors 0): it caught a websocket connection-lifecycle
   goroutine leak nothing else saw - fixed in **batch 38A** (PR #61) with a
   regression test and a post-fix confirmation soak (v3: legs drain back to
-  baseline goroutines/RSS). Verdict: docs/M2-LOAD-TESTING.md "Soak verdict".
+  baseline goroutines/RSS). Verdict: docs/M2-LOAD-TESTING.md "Soak verdict". The corrected
+  Royale-sized leg (batch 39A, on the 38C-fixed harness) lifted the delta-mode
+  caveat: a 60-seat match runs the full 180 s budget, measures 422 B/s per
+  client (~25 KB/s aggregate), and its dominant wire cost is word_event
+  fan-out (~83% of bytes), not snapshots.
   Batch 38C then re-read the soak's two royale-leg findings and found they were
   one harness defect, not two artifacts: the harness consumed only full
   snapshots, and the server stops sending them once a subscriber is on deltas,
