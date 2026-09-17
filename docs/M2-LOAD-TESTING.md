@@ -546,3 +546,41 @@ Readings:
 
 Artifacts (OCI host, `artifacts-39b/`): `report-royale60x2.json`,
 `report-royale60x4.json`, harness stdout logs, server logs, build shas.
+
+### Batch 39C: the server-side decomposition, measured (2026-09-17)
+
+Batch 39B recorded a limitation: its RTT growth across leg sizes was read as
+generator-side, but the server histogram had not been scraped. Batch 39C
+closes that hole in the tool itself - the harness now parses
+`wordarena_intent_process_us` out of GET /metrics after every run and writes
+`server_intent_process_us {count, sum_us, mean_us, p95_us_floor}` into the
+report (p95 is a bucket floor by construction; le_inf maps to the 10000
+floor).
+
+Verification leg (2x60 seats, 240 s, isolated instance on 127.0.0.1:18105,
+built from main b402d8a): 120 clients, intents 6479 sent = 6479 acked, all
+matches ran the full 180 s budget, zero anomalies (deltas_stale 0,
+seats_dropped 0), CPU 2.57% of one core, RSS 12.6 -> 35.7 MB, 424 B/s per
+client - all consistent with the 39B curve. The decomposition:
+
+| 2x60 leg | client-observed | server-side submit |
+|---|---|---|
+| p50 | 12.0 ms | 571 us mean |
+| p95 | 41.9 ms | >= 2.5 ms (bucket floor) |
+
+Reading:
+
+- **The server is ~5% of the path at the median** (0.57 ms of 12.0 ms) and
+  ~6% at the tail - the 39B generator-side reading stands, now measured
+  instead of inferred. The server mean (571 us) reproduces the 35C off-box
+  stage's 0.57 ms almost exactly, on a leg with 60x the seats.
+- **The submit TAIL is roster-shaped**: 1v1 profiling saw 84% of intents
+  under 50 us, while this 60-seat-room p95 floor sits at 2.5 ms - seats
+  share one room lock and the fan-out work grows with the roster. Absolute
+  terms stay small (>= 2.5 ms of a 41.9 ms tail), but if a future leg ever
+  needs the last few percent, the room submit path at large rosters is
+  where the server-side tail lives.
+- Every future leg now ships this decomposition for free; no extra tooling.
+
+Artifacts (OCI host, `artifacts-39c/`): `report-decomp2x60.json`,
+harness stdout, server log, build shas.

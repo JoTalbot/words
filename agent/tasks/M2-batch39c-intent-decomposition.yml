@@ -24,4 +24,5 @@ file_ownership:
   - "docs/M2-LOAD-TESTING.md"
   - "agent/tasks/M2-batch39c-intent-decomposition.yml"
 evidence:
-  - "filled by the verification leg (artifacts-39c)"
+  - "verification leg 2x60 (artifacts-39c/report-decomp2x60.json): 120 clients, intents 6479 sent = 6479 acked, full 180 s budget both matches, deltas_stale 0, seats_dropped 0, CPU 2.57 percent, RSS 12.6 to 35.7 MB, 424 B/s per client"
+  - "decomposition: client RTT p50 12.0 ms / p95 41.9 ms vs server submit mean 571 us / p95 floor 2500 us - the server is about 5 percent of the median path (the 39B generator-side reading stands, now measured); the submit tail is roster-shaped (1v1 saw 84 percent under 50 us, a 60-seat room p95 sits at 2.5 ms) but small in absolute terms"
