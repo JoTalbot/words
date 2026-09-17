@@ -3,7 +3,7 @@ title: Unity Sudden Death result-screen polish (tiebreak headline + decisive wor
 owner: unity-client
 priority: normal
 complexity: small
-status: validating_local_green_ci_pending
+status: merged_green
 inputs:
   - docs/M1-SUDDEN-DEATH.md
   - client/unity/Assets/Scripts/WordArenaBootstrap.cs

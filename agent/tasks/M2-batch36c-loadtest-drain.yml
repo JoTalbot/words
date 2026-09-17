@@ -1,6 +1,6 @@
 id: M2-batch36c-loadtest-drain
 title: "CI reliability: stop the load harness from discarding its own in-flight acks"
-status: validated_local_stress_green_pending_ci
+status: merged_green
 priority: high
 complexity: medium
 dependencies:

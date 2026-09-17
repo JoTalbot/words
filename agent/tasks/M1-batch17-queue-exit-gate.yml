@@ -3,7 +3,7 @@ title: Headless-bot via-queue mode — exit-gate regression over matchmaking-cre
 owner: qa
 priority: high
 complexity: small
-status: validated_local_live_pending
+status: verified_live_oci
 inputs:
   - server/cmd/headless-bot/main.go
   - server/cmd/game/matchmaking.go (FIFO seat order contract)

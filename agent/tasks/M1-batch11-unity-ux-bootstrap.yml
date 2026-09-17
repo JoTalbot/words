@@ -36,4 +36,4 @@ file_ownership:
   - docs/ROADMAP.md
 risk: medium
 escalation: Unity CI compile failure requires repair loop; server authority must not be weakened
-status: verified_static_pending_ci
+status: merged_green

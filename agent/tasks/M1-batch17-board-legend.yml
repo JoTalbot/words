@@ -3,7 +3,7 @@ title: Unity collapsible board color legend
 owner: unity-client
 priority: low
 complexity: trivial
-status: validating_local_green_ci_pending
+status: merged_green
 inputs:
   - client/unity/Assets/Scripts/WordArenaBootstrap.cs
 dependencies:

@@ -3,7 +3,7 @@ title: Decide what "identical initial snapshots" means when the clock starts at 
 owner: qa
 priority: high
 complexity: small
-status: decided_implemented_measured
+status: merged_green
 found_by: "live re-verification of the promoted OCI deployment"
 inputs:
   - "server/cmd/headless-bot/main.go (playOne, the proto.Equal(s0, s1) check)"

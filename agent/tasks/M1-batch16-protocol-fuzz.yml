@@ -3,7 +3,7 @@ title: Protocol robustness fuzz targets for client decode path
 owner: backend-security
 priority: high
 complexity: small
-status: validated_local_ci_pending
+status: merged_green
 inputs:
   - server/internal/protocol/convert.go
   - proto/wordarena/v1/match.proto

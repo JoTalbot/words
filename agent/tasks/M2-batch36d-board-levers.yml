@@ -1,6 +1,6 @@
 id: M2-batch36d-board-levers
 title: "Anti-snowball board levers: claim/steal lock duration and the steal debit fraction"
-status: decided_implemented_measured_pending_ci
+status: merged_green
 priority: normal
 complexity: large
 dependencies:

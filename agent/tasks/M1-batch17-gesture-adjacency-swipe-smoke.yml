@@ -3,7 +3,7 @@ title: Eight-way adjacency gesture rules + hosted-emulator swipe smoke
 owner: unity-client
 priority: normal
 complexity: medium
-status: merged_device_assertion_infra_blocked
+status: verified_device
 inputs:
   - agent/COORDINATION.md (session B batch16-arena-swipe handoff ideas)
   - client/unity/Assets/Scripts/WordArenaBootstrap.cs

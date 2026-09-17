@@ -3,7 +3,7 @@ title: Swipe where the client says the board is, instead of a row measured again
 owner: qa-infra
 priority: high
 complexity: small
-status: validated_local_pending_unity_build
+status: verified_device
 risk: medium
 escalation: none
 

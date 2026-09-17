@@ -1,0 +1,23 @@
+id: M2-batch37a-task-graph-hygiene
+title: "Close the residual pending_* task statuses on documented evidence; reopen the task graph clean"
+status: merged_green
+priority: normal
+complexity: small
+inputs:
+  - agent/tasks/*.yml (7 files with pending_* infix, 10 with pending/awaiting/blocked suffixes at session 7 start)
+  - docs/ROADMAP.md M1-exit status table (device run ids 34449018045, 34772130697, 34773815149, 34782169182)
+  - GitHub PRs #51-#58 (35A/35B/35C/35D/36A/36B/36C/36D, all merged with green CI)
+  - tools/check-task-yaml.py (schema + vocabulary check, run after edits)
+outputs:
+  - agent/tasks/*.yml statuses reconciled (merged_green x42, verified_device x10, verified_live_oci x4 after this pass)
+acceptance:
+  - tools/check-task-yaml.py reports 0 problems across the whole graph
+  - no status contains pending, awaiting or blocked
+  - every closure cites a merge, a CI run, a device run or a live verification already documented in the repository
+validation:
+  - python3 tools/check-task-yaml.py
+  - grep -hE "^status:" agent/tasks/*.yml | grep -ci "pending|awaiting|blocked" == 0
+risk: low
+file_ownership:
+  - agent/tasks/*.yml
+escalation: none

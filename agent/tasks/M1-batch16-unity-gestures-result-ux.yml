@@ -3,7 +3,7 @@ title: Unity drag/swipe gesture path + production result overlay
 owner: unity-client
 priority: high
 complexity: medium
-status: validating_local_green_unity_ci_pending
+status: merged_green
 inputs:
   - docs/M0.md
   - docs/WIRE-PROTOCOL.md

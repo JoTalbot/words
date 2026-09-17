@@ -1,6 +1,6 @@
 id: M2-batch36a-catchup-budget
 title: "Anti-snowball volume lever: per-seat catch-up bonus budget (BonusBudget)"
-status: code_complete_sweep_done_results_documented_pending_ci
+status: merged_green
 priority: normal
 complexity: large
 dependencies:

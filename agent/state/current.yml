@@ -1,55 +1,46 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-17 (session 6: batch 36A measured+merged, 36B, 36C, live promotion)
-# This file is now machine-checked in CI (tools/check-state-yaml.py, added by
-# batch 36B): it must parse, carry the six keys a resume reader needs, and have
-# no key repeated inside one mapping. Quote any value containing ": ".
+# Updated: 2026-09-17 (session 7: recovery, PR #58 merged (36D board levers), task-graph hygiene 37A)
+# This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
+# carry the six keys a resume reader needs, and have no key repeated inside one
+# mapping. Quote any value containing ": ".
 
-last_verified_commit: 1a0815e   # main: PR #55 merged; #56 at 61763f2, #57 at f634f65
+last_verified_commit: 662e786   # main after PR #58; CI + Container smoke green on the merge commit (runs at 05:03 UTC)
 
 session:
-  6:
-    what: "Recovery from a fresh sandbox, batch 36A (per-seat catch-up bonus budget) implemented/measured/merged, 36B state+task-graph hygiene, 36C CI-flake root-cause and fix, live promotion 22fb7af -> 1a0815e verified"
-    merges_this_session: ["36C PR #57 -> f634f65", "36B PR #56 -> 61763f2", "36A PR #55 -> 1a0815e"]
-    ci: "CI + Container smoke green on main 1a0815e; the loadtest flake that had reddened main and 4 branches is fixed by #57"
-    live_service: "promoted to 1a0815e at 2026-09-17 02:27 UTC; sha256 a1a6f8e49208829053401d00; smoke 27/0 with postgres; exit gate 6/6 PASS with baseline scores 43:45 / 37:60 / 44:40; NRestarts=0"
-    next_action: "board-side anti-snowball levers (36D) or close the M2 anti-snowball row as decided-against"
+  7:
+    what: "Recovery on a fresh Arena sandbox (server reachable, credentials recovered from host ~/.git-credentials). Merged PR #58 = batch 36D board levers (lock duration, steal debit fraction): measurement infrastructure only, defaults byte-for-byte the shipped rule, verdict NEGATIVE for shipping any constant (lock closes the gap by ending the fight; softening the debit accelerates the snowball). Anti-snowball family fully closed on evidence 32C/35A/35D/36A/36D."
+    merges_this_session: ["36D PR #58 -> 662e786 (CI + Container smoke green on the merge commit)"]
+    hygiene_37a: "task graph reopened clean - 71 files at start had 7 pending_* + 10 pending/awaiting/blocked suffixes, all closed on documented evidence (PRs #55/#57/#58, ROADMAP M1-exit device runs 34449018045/34772130697/34773815149/34782169182, live exit-gate history). tools/check-task-yaml.py: 72 files, 0 problems, vocabulary merged_green x43 / verified_device x10 / verified_live_oci x4."
+    worktrees_pruned: "wt-35a/wt-35b/wt-35c removed from /opt/words worktree list; wt-35d (separate clone) deleted - every branch tip was an ancestor of origin/main (verified before removal). Historical wt/batch18 and wt/proto-version left untouched."
+    next_action: "batch 37B - multi-hour soak + profiled matches under load (the only REMAINING item on the load-testing row), then PvE tutorial framing and the guild product-input items analysis."
 
 m2_remaining:
-  - "board-side anti-snowball levers: leader lock duration, steal economics - the only family left that changes who can score rather than who is paid (docs/M2-ANTI-SNOWBALL.md 36A decision 3)"
-  - "60-player row: bot-backfill-for-under-filled-lobbies is a product decision (31C short-handed human-only start is the shipped default); the ~27% delta saving needs a client-contract change (stable lock field instead of a per-second countdown)"
-  - "guild product-input items: chat + moderation, invite-only join, co-owners, roster cap number, guild-vs-guild matchmaking and rewards"
-  - "load testing: a multi-hour soak and profiled matches under load (32F/35C covered the rest)"
-  - "PvE: tutorial framing only (difficulty selection shipped in 35B)"
+  - "load testing - multi-hour soak + profiled matches under load (32F/35C covered the rest) = batch 37B, starts this session"
+  - "PvE - tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
+  - "guild product-input items - chat+moderation, invite-only join, co-owners, roster cap number, guild-vs-guild matchmaking and rewards (PRODUCT-DECISIONS.md names each as needing product input; earlier M2 questions were owner-delegated to the agent, these were NOT - evaluate per item whether a safe documented default exists, else candidate human-blocker)"
+  - "60-player row - bot backfill decided NO by the 32D bot policy; the remaining ~27 percent delta saving (stable lock field) is a client-contract change, optional, not blocking"
 
 facts_non_relitigable:
-  - "01-12: see git history of this file (live service owns 127.0.0.1:18080 - load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops; port-safety guard in every load script)"
-  - "11: anti-snowball 25/2/15 is duel-locked (35A); at 8+ seats NO threshold family helps (35D negative)"
-  - "12: sweep shard balance - roster-outer grid order + i%shards gives ~1.03-1.06x spread"
-  - "13: volume is not the fix either (36A): a per-seat budget lowers the damage monotonically (+103% -> +4.3% gap inflation @60 for b128..b8) but closes 0/24 pairs at 30 and 60 seats for every budget, and costs the duel 14/24 -> 9/24 closing pairs. Selection, relative selection and volume are all measured: pay-the-losers cannot become catch-up at Royale size."
-  - "14: the simulation is machine-independent - 36A's default row reproduced 35D's published numbers bit-for-bit on x86_64 after they were measured on aarch64. Calibration sweeps can therefore run OFF the shared OCI host; only load/latency measurements must stay on it."
-  - "15: installing a running binary with 'cp' fails ETXTBSY; copy to <path>.new and 'mv -f' it (rename swaps the directory entry, the process keeps its inode). Runbook corrected by this session."
-  - "16: the loadtest 'sent N got N-1 acks' failure was a harness drain-ordering defect, not product code (36C). Fixed; do not re-litigate by relaxing the sent==acked assertion."
+  - "01-16: see git history of this file (live service owns 127.0.0.1:18080 - load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops; port-safety guard in every load script; the simulation is machine-independent so sweeps may run off-host; load tests must stay on the OCI host)"
+  - "17: task-graph hygiene rule proven by 37A - close task files only against documented evidence (PR number, CI/device run id from the ROADMAP exit tables, or a live verification), never by assumption; run tools/check-task-yaml.py after any edit and keep the status vocabulary meaningful"
+  - "18: GitHub REST merge via API works with the gho_ token in ~/.git-credentials (format https://JoTalbot:TOKEN@github.com - never write the token into the repo). Check-runs on a merge commit can lag ~1-2 min; poll before reporting green"
+  - "19: live promotion to 662e786 deliberately SKIPPED this session - 36D defaults are behavior-identical to 1a0815e, so a restart buys nothing; next behavior-changing merge promotes as usual"
 
 server:
   host: 129.213.177.56
-  key: "/home/user/oci_server_key.pem (works for ubuntu@ AND root@; ubuntu's authorized_keys is occasionally rewritten by octopus - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean; now at 1a0815e; binary /opt/words/bin/wordarena-server, previous kept as wordarena-server.prev)"
-  worktrees: "wt-35a wt-35b wt-35c wt-35d on the host - all merged upstream, prunable"
+  key: "/home/user/.ssh/oci_server_key.pem (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
+  deploy_checkout: "/opt/words (clean, main 662e786; live binary at /opt/words/bin/wordarena-server still serves build 1a0815e)"
+  worktrees: "only wt/batch18 and wt/proto-version remain (historical); /tmp merge-gate worktrees are transient"
   go: "/home/ubuntu/go-toolchain/bin/go (go1.27.1); GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35"
-  live_service: "wordarena.service active since 2026-09-17 02:27:03 UTC, NRestarts=0, readyz ready with postgres, match ids resumed at 9312"
-  load_observation: "load1 ranged 9-21 during session 5/6 with octopus/chromium co-tenants and 21/24 GB RAM used + swap full; dropped to ~2.0 at 02:22 UTC. Check uptime before any local-LLM or sweep work on this host."
-  ollama: "qwen2.5:3b available; 7b not pulled. Local inference was attempted via tools/llm-micro-worker.sh (-j 1, --force) and timed out at 240s under that memory pressure - the capacity guard in the script exists for exactly this. Parked, not dismissed."
-  artifacts: "/home/ubuntu/artifacts-36a/ (sweep-full.json, 2 shards, run-meta.json) - backed up because sandbox artifacts were lost to a wipe in session 4"
+  live_service: "wordarena.service active since 2026-09-17 02:27:03 UTC, NRestarts=0, healthz ok, on build 1a0815e"
+  ollama: "qwen2.5:3b loaded; host load1 was 1.55-2.0 at session start - inside the capacity guard for the micro-LLM worker (refuses above 4.80)"
+  artifacts: "artifacts-36a (36A sweep), artifacts-36d (36D sweep) on the host; 37B soak artifacts land in /home/ubuntu/artifacts-37b/"
 
 sandbox:
-  toolchain: "/home/user/go (go1.24.6 linux/amd64, installed this session; 2 vCPU / 1.5 GB, no docker/adb/playwright) - builds and runs the whole Go suite"
-  artifacts_36a: "/home/user/artifacts-36a/ (calibrate binary, sweep-full.json, run-meta.json; run-sweep.sh is the reproducer)"
-  analyzer: "/home/user/analyze-36a.py - validated by reproducing the published 35D table from artifacts-35d/sweep-full.json, then used for 36A. Fields bonus_points/bonus_events are OMITTED when zero: always .get(...,0)."
-  note: "sandbox files persist across messages but NOT across a platform wipe; anything worth keeping goes to the OCI host or into a commit"
+  note: "fresh Arena sandbox this session (previous sandbox home was wiped with its artifacts) - work happens on the OCI host over SSH; nothing sandbox-local is load-bearing"
+  ssh_key: "/home/user/.ssh/oci_server_key.pem (chmod 600, written this session from the handoff message)"
 
 resume_from:
-  - "Read docs/M2-ANTI-SNOWBALL.md - the 36A section ends with the decision that closes the point-redistribution family. The next lever named there is board-side (leader lock duration, steal economics): it needs the same treatment as 32C/35A/35D/36A - per-match calibration params (code-level, NOT request fields, per PD-007), tests, then the 24-seed x 4-roster grid."
-  - "Token: ssh -i /home/user/oci_server_key.pem ubuntu@129.213.177.56 'cat ~/.git-credentials' (format https://user:TOKEN@github.com). Fetch with a retry - an empty capture once produced a silent push failure. Never write the token into the repo; push via -c http.extraHeader=\"Authorization: Basic $(base64)\" so the URL stays clean in output."
-  - "Sweep locally, not on the OCI host (fact 14): rebuild cmd/calibrate, run 2 shards under nice, expect ~30 min for 576+96 matches. Back artifacts up to the host the same session."
-  - "Open hygiene residue: 13 task files still say pending_* (pre-PR-era batches, no same-slug merged PR to cite). Verify them against artifacts, do not guess them green."
-  - "Optional next: dispatch Unity Android (workflow_dispatch, run_smoke_tests=true) to re-verify the device leg on post-36A main; the 03:17/15:17 UTC schedule also does this."
+  - "37B soak: check /home/ubuntu/artifacts-37b/ (legs, server-metrics, rss samples, summary sidecar) - if the soak wrapper (nohup, nice) is still running, let it finish; then write the verdict into docs/M2-LOAD-TESTING.md and close the load-testing REMAINING line"
+  - "after 37B: PvE tutorial framing (small, server-side framing only per Q11) OR guild product-input items analysis - check first whether each guild item has a safe documented default; ones that genuinely need product input become a single explicit human-question list, not stallers"
+  - "token: ssh host cat ~/.git-credentials (gho_ token works for REST merge + Actions queries; check-runs lag ~1-2 min after a merge)"

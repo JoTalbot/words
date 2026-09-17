@@ -3,7 +3,7 @@ title: Prometheus scrape config and Grafana dashboard for the match service
 owner: backend-infra
 priority: normal
 complexity: small
-status: verified_local_pending_ci
+status: merged_green
 inputs:
   - server/cmd/game/telemetry.go (Prometheus exposition handler — read only)
   - docs/M1-TELEMETRY.md
