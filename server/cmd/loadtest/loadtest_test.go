@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // The load harness is a tool, and an unbudged tool rots: this test runs a small
@@ -194,5 +196,39 @@ func TestHarnessFailsFastOnAnUnreachableTarget(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("the harness hung on an unreachable target")
+	}
+}
+
+// TestSeatEndAccountingSeparatesPostTerminalCloses pins the 38C rule this
+// package exists to keep honest: a seat whose connection ends after it received
+// the terminal snapshot is the designed end of a match (runRoomTicker closes
+// the room three seconds after over), while a seat whose connection ends
+// mid-match is a drop. The two counters must never be merged - folding the
+// expected closes into "graceful" would hide the very kill the per-seat
+// limiter stage (35C) counts.
+func TestSeatEndAccountingSeparatesPostTerminalCloses(t *testing.T) {
+	h := &harness{}
+
+	h.countSeatEnd(true)  // match ended, server closed the room: expected
+	h.countSeatEnd(true)  // same, another seat
+	h.countSeatEnd(false) // server closed a live seat mid-match: a real drop
+
+	if got := h.dropped.Load(); got != 1 {
+		t.Errorf("dropped = %d, want 1: only the mid-match close is a drop", got)
+	}
+	if got := h.closedAfterOver.Load(); got != 2 {
+		t.Errorf("closedAfterOver = %d, want 2: post-terminal closes must be counted, not discarded", got)
+	}
+
+	// The close status is recorded so the report can say HOW a connection
+	// ended. StatusPolicyViolation is the per-seat intent limiter's close.
+	h.noteClose(int(websocket.StatusPolicyViolation))
+	h.noteClose(-1) // a read that failed without a close frame
+	counts := h.closeCodeCounts()
+	if counts[int(websocket.StatusPolicyViolation)] != 1 || counts[0] != 1 {
+		t.Errorf("close codes = %v, want one policy violation and one 0 (no close frame)", counts)
+	}
+	if !strings.Contains(closeCodeName(int(websocket.StatusPolicyViolation)), "per-seat") {
+		t.Errorf("close status name %q does not explain the limiter", closeCodeName(int(websocket.StatusPolicyViolation)))
 	}
 }
