@@ -1,0 +1,27 @@
+id: M2-batch39c-intent-decomposition
+title: "Close the 39B RTT-decomposition limitation: the harness carries the server-side intent_process summary out of GET /metrics"
+status: merged_green
+priority: normal
+complexity: small
+inputs:
+  - "server/cmd/loadtest/main.go serverSnapshot (which discarded the metrics body)"
+  - "the fixed-bucket server histogram wordarena_intent_process_us (batch 35C)"
+outputs:
+  - "intentProcessSummary {count, sum_us, mean_us, p95_us_floor} parsed from JSON /metrics and written into the report as server_intent_process_us"
+  - "a summary line in the human output; 2 parser tests"
+  - "docs/M2-LOAD-TESTING.md Batch 39C section with the measured decomposition from a verification leg"
+acceptance:
+  - "the report decomposes client RTT vs server work for any future leg without extra tooling"
+  - "p95 is labelled as a bucket floor (the fixed histogram cannot do better); le_inf maps to the 10000 floor"
+  - "a zero histogram stays zeroed and is omitted from the report"
+validation:
+  - "go test ./cmd/loadtest/"
+  - "one 2x60 verification leg on the OCI host with the new harness"
+risk: low
+file_ownership:
+  - "server/cmd/loadtest/main.go"
+  - "server/cmd/loadtest/server_intent_test.go"
+  - "docs/M2-LOAD-TESTING.md"
+  - "agent/tasks/M2-batch39c-intent-decomposition.yml"
+evidence:
+  - "filled by the verification leg (artifacts-39c)"
