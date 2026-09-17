@@ -1,42 +1,55 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-16 (session 5, batch 35D complete)
+# Updated: 2026-09-17 (session 6: batch 36A measured+merged, 36B, 36C, live promotion)
+# This file is now machine-checked in CI (tools/check-state-yaml.py, added by
+# batch 36B): it must parse, carry the six keys a resume reader needs, and have
+# no key repeated inside one mapping. Quote any value containing ": ".
 
-last_verified_commit: 5b22fcd   # main, PR #54 merged (batch 35D)
-main_head_at_session_start: e867ebb
+last_verified_commit: 1a0815e   # main: PR #55 merged; #56 at 61763f2, #57 at f634f65
 
 session:
-  5:
-    what: "Batch 35D end-to-end: GapPercent mechanism + tests, balanced sharding, server sweep, negative-result decision, docs, PR #54"
-    merges_this_session: ["35D PR #54 -> 5b22fcd"]   # 35A/35B/35C merged in sessions 3-4 (PRs #51/#52/#53)
-    next_action: "pick next batch: combo cap (volume lever, 35D evidence points here), board-side levers, or guild product-input items"
+  6:
+    what: "Recovery from a fresh sandbox, batch 36A (per-seat catch-up bonus budget) implemented/measured/merged, 36B state+task-graph hygiene, 36C CI-flake root-cause and fix, live promotion 22fb7af -> 1a0815e verified"
+    merges_this_session: ["36C PR #57 -> f634f65", "36B PR #56 -> 61763f2", "36A PR #55 -> 1a0815e"]
+    ci: "CI + Container smoke green on main 1a0815e; the loadtest flake that had reddened main and 4 branches is fixed by #57"
+    live_service: "promoted to 1a0815e at 2026-09-17 02:27 UTC; sha256 a1a6f8e49208829053401d00; smoke 27/0 with postgres; exit gate 6/6 PASS with baseline scores 43:45 / 37:60 / 44:40; NRestarts=0"
+    next_action: "board-side anti-snowball levers (36D) or close the M2 anti-snowball row as decided-against"
 
 m2_remaining:
-  - "board-side levers (leader lock duration, steal economics) — separate rules changes, own evidence"
-  - "combo cap / per-seat bonus budget — NOW EVIDENCE-MOTIVATED (35D: harm tracks bonus volume at 8+, see docs/M2-ANTI-SNOWBALL.md 35D section)"
-  - "guild product-input items"
-  - "optional live promotion (22fb7af -> main; no new migrations; needs calm host — octopus load was 10-14 this session)"
+  - "board-side anti-snowball levers: leader lock duration, steal economics - the only family left that changes who can score rather than who is paid (docs/M2-ANTI-SNOWBALL.md 36A decision 3)"
+  - "60-player row: bot-backfill-for-under-filled-lobbies is a product decision (31C short-handed human-only start is the shipped default); the ~27% delta saving needs a client-contract change (stable lock field instead of a per-second countdown)"
+  - "guild product-input items: chat + moderation, invite-only join, co-owners, roster cap number, guild-vs-guild matchmaking and rewards"
+  - "load testing: a multi-hour soak and profiled matches under load (32F/35C covered the rest)"
+  - "PvE: tutorial framing only (difficulty selection shipped in 35B)"
 
 facts_non_relitigable:
-  - "01-10: see git history of agent/state/current.yml (live service owns 127.0.0.1:18080 on OCI host — load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops — verify ubuntu@ SSH after octopus activity; root@ same key is fallback)"
-  - "11: anti-snowball 25/2/15 is duel-locked (35A); at 8+ seats NO threshold family helps (35D negative) — the lever at scale is volume (per-seat bonus budget), not selection"
-  - "12: sweep shard balance: roster-outer grid order + i%shards gives 1.03x spread (35D measured) vs 2.04x seed-outer (35A); keep roster-outer for future grids"
+  - "01-12: see git history of this file (live service owns 127.0.0.1:18080 - load stages MUST pass WORDARENA_LOADTEST_PORT; octopus rewrites ubuntu authorized_keys during recovery ops; port-safety guard in every load script)"
+  - "11: anti-snowball 25/2/15 is duel-locked (35A); at 8+ seats NO threshold family helps (35D negative)"
+  - "12: sweep shard balance - roster-outer grid order + i%shards gives ~1.03-1.06x spread"
+  - "13: volume is not the fix either (36A): a per-seat budget lowers the damage monotonically (+103% -> +4.3% gap inflation @60 for b128..b8) but closes 0/24 pairs at 30 and 60 seats for every budget, and costs the duel 14/24 -> 9/24 closing pairs. Selection, relative selection and volume are all measured: pay-the-losers cannot become catch-up at Royale size."
+  - "14: the simulation is machine-independent - 36A's default row reproduced 35D's published numbers bit-for-bit on x86_64 after they were measured on aarch64. Calibration sweeps can therefore run OFF the shared OCI host; only load/latency measurements must stay on it."
+  - "15: installing a running binary with 'cp' fails ETXTBSY; copy to <path>.new and 'mv -f' it (rename swaps the directory entry, the process keeps its inode). Runbook corrected by this session."
+  - "16: the loadtest 'sent N got N-1 acks' failure was a harness drain-ordering defect, not product code (36C). Fixed; do not re-litigate by relaxing the sent==acked assertion."
 
 server:
   host: 129.213.177.56
-  key: /home/user/oci_server_key.pem (works for ubuntu@ AND root@)
-  worktrees: wt-35a wt-35b wt-35c wt-35d (all on pushed branches; wt-35d at 46df0ac)
-  artifacts: /home/ubuntu/artifacts-35d/{sweep-full.json,sweep-0..3.json,run-meta.json,calibrate,log-*.out}
-  go: /home/ubuntu/go-toolchain/bin/go; GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35
-  load: octopus 10-14 during 35D run; record loadavg in every artifact sidecar
-  live_service: 22fb7af since 09-14, wordarena.service active, NRestarts=0
+  key: "/home/user/oci_server_key.pem (works for ubuntu@ AND root@; ubuntu's authorized_keys is occasionally rewritten by octopus - root@ is the fallback)"
+  deploy_checkout: "/opt/words (clean; now at 1a0815e; binary /opt/words/bin/wordarena-server, previous kept as wordarena-server.prev)"
+  worktrees: "wt-35a wt-35b wt-35c wt-35d on the host - all merged upstream, prunable"
+  go: "/home/ubuntu/go-toolchain/bin/go (go1.27.1); GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35"
+  live_service: "wordarena.service active since 2026-09-17 02:27:03 UTC, NRestarts=0, readyz ready with postgres, match ids resumed at 9312"
+  load_observation: "load1 ranged 9-21 during session 5/6 with octopus/chromium co-tenants and 21/24 GB RAM used + swap full; dropped to ~2.0 at 02:22 UTC. Check uptime before any local-LLM or sweep work on this host."
+  ollama: "qwen2.5:3b available; 7b not pulled. Local inference was attempted via tools/llm-micro-worker.sh (-j 1, --force) and timed out at 240s under that memory pressure - the capacity guard in the script exists for exactly this. Parked, not dismissed."
+  artifacts: "/home/ubuntu/artifacts-36a/ (sweep-full.json, 2 shards, run-meta.json) - backed up because sandbox artifacts were lost to a wipe in session 4"
 
 sandbox:
-  artifacts_35d: /home/user/artifacts-35d/ (sweep-full.json + 4 shards + run-meta.json)
-  analyze_script: "/home/user/analyze-35d.py (NOTE: first version used wrong field names; the inline python in session used the real schema: pair-level bonus_fired/final_gap_off/final_gap_on/winner_flipped, variant bonus_points/ bonus_events OMITTED when zero — always .get(...,0))"
-  ssh_tunnel: id ...b1166232 port 28081 may still run — kill when convenient (not needed)
+  toolchain: "/home/user/go (go1.24.6 linux/amd64, installed this session; 2 vCPU / 1.5 GB, no docker/adb/playwright) - builds and runs the whole Go suite"
+  artifacts_36a: "/home/user/artifacts-36a/ (calibrate binary, sweep-full.json, run-meta.json; run-sweep.sh is the reproducer)"
+  analyzer: "/home/user/analyze-36a.py - validated by reproducing the published 35D table from artifacts-35d/sweep-full.json, then used for 36A. Fields bonus_points/bonus_events are OMITTED when zero: always .get(...,0)."
+  note: "sandbox files persist across messages but NOT across a platform wipe; anything worth keeping goes to the OCI host or into a commit"
 
 resume_from:
-  - "Token recovery: ssh -i /home/user/oci_server_key.pem ubuntu@129.213.177.56 'cat ~/.git-credentials' — format https://JoTalbot:TOKEN@github.com, extract after the colon (NEVER write the token itself into this repo - push protection blocks the push)"
-  - "Next batch candidates (pick one): combo cap / per-seat bonus budget (volume lever — 35D evidence: harm tracks bonus volume at 8+, docs/M2-ANTI-SNOWBALL.md 35D section), board-side levers (leader lock duration, steal economics), guild product-input items"
-  - "Optional: live promotion 22fb7af -> main when host is calm (octopus was load 10-14 this session); no new migrations"
-  - "Sandbox artifacts of 35D: /home/user/artifacts-35d/ (sweep-full.json + shards + run-meta.json); server wt-35d can be pruned"
+  - "Read docs/M2-ANTI-SNOWBALL.md - the 36A section ends with the decision that closes the point-redistribution family. The next lever named there is board-side (leader lock duration, steal economics): it needs the same treatment as 32C/35A/35D/36A - per-match calibration params (code-level, NOT request fields, per PD-007), tests, then the 24-seed x 4-roster grid."
+  - "Token: ssh -i /home/user/oci_server_key.pem ubuntu@129.213.177.56 'cat ~/.git-credentials' (format https://user:TOKEN@github.com). Fetch with a retry - an empty capture once produced a silent push failure. Never write the token into the repo; push via -c http.extraHeader=\"Authorization: Basic $(base64)\" so the URL stays clean in output."
+  - "Sweep locally, not on the OCI host (fact 14): rebuild cmd/calibrate, run 2 shards under nice, expect ~30 min for 576+96 matches. Back artifacts up to the host the same session."
+  - "Open hygiene residue: 13 task files still say pending_* (pre-PR-era batches, no same-slug merged PR to cite). Verify them against artifacts, do not guess them green."
+  - "Optional next: dispatch Unity Android (workflow_dispatch, run_smoke_tests=true) to re-verify the device leg on post-36A main; the 03:17/15:17 UTC schedule also does this."

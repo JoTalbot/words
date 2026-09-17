@@ -232,7 +232,6 @@ EAD
 Lanes are disjoint by construction; each was verified in its own worktree
 before its commit, and they are integrated one at a time in the order A → B → C
 so a regression is attributable.
-rigin/main
 
 Handoff notes
 
@@ -251,3 +250,37 @@ Handoff notes
      the gesture is verified on a device instead of only compiled.
 - Telemetry/runtime output must stay untracked: `/telemetry/` and `*.jsonl`
   were added to `.gitignore`.
+
+## Active session: Arena session 6 (2026-09-17, started 01:14 UTC)
+
+Lane claimed and **released within the session** (all three PRs merged, nothing
+left open on it):
+
+- `server/internal/match/antisnowball.go`, `match.go`, `antisnowball_test.go`,
+  `server/cmd/calibrate/main.go` - batch 36A, the per-seat catch-up bonus budget
+  (PR #55, merged as `1a0815e`).
+- `agent/state/current.yml`, `agent/tasks/*.yml`, `tools/check-state-yaml.py`,
+  `.github/workflows/container-smoke.yml`, `docs/TASK-PROTOCOL.md` - batch 36B
+  (PR #56, merged as `61763f2`).
+- `server/cmd/loadtest/main.go`, `docs/M1-OPS.md` - batch 36C flake fix (PR #57,
+  merged as `f634f65`) plus the deploy-procedure correction pushed with the
+  session-6 state.
+- OCI ops lane: live service promoted `22fb7af -> 1a0815e` and verified
+  (`smoke 27/0`, exit gate 6/6 with the baseline scores).
+
+Notes for the next session, in the order they cost the most to rediscover:
+
+- `current.yml` is now validated in CI. It had been committed unparseable, and
+  separately with a duplicate key inside `session.5` that silently dropped one
+  value; both are what `tools/check-state-yaml.py` fails a build on.
+- Calibration sweeps no longer need the OCI host. 36A reproduced 35D's published
+  duel row bit-for-bit on x86_64 after it was measured on aarch64, so a rules
+  sweep can run on any box; keep load/latency measurement on the host, where the
+  service actually runs.
+- The host also runs octopus/chromium as a co-tenant: session 5 and 6 saw load1
+  9-21 with 21/24 GB RAM used and swap full. `tools/llm-micro-worker.sh` refuses
+  to start over `nproc*1.2` and that guard is correct - local inference timed out
+  under that pressure even with one thread. Check `uptime` before scheduling any
+  host-side worker.
+- A worktree left in `~/wt-35*` on the host is not a lane claim; those branches
+  are all merged and the directories are prunable.

@@ -65,9 +65,26 @@ cd /opt/words && git fetch origin && git reset --hard origin/main
 export PATH=/opt/go/bin:$PATH
 cd server && go vet ./... && go test -count=1 ./...
 go build -o /tmp/words-game.new ./cmd/game
-sudo cp /tmp/words-game.new /opt/words/bin/wordarena-server
+sudo cp /tmp/words-game.new /opt/words/bin/wordarena-server.new
+sudo mv -f /opt/words/bin/wordarena-server.new /opt/words/bin/wordarena-server
 sudo systemctl restart wordarena.service
 curl -s http://127.0.0.1:18080/healthz && curl -s http://127.0.0.1:18080/readyz
+```
+
+The install is a copy plus a rename, not `cp` onto the running path. Overwriting
+a file that is open for execution fails with `ETXTBSY` ("Text file busy") - seen
+on 2026-09-17 during the 22fb7af -> 1a0815e promotion, where the runbook's
+one-line `cp` aborted the deploy. `rename(2)` within the filesystem swaps the
+directory entry instead: the running process keeps its own inode, the new one is
+picked up on restart, and there is no window where the path holds a half-written
+binary. `sudo systemctl stop` before the `cp` would also work and is not worth
+the extra downtime.
+
+Verify the swap by content, not by timestamp - the size and the first 24 hex
+digits of the new binary:
+
+```bash
+sha256sum /opt/words/bin/wordarena-server
 ```
 
 The service drains gracefully on SIGTERM/SIGINT (`systemctl stop` or
