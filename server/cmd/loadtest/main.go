@@ -13,6 +13,10 @@
 //	frames and BYTES per second per client, split by frame kind, which is the
 //	number the 32A batch bounded at 0.6-0.9 KB/s per client and ~50 KB/s for a
 //	full lobby;
+//	the seat's board is tracked from BOTH full snapshots and deltas (applied
+//	with protocol.ApplyDelta under the base_version rule), because the server
+//	stops sending full snapshots once a subscriber is in delta mode - a harness
+//	that read only snapshots flew a board frozen at dial time (batch 38C);
 //	server CPU and RSS sampled from /proc (optional, via -server-pid-file);
 //	errors by class, and whether the server still answers /healthz and
 //	/metrics afterwards, with the room count it reports.
@@ -48,6 +52,7 @@ import (
 	wordarenav1 "github.com/JoTalbot/words/server/gen/wordarena/net/v1"
 	"github.com/JoTalbot/words/server/internal/dictionary"
 	"github.com/JoTalbot/words/server/internal/match"
+	"github.com/JoTalbot/words/server/internal/protocol"
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 )
@@ -104,28 +109,42 @@ type report struct {
 	CreateThrottled int     `json:"create_throttled"`
 	DialErr         int     `json:"dial_errors"`
 	// SeatsDropped counts clients whose connection ended before the run
-	// did (server-side disconnect - today the per-seat intent limiter).
-	SeatsDropped    int     `json:"seats_dropped"`
-	IntentsSent     int     `json:"intents_sent"`
-	IntentsAcked    int     `json:"intents_acked"`
-	IntentsAccepted int     `json:"intents_accepted"`
-	IntentsRejected int     `json:"intents_rejected"`
-	SkippedNoWord   int     `json:"skipped_no_word"`
-	IntentsPerSec   float64 `json:"intents_per_sec"`
-	AckedPerSec     float64 `json:"acked_per_sec"`
+	// did AND before the seat had seen the match's terminal snapshot - a
+	// server-side kill, today the per-seat intent limiter.
+	SeatsDropped int `json:"seats_dropped"`
+	// DeltasStale counts state deltas a seat could not apply because its copy
+	// was not at the delta's base_version.
+	DeltasStale int `json:"deltas_stale"`
+	// SeatsClosedAfterOver counts seats whose connection ended after the seat
+	// had observed the terminal snapshot. runRoomTicker closes the room (and
+	// with it every connection) three seconds after a match ends, by design -
+	// so these are the designed end of a match, not dropped seats. Before batch
+	// 38C they were indistinguishable from a kill and a royale leg reported
+	// seats_dropped == seats for a run in which nothing was dropped (37B).
+	SeatsClosedAfterOver int     `json:"seats_closed_after_over"`
+	IntentsSent          int     `json:"intents_sent"`
+	IntentsAcked         int     `json:"intents_acked"`
+	IntentsAccepted      int     `json:"intents_accepted"`
+	IntentsRejected      int     `json:"intents_rejected"`
+	SkippedNoWord        int     `json:"skipped_no_word"`
+	IntentsPerSec        float64 `json:"intents_per_sec"`
+	AckedPerSec          float64 `json:"acked_per_sec"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms"`
 	LatencyP95Ms float64 `json:"latency_p95_ms"`
 	LatencyP99Ms float64 `json:"latency_p99_ms"`
 	LatencyMaxMs float64 `json:"latency_max_ms"`
 
-	Frames         int64            `json:"frames"`
-	Bytes          int64            `json:"bytes"`
-	BytesPerSec    float64          `json:"bytes_per_sec_total"`
-	BytesPerClient float64          `json:"bytes_per_sec_per_client"`
-	ResultsByName  map[string]int   `json:"results_by_name"`
-	FramesByKind   map[string]int64 `json:"frames_by_kind"`
-	BytesByKind    map[string]int64 `json:"bytes_by_kind"`
+	Frames         int64          `json:"frames"`
+	Bytes          int64          `json:"bytes"`
+	BytesPerSec    float64        `json:"bytes_per_sec_total"`
+	BytesPerClient float64        `json:"bytes_per_sec_per_client"`
+	ResultsByName  map[string]int `json:"results_by_name"`
+	// CloseCodes maps the websocket close status every ended read loop saw to
+	// how many seats saw it (0 = the read failed without a close frame).
+	CloseCodes   map[int]int      `json:"close_codes,omitempty"`
+	FramesByKind map[string]int64 `json:"frames_by_kind"`
+	BytesByKind  map[string]int64 `json:"bytes_by_kind"`
 
 	ReadErrors  int `json:"read_errors"`
 	WriteErrors int `json:"write_errors"`
@@ -175,15 +194,30 @@ type harness struct {
 	resultMu sync.Mutex
 	results  map[wordarenav1.WordResult]int
 
-	dialErr   atomic.Int64
-	readErr   atomic.Int64
-	writeErr  atomic.Int64
-	dropped   atomic.Int64
-	sent      atomic.Int64
-	accepted  atomic.Int64
-	rejected  atomic.Int64
-	skipped   atomic.Int64
-	throttled atomic.Int64
+	dialErr  atomic.Int64
+	readErr  atomic.Int64
+	writeErr atomic.Int64
+	dropped  atomic.Int64
+	// closedAfterOver counts seats the server closed after their terminal
+	// snapshot - see report.SeatsClosedAfterOver. Counted, never folded into
+	// dropped: an accounting change must not hide a real kill.
+	closedAfterOver atomic.Int64
+	// closeCodes counts the websocket close status of every read loop that
+	// ended, by code, so the report says HOW a connection ended rather than
+	// only that it did. 0 means the read failed without a close frame.
+	closeMu    sync.Mutex
+	closeCodes map[int]int
+	// deltaStale counts deltas this seat could not apply because its copy was
+	// not at the delta's base_version. They are not an error - the next full
+	// snapshot self-heals, which is the protocol's design - but the count has
+	// to be visible, because a seat that is chronically out of sync would
+	// otherwise silently fly a stale board and measure the wrong thing.
+	deltaStale atomic.Int64
+	sent       atomic.Int64
+	accepted   atomic.Int64
+	rejected   atomic.Int64
+	skipped    atomic.Int64
+	throttled  atomic.Int64
 
 	createLat []float64
 	latMu     sync.Mutex
@@ -305,6 +339,50 @@ func (h *harness) createMatch(seats int, lang string) (*gameMatch, error) {
 	return nil, lastErr
 }
 
+// countSeatEnd classifies why a seat's read loop ended while the run was still
+// live. A seat that had already seen the terminal snapshot is expected to be
+// disconnected by the server (runRoomTicker closes the room over+3s), so it is
+// counted separately; anything else is a seat the server dropped mid-match.
+// The two counters are kept apart on purpose - batch 37B's royale legs read
+// seats_dropped == seats purely because the match ended, and folding those
+// close events into a "graceful" bucket silently would have re-hidden exactly
+// the signal 35C added the counter for.
+func (h *harness) countSeatEnd(sawTerminal bool) {
+	if sawTerminal {
+		h.closedAfterOver.Add(1)
+		return
+	}
+	h.dropped.Add(1)
+}
+
+// noteClose counts a read loop's websocket close status, so the report can say
+// how a connection ended and not only that it did. A negative or unknown code
+// is recorded as 0 (the read failed without a close frame).
+func (h *harness) noteClose(status int) {
+	if status < 0 {
+		status = 0
+	}
+	h.closeMu.Lock()
+	if h.closeCodes == nil {
+		h.closeCodes = map[int]int{}
+	}
+	h.closeCodes[status]++
+	h.closeMu.Unlock()
+}
+
+func (h *harness) closeCodeCounts() map[int]int {
+	h.closeMu.Lock()
+	defer h.closeMu.Unlock()
+	if len(h.closeCodes) == 0 {
+		return nil
+	}
+	out := make(map[int]int, len(h.closeCodes))
+	for k, v := range h.closeCodes {
+		out[k] = v
+	}
+	return out
+}
+
 // playSeat is one client: it holds the newest snapshot it has, submits an
 // intent whenever its own timer fires, and measures the round trip. It never
 // assumes anything about the board beyond what it has received, so an intent
@@ -335,6 +413,13 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 	var latest *wordarenav1.MatchStateSnapshot
 	var pending []waiting
 
+	// sawTerminal records that this seat received the match's terminal
+	// snapshot (over=true). After it, the server keeps serving final state for
+	// three seconds and then closes the room and every connection
+	// (runRoomTicker), so a close that follows the terminal frame is the match
+	// ending, not a seat being dropped.
+	var sawTerminal atomic.Bool
+
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
@@ -349,13 +434,15 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 			select {
 			case <-ctx.Done():
 			case <-h.stopCh:
+				// The run ended the connection, not the server.
 			default:
-				h.dropped.Add(1)
+				h.countSeatEnd(sawTerminal.Load())
 			}
 		}()
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {
+				h.noteClose(int(websocket.CloseStatus(err)))
 				return
 			}
 			var env wordarenav1.ServerEnvelope
@@ -368,11 +455,35 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 			case env.GetSnapshot() != nil:
 				snap := env.GetSnapshot()
 				stats.add(frameSnapshot, n)
+				if snap.GetOver() {
+					sawTerminal.Store(true)
+				}
 				stateMu.Lock()
 				latest = snap
 				stateMu.Unlock()
 			case env.GetSnapshotDelta() != nil:
+				d := env.GetSnapshotDelta()
 				stats.add(frameDelta, n)
+				// A delta is only meaningful against the exact base the sender
+				// built it from (protocol.ApplyDelta). Without this the harness
+				// kept flying the ONE full snapshot it received at dial time -
+				// every later frame moved the server's board and nothing else -
+				// so it spelled words over long-dead cells and stopped seeing
+				// the match end at all: a royale leg then reported the designed
+				// end-of-room closes as drops (37B) and read its own stale board
+				// as an "accepted plateau". A receiver that is not at
+				// base_version drops the delta and waits for the next full
+				// snapshot, which is the rule the protocol documents.
+				stateMu.Lock()
+				if latest != nil && d.GetBaseVersion() == uint32(latest.GetStateVersion()) {
+					latest = protocol.ApplyDelta(latest, d)
+					if latest.GetOver() {
+						sawTerminal.Store(true)
+					}
+				} else {
+					h.deltaStale.Add(1)
+				}
+				stateMu.Unlock()
 			case env.GetWordEvent() != nil:
 				stats.add(frameWordEvent, n)
 				ev := env.GetWordEvent()
@@ -873,6 +984,9 @@ loop:
 	rep.IntentsRejected = int(h.rejected.Load())
 	rep.DialErr = int(h.dialErr.Load())
 	rep.SeatsDropped = int(h.dropped.Load())
+	rep.SeatsClosedAfterOver = int(h.closedAfterOver.Load())
+	rep.DeltasStale = int(h.deltaStale.Load())
+	rep.CloseCodes = h.closeCodeCounts()
 	rep.CreateThrottled = int(h.throttled.Load())
 	rep.ReadErrors = int(h.readErr.Load())
 	rep.WriteErrors = int(h.writeErr.Load())
@@ -938,13 +1052,45 @@ func totalBytes(stats []*clientStats) int64 {
 	return n
 }
 
+// closeCodeName names the close statuses a load run actually produces, so the
+// report reads without a lookup table.
+func closeCodeName(code int) string {
+	switch code {
+	case 0:
+		return "no close frame"
+	case int(websocket.StatusNormalClosure):
+		return fmt.Sprintf("%d normal", code)
+	case int(websocket.StatusGoingAway):
+		return fmt.Sprintf("%d going away", code)
+	case int(websocket.StatusPolicyViolation):
+		return fmt.Sprintf("%d policy violation (per-seat intent limit)", code)
+	case int(websocket.StatusInternalError):
+		return fmt.Sprintf("%d internal error", code)
+	default:
+		return fmt.Sprintf("%d", code)
+	}
+}
+
 func printReport(out io.Writer, r *report) {
 	fmt.Fprintf(out, "\n=== load report ===\n")
 	fmt.Fprintf(out, "clients           %d (%d matches x %d seats) for %.1fs\n", r.Clients, r.Created, r.Seats, r.DurationS)
 	fmt.Fprintf(out, "create            p50 %.1f ms  p95 %.1f ms  max %.1f ms  errors %d  throttled(429) %d\n",
 		r.CreateP50Ms, r.CreateP95Ms, r.CreateMaxMs, r.CreateErr, r.CreateThrottled)
 	fmt.Fprintf(out, "dial errors       %d\n", r.DialErr)
-	fmt.Fprintf(out, "seats dropped     %d (connections ended by the server before the run did)\n", r.SeatsDropped)
+	fmt.Fprintf(out, "seats dropped     %d (connections the server ended mid-match, before the terminal frame)\n", r.SeatsDropped)
+	fmt.Fprintf(out, "seats closed at end %d (connections the server ended AFTER the terminal frame - the designed end of a match)\n", r.SeatsClosedAfterOver)
+	if len(r.CloseCodes) > 0 {
+		codes := make([]int, 0, len(r.CloseCodes))
+		for c := range r.CloseCodes {
+			codes = append(codes, c)
+		}
+		sort.Ints(codes)
+		parts := make([]string, 0, len(codes))
+		for _, c := range codes {
+			parts = append(parts, fmt.Sprintf("%s x%d", closeCodeName(c), r.CloseCodes[c]))
+		}
+		fmt.Fprintf(out, "close statuses    %s\n", strings.Join(parts, ", "))
+	}
 	fmt.Fprintf(out, "intents           sent %d (%.1f/s)  acked %d (%.1f/s)  accepted %d  rejected %d  skipped-no-word %d\n",
 		r.IntentsSent, r.IntentsPerSec, r.IntentsAcked, r.AckedPerSec, r.IntentsAccepted, r.IntentsRejected, r.SkippedNoWord)
 	fmt.Fprintf(out, "intent round trip p50 %.1f ms  p95 %.1f ms  p99 %.1f ms  max %.1f ms\n",
@@ -952,6 +1098,9 @@ func printReport(out io.Writer, r *report) {
 	fmt.Fprintf(out, "wire              %d frames  %.2f MB  %.1f bytes/s per client  (%.1f KB/s total)\n",
 		r.Frames, float64(r.Bytes)/1e6, r.BytesPerClient, r.BytesPerSec/1024)
 	if len(r.FramesByKind) > 0 {
+		if r.DeltasStale > 0 {
+			fmt.Fprintf(out, "stale deltas      %d (dropped: the seat's copy was not at base_version; the next full snapshot self-heals)\n", r.DeltasStale)
+		}
 		fmt.Fprintf(out, "frames by kind    ")
 		keys := make([]string, 0, len(r.FramesByKind))
 		for k := range r.FramesByKind {

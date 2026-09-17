@@ -381,6 +381,12 @@ exactly what a soak exists for and caught a real defect.
   inside the 600 s leg, so later leg minutes exercise disconnect/close
   handling (which is precisely how the leak surfaced).
 
+**Corrected by batch 38C (see the next section):** both royale-leg readings
+in the bullet list above - `seats_dropped` and the accepted plateau - came from
+ONE harness defect (it read only full snapshots, so in delta mode it flew a
+frozen board and never saw the match end). They were not two independent
+artifacts, and the same defect also inflated those legs' rejected-intent share.
+
 **Outcome:** launch-scale transport is stable across the tested envelope
 (matches/8..12 concurrent, seats 2..8, ~40 conn churn events/leg sustained
 over 2 h). The one defect the soak surfaced is fixed, regression-guarded,
@@ -390,3 +396,56 @@ by the combination of the earlier stage suite + this soak.
 (The earlier "Not measured here: multi-hour soak" note above is superseded
 by this section - it predicted a soak would mostly measure empty harness
 time; instead it found the one defect that every shorter stage missed.)
+
+### Batch 38C: the harness was flying a frozen board (2026-09-17)
+
+The soak's two royale-leg findings above were classified as harness artifacts;
+this batch found the single cause: **the harness read only full snapshots.** The
+server switches a subscriber to deltas after its first frame (batch 32A), and in
+delta mode it never sends another full snapshot - so the harness kept spelling
+words over the board it received at dial time and never learned that the match
+had ended, because the terminal state arrives as a delta whose `over` flag it
+ignored.
+
+Three runs of the same 4-seat leg (195 s, isolated instance on 127.0.0.1, `en`
+dictionary, one match) separate the two changes:
+
+| harness build | seats_dropped | close statuses | intents sent / accepted | reading |
+|---|---|---|---|---|
+| main (pre-38C) | 4 | - (field absent) | 368 / 15 | the reported artifact |
+| 38C part 1: post-terminal closes counted in their own field | 4 | 1011 internal error x4 | 368 / 15 | **still 4** - no terminal frame had been observed, so nothing could be reclassified; the closes came from the submit-error path after the match was gone |
+| 38C complete: deltas applied under the base_version rule | 0 | 1000 normal x4 | 48 / 12 | the seats see the match end, stop submitting, and are not counted as dropped |
+
+The fix applies `protocol.ApplyDelta` exactly as the protocol documents it: a
+delta whose `base_version` is not the receiver's `state_version` is dropped and
+the next full snapshot self-heals (counted as `deltas_stale`, 0 in this run).
+The terminal frame is now recognised from either frame kind, and a seat whose
+connection ends *after* it is counted in `seats_closed_after_over` rather than
+folded into `seats_dropped` - the counters stay apart on purpose, because
+merging them would re-hide the kill the 35C stage added `seats_dropped` for.
+
+What a corrected Royale leg shows:
+
+- **A small-roster Royale match is short, not 180 s.** The board scales with the
+  roster (Q10), so a 4-seat board is small and a machine client clears all three
+  waves in ~24 s (server log: `lifecycle=over ticks=721 winner=3 scores=0:21`).
+  A leg of a few seats therefore spends most of its wall clock after the match
+  has ended: a leg meant to measure scoring pressure needs a Royale-sized roster,
+  or the match budget has to be read as "however long the board lasts".
+- **Post-over intents are refused, not dropped.** They return
+  `MATCH_NOT_ACTIVE` word events; the old harness turned them into a server close
+  with status 1011 ("submit failed"), which is where the phantom `seats_dropped`
+  came from. A client that stops at the terminal frame never takes that path.
+
+One lifecycle observation, recorded rather than changed: the room is removed
+~3 s after the terminal frame (docs/WIRE-PROTOCOL.md) and its subscriber channels
+close, but the server does not close the client's socket - the handler's reader
+stays blocked in `Read` until the client acts or disconnects. Measured here as
+`GET /v1/match/ws ... dur=3m15s` for a run whose match ended at 24 s. The
+documented contract says only that the room is removed, so this is not a
+contract violation; it is queued as a candidate task, because a client that idles
+after the end of a match holds one goroutine and one socket per seat.
+
+Artifacts (Arena sandbox, `artifacts-38c/`): `prefix-royale.json`,
+`fixed-royale.json`, `fixed2-royale.json`.
+
