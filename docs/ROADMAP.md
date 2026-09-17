@@ -165,9 +165,27 @@ Exit gate: two remote clients can complete repeated matches with identical final
   the mechanism stays in the code as infrastructure, nothing is provisioned,
   the recommendation for Royale sizes is to leave the opt-in flag OFF, and
   the next lever at scale is volume - the per-seat bonus budget / combo cap.
-  REMAINING (each a separate rules change with its own evidence): the
-  board-side levers (leader lock duration, steal economics) and a volume cap
-  on catch-up bonuses.
+  Batch 36A then built and measured that lever, and the point-redistribution
+  family is closed on the evidence. `CatchUpParams.BonusBudget` bounds the total
+  catch-up bonus ONE seat may absorb (0 = unlimited = legacy, pinned by test;
+  it clamps the word that runs a seat out rather than denying it, so lifetime
+  bonus == min(budget, unbounded) exactly, and the ledger makes "why did this
+  seat stop being helped" answerable from the event log). Over the same 24-seed
+  x 4-roster grid: volume falls with the budget and the damage falls with the
+  volume, monotonically (+103% -> +43.5% -> +4.3% gap inflation @60 for
+  b128/b64/b8), zero invariant violations across all 576 pairs, and winner
+  instability at 60 seats drops 50% -> 8.3%. But `closed` - pairs whose final
+  gap actually shrank - stays 0/24 at 30 and 60 seats for EVERY budget, while
+  the duel pays for the mute (closing pairs 14/24 -> 9/24, benefit 36.6% ->
+  13.9%). So a budget is a mute button, not a tuning knob, and no point on the
+  grid is both duel-preserving and Royale-safe. The mechanism stays as
+  infrastructure, nothing is provisioned, and the reading is that a mechanic
+  paying losing seats cannot become catch-up at Royale size because "the leader"
+  there is a rotating seat: each bonus moves the crown instead of closing a
+  distance.
+  REMAINING (its own rules change with its own evidence): the board-side levers
+  (leader lock duration, steal economics) - the only family left that changes
+  who can score rather than who is paid.
 - [x] first PvE content - **batch 32E** (docs/M2-PVE.md): `POST /v1/matches`
   with `"pve": true` creates a 1v1 against an opponent the SERVER drives, so a
   single player can play a real match with no second client and no external

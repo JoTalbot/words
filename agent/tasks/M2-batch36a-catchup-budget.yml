@@ -1,0 +1,50 @@
+id: M2-batch36a-catchup-budget
+title: "Anti-snowball volume lever: per-seat catch-up bonus budget (BonusBudget)"
+status: code_complete_sweep_done_results_documented_pending_ci
+priority: normal
+complexity: large
+dependencies:
+  - M2 batch 32C (the catch-up rule, merged)
+  - M2 batch 35A (constant-set calibration, merged - duel constants locked)
+  - M2 batch 35D (leader-relative trigger, merged - NEGATIVE result naming volume as the next lever)
+inputs:
+  - server/internal/match/antisnowball.go (CatchUpParams, CatchUpBonus)
+  - server/internal/match/match.go (applyWord bonus site, Match state layout)
+  - server/cmd/calibrate/main.go (the 35A/35D sweep harness)
+  - docs/M2-ANTI-SNOWBALL.md (35A/35D evidence: harm tracks bonus VOLUME)
+outputs:
+  - CatchUpParams.BonusBudget: max total catch-up bonus points ONE seat may absorb per match (0 = unlimited = legacy)
+  - Match.catchUpSpent ledger + Match.CatchUpSpent accessor
+  - budget sets b128/b64/b32/b16/b8 in the calibration harness, paramsString records +bN
+  - internal/match budget tests (zero-is-legacy, clamp-not-gate, per-seat-not-pool, never-exceeded, negative, replay)
+  - docs/M2-ANTI-SNOWBALL.md batch 36A section with the measured table and the decision
+acceptance:
+  - "go build ./... && go vet ./... && go test -count=1 ./... green"
+  - "BonusBudget zero value is a no-op: CatchUpParams{} still resolves to the 25/2/15 set and the sweep's default@roster2 row reproduces 35D bit-for-bit (fire 87.5%, gap 20.1 -> 12.8, flip 12.5%)"
+  - "the budget binds per seat, never as a match-wide pool (TestCatchUpBudgetIsPerSeatNotAMatchPool)"
+  - "the word that runs a seat out of budget earns the remainder, then nothing (TestCatchUpBudgetClampsTheWordThatRunsItOut)"
+  - "no seat's lifetime bonus exceeds the budget, and it equals min(budget, unlimited) (TestCatchUpBudgetIsANeverExceededBound)"
+  - "the ledger is derived state: replay fingerprints are stable and no golden fixture moved (TestCatchUpBudgetReplaysExactly plus the untouched 32C/35A/35D tests)"
+  - "the sweep measured volume against the 35A grid at rosters 2/8/30/60 and the decision is written from those numbers, not from intent"
+validation:
+  - "cd server && go build ./... && go vet ./... && go test -count=1 ./..."
+  - "artifacts-36a/run-sweep.sh -> calibrate -rosters 2,8,30,60 -sets default,b128,b64,b32,b16,b8 -shards 2, then -merge"
+  - "compare sweep default@roster2 against docs/M2-ANTI-SNOWBALL.md 35D table (must be identical)"
+risk: medium
+escalation: strong-model
+file_ownership:
+  - server/internal/match/antisnowball.go
+  - server/internal/match/match.go
+  - server/internal/match/antisnowball_test.go
+  - server/cmd/calibrate/main.go
+  - docs/M2-ANTI-SNOWBALL.md
+  - docs/ROADMAP.md (the anti-snowball row only)
+  - agent/tasks/M2-batch36a-catchup-budget.yml
+notes: |
+  Deliberately NOT exposed as a caller-controlled request field. CatchUpParams
+  constants stay code-level calibration candidates (PD-007); adding an HTTP knob
+  for a rule whose evidence says "leave it off at scale" would widen the public
+  surface of an unauthenticated endpoint for no product need.
+  The budget is per MATCH, not per wave. Per-wave budgeting is a different rule
+  (it changes how often a seat can be helped, not only how much) and belongs with
+  the board-side levers if 36A's numbers do not settle the question.

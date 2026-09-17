@@ -76,6 +76,21 @@ var constantSets = map[string]match.CatchUpParams{
 	"pct20":   {GapPercent: 20},
 	"pct30":   {GapPercent: 30},
 	"pct40":   {GapPercent: 40},
+	// The batch 36A family: the VOLUME lever. 35D measured that the damage at
+	// 8+ seats tracks the total bonus points a match hands out (3840 at 60
+	// seats opens the final gap by 103%) and that no threshold - absolute or
+	// leader-relative - changes that, because with tens of seats somebody is
+	// always far behind. A per-seat budget is the only knob that bounds volume
+	// without choosing winners, so the grid brackets it from "never binds"
+	// (b128, above the measured 85-point per-seat mean at 30 seats) down to
+	// "barely anything" (b8). "default" stays in every run as the unlimited
+	// control: it must reproduce 35D exactly, which is the cross-check that the
+	// harness did not move the simulation.
+	"b128": {BonusBudget: 128},
+	"b64":  {BonusBudget: 64},
+	"b32":  {BonusBudget: 32},
+	"b16":  {BonusBudget: 16},
+	"b8":   {BonusBudget: 8},
 }
 
 // Policy profiles. "aggressive" is the calibration driver: long enough words
@@ -441,10 +456,16 @@ func paramsString(p match.CatchUpParams) string {
 	if cap == 0 {
 		cap = d.MaxBonus
 	}
+	form := fmt.Sprintf("%d/%d/%d", gap, div, cap)
 	if p.GapPercent > 0 {
-		return fmt.Sprintf("%d/%d/%d+pct%d", gap, div, cap, p.GapPercent)
+		form += fmt.Sprintf("+pct%d", p.GapPercent)
 	}
-	return fmt.Sprintf("%d/%d/%d", gap, div, cap)
+	if p.BonusBudget != 0 {
+		// A negative budget is the "allows nothing" reading, and printing it
+		// verbatim keeps the artifact honest about what was actually run.
+		form += fmt.Sprintf("+b%d", p.BonusBudget)
+	}
+	return form
 }
 
 // mergeShards combines shard files into one output (pairs in grid order is

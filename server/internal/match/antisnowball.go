@@ -75,6 +75,32 @@ type CatchUpParams struct {
 	// floor so the early game (leader score 0 or small) keeps the duel's
 	// measured-correct behaviour - at two seats the percentage never binds.
 	GapPercent int
+	// BonusBudget is the VOLUME lever: the maximum total catch-up bonus
+	// points ONE seat may receive across a match. Zero means no budget, so
+	// the zero value keeps the exact behaviour of 32C/35A/35D.
+	//
+	// It exists because of what 35D measured. Every threshold family - the
+	// absolute gap and the leader-relative percentage - failed to close the
+	// gap at 8+ seats, and the failure was not about WHO was selected: the
+	// fire rate stayed 100% because with tens of seats somebody is always far
+	// behind, and the damage tracked the TOTAL bonus volume monotonically
+	// (3840 pts/match at 60 seats opens the final gap 103%; cutting the volume
+	// to 2552 cuts the damage to 32%). Selecting better cannot fix that; only
+	// bounding how much a seat may absorb can. A budget is also the direct
+	// answer to Q1's "hard caps to prevent runaway scores" at the level the
+	// per-word MaxBonus cannot reach: MaxBonus bounds one word, the budget
+	// bounds a seat.
+	//
+	// The budget binds as a clamp, not a gate: the word that runs a seat out
+	// of budget still earns the remainder of it, so the invariant "a seat's
+	// lifetime bonus == min(budget, what it would otherwise have earned)"
+	// holds exactly, and a replay can prove why a seat stopped being helped.
+	//
+	// Sign convention, inherited from MaxBonus below: zero keeps meaning "the
+	// default" (no budget), so a nonsensical negative cannot also mean zero -
+	// it means "the budget allows nothing", the same exception that lets
+	// MaxBonus express "no bonus at all".
+	BonusBudget int
 }
 
 // DefaultCatchUpParams is the batch 32C constant set, made explicit.
@@ -105,6 +131,14 @@ func (c CatchUpParams) normalized() CatchUpParams {
 	}
 	if c.GapPercent < 0 {
 		c.GapPercent = 0
+	}
+	// Zero means "no budget" - the legacy unlimited behaviour, which is what
+	// the zero value of every existing CatchUpParams must keep. A nonsensical
+	// negative therefore cannot fold into zero the way it does for the other
+	// fields: it resolves to -1, the budget that awards nothing (mirroring
+	// MaxBonus's documented exception, where a negative means "no bonus").
+	if c.BonusBudget < 0 {
+		c.BonusBudget = -1
 	}
 	return c
 }
@@ -156,7 +190,44 @@ func (m *Match) CatchUpBonus(seat Seat, points int) int {
 	if bonus < 1 {
 		return 0
 	}
+	// The volume cap (batch 36A): clamp to what this seat may still receive,
+	// and award nothing once a seat has absorbed its whole budget. Reading
+	// m.catchUpSpent is safe from a "pure query" standpoint because the
+	// accumulator only ever moves in applyWord, immediately after this
+	// function returned the very same number - see recordCatchUpBonus.
+	switch budget := m.catchUp.BonusBudget; {
+	case budget < 0: // the resolved "budget that allows nothing"
+		return 0
+	case budget > 0:
+		if remaining := budget - m.catchUpSpent[seat]; remaining <= 0 {
+			return 0
+		} else if bonus > remaining {
+			bonus = remaining
+		}
+	}
 	return bonus
+}
+
+// recordCatchUpBonus folds an awarded bonus into the seat's budget
+// consumption. It must be called exactly once per accepted word, with the
+// value CatchUpBonus returned, at the point the bonus is applied to the score
+// - that is what makes the query and the ledger agree, and what lets a replay
+// rebuild the ledger from the event log instead of storing it.
+func (m *Match) recordCatchUpBonus(seat Seat, bonus int) {
+	if bonus <= 0 || seat < 0 || int(seat) >= len(m.catchUpSpent) {
+		return
+	}
+	m.catchUpSpent[seat] += bonus
+}
+
+// CatchUpSpent is the total catch-up bonus a seat has received so far: the
+// budget consumption a reader needs to explain why a trailing seat stopped
+// being helped. Zero when the rule is off or no budget is configured.
+func (m *Match) CatchUpSpent(seat Seat) int {
+	if int(seat) < 0 || int(seat) >= len(m.catchUpSpent) {
+		return 0
+	}
+	return m.catchUpSpent[seat]
 }
 
 // AntiSnowball reports whether the catch-up rule is enabled for this match.
