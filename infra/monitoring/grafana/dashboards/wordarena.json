@@ -266,6 +266,16 @@
           "refId": "C"
         },
         {
+          "expr": "rate(wordarena_behavior_word_probe_events_total[5m])",
+          "legendFormat": "word-probe episodes/s",
+          "refId": "E"
+        },
+        {
+          "expr": "rate(wordarena_behavior_flash_path_events_total[5m])",
+          "legendFormat": "flash-path flags/s",
+          "refId": "F"
+        },
+        {
           "expr": "wordarena_behavior_max_rejection_streak",
           "legendFormat": "max rejection streak",
           "refId": "D"

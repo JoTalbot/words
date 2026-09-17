@@ -160,6 +160,11 @@ type report struct {
 	HealthzAfter       string  `json:"healthz_after"`
 	MetricsAfter       string  `json:"metrics_after"`
 
+	// ServerIntentProcess is the server-side intent processing summary at
+	// scrape time (batch 39C): the decomposition the client-observed RTT
+	// percentiles need to separate path latency from server work.
+	ServerIntentProcess *intentProcessSummary `json:"server_intent_process_us,omitempty"`
+
 	Notes []string `json:"notes,omitempty"`
 }
 
@@ -730,7 +735,7 @@ func procSample(pid int) (cpuSeconds float64, rssMB float64, err error) {
 	return cpuSeconds, rssMB, nil
 }
 
-func serverSnapshot(url string) (healthz, metrics string, active int) {
+func serverSnapshot(url string) (healthz, metrics string, active int, ip intentProcessSummary) {
 	cl := &http.Client{Timeout: 5 * time.Second}
 	if resp, err := cl.Get(url + "/healthz"); err == nil {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -742,15 +747,73 @@ func serverSnapshot(url string) (healthz, metrics string, active int) {
 	if resp, err := cl.Get(url + "/metrics"); err == nil {
 		var out struct {
 			ActiveMatches int `json:"active_matches"`
+			IntentProcess struct {
+				Count   uint64            `json:"count"`
+				SumUS   uint64            `json:"sum_us"`
+				Buckets map[string]uint64 `json:"buckets"`
+			} `json:"intent_process_us"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&out)
 		resp.Body.Close()
 		active = out.ActiveMatches
 		metrics = "ok"
+		ip = summarizeIntentProcess(out.IntentProcess.Count, out.IntentProcess.SumUS, out.IntentProcess.Buckets)
 	} else {
 		metrics = "error: " + err.Error()
 	}
 	return
+}
+
+// intentProcessSummary is the server-side decomposition the client-observed
+// round-trip percentiles need: how much of the path was inside the
+// authoritative submit (batch 39C closes the limitation batch 39B recorded).
+// P95US is a bucket LOWER bound (the fixed histogram cannot do better); a
+// value of 10000 means "above the top bucket" (> 10 ms).
+type intentProcessSummary struct {
+	Count  uint64  `json:"count"`
+	SumUS  uint64  `json:"sum_us"`
+	MeanUS float64 `json:"mean_us"`
+	P95US  int64   `json:"p95_us_floor"`
+}
+
+func summarizeIntentProcess(count, sumUS uint64, buckets map[string]uint64) intentProcessSummary {
+	s := intentProcessSummary{Count: count, SumUS: sumUS}
+	if count > 0 {
+		s.MeanUS = float64(sumUS) / float64(count)
+	}
+	if count == 0 || len(buckets) == 0 {
+		return s
+	}
+	// Walk the cumulative buckets in ascending bound order; the first one
+	// covering 95% of observations is the p95 floor.
+	type bound struct {
+		us  int64
+		cum uint64
+	}
+	var bs []bound
+	for k, v := range buckets {
+		if !strings.HasPrefix(k, "le_") {
+			continue
+		}
+		if k == "le_inf" {
+			bs = append(bs, bound{us: 10000, cum: v})
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimPrefix(k, "le_"), 10, 64)
+		if err != nil {
+			continue
+		}
+		bs = append(bs, bound{us: n, cum: v})
+	}
+	sort.Slice(bs, func(i, j int) bool { return bs[i].us < bs[j].us })
+	need := uint64(math.Ceil(0.95 * float64(count)))
+	for _, b := range bs {
+		if b.cum >= need {
+			s.P95US = b.us
+			break
+		}
+	}
+	return s
 }
 
 // config is one load run, separated from flag parsing so the same code can be
@@ -1009,9 +1072,13 @@ loop:
 	}
 
 	// --- post-conditions: the server must still be healthy and honest ---
-	healthz, metrics, active := serverSnapshot(cfg.URL)
+	healthz, metrics, active, ip := serverSnapshot(cfg.URL)
 	rep.HealthzAfter = healthz
 	rep.MetricsAfter = metrics
+	if ip.Count > 0 {
+		v := ip
+		rep.ServerIntentProcess = &v
+	}
 	rep.ActiveMatchesAfter = active
 	rep.ActiveMatchesEnd = active
 
@@ -1023,7 +1090,7 @@ loop:
 		drainStart := time.Now()
 		for time.Since(drainStart) < cfg.WaitDrain {
 			time.Sleep(time.Second)
-			_, _, n := serverSnapshot(cfg.URL)
+			_, _, n, _ := serverSnapshot(cfg.URL)
 			rep.ActiveMatchesEnd = n
 			if n == 0 {
 				break
@@ -1124,6 +1191,10 @@ func printReport(out io.Writer, r *report) {
 	fmt.Fprintf(out, "errors            read %d  write %d\n", r.ReadErrors, r.WriteErrors)
 	fmt.Fprintf(out, "after the run     active_matches=%d  healthz=%s  metrics=%s\n",
 		r.ActiveMatchesAfter, r.HealthzAfter, r.MetricsAfter)
+	if r.ServerIntentProcess != nil {
+		fmt.Fprintf(out, "server submit     count=%d  mean_us=%.1f  p95_us>=%d (bucket floor)\n",
+			r.ServerIntentProcess.Count, r.ServerIntentProcess.MeanUS, r.ServerIntentProcess.P95US)
+	}
 	if r.DrainSeconds > 0 {
 		fmt.Fprintf(out, "drain             %.1fs to active_matches=%d after every client left\n",
 			r.DrainSeconds, r.ActiveMatchesEnd)
