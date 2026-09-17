@@ -53,6 +53,9 @@ type telemetryEvent struct {
 	// 32G). Guild events reuse UserID for the acting player, so the stream
 	// answers "who did what to which guild" without a second subject field.
 	GuildID uint64 `json:"guild_id,omitempty"`
+	// Signal names the behavioral anti-cheat signal for behavior_signal
+	// events (M3 batch 40A). Measurement only - see docs/M3-ANTI-CHEAT.md.
+	Signal string `json:"signal,omitempty"`
 }
 
 type telemetryStats struct {
@@ -236,6 +239,12 @@ type apiMetricsSnapshot struct {
 	TelemetryEventsWritten  uint64
 	TelemetryEventsDropped  uint64
 	TelemetryExportErrors   uint64
+
+	// Behavioral anti-cheat signals (M3 batch 40A, measurement only).
+	BehaviorMetronomicEvents   uint64
+	BehaviorStreakEvents       uint64
+	IntentRateLimited          uint64
+	BehaviorMaxRejectionStreak int64
 }
 
 func (a *API) metricsSnapshot() apiMetricsSnapshot {
@@ -255,6 +264,11 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		TelemetryEventsWritten:  ts.EventsWritten,
 		TelemetryEventsDropped:  ts.EventsDropped,
 		TelemetryExportErrors:   ts.ExportErrors,
+
+		BehaviorMetronomicEvents:   a.behavior.metronomicEvents.Load(),
+		BehaviorStreakEvents:       a.behavior.streakEvents.Load(),
+		IntentRateLimited:          a.behavior.rateLimited.Load(),
+		BehaviorMaxRejectionStreak: a.behavior.maxRejectionStreak.Load(),
 	}
 }
 
@@ -287,4 +301,8 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeMetric("wordarena_telemetry_events_written_total", "Telemetry events written by the exporter.", "counter", m.TelemetryEventsWritten)
 	writeMetric("wordarena_telemetry_events_dropped_total", "Telemetry events dropped due to exporter backpressure or shutdown.", "counter", m.TelemetryEventsDropped)
 	writeMetric("wordarena_telemetry_export_errors_total", "Telemetry exporter write or flush errors.", "counter", m.TelemetryExportErrors)
+	writeMetric("wordarena_behavior_metronomic_events_total", "Behavioral signal: seats whose submit cadence was machine-regular (measurement only, M3 batch 40A).", "counter", m.BehaviorMetronomicEvents)
+	writeMetric("wordarena_behavior_rejection_streak_events_total", "Behavioral signal: streak episodes of consecutive rejected intents crossing the threshold (measurement only).", "counter", m.BehaviorStreakEvents)
+	writeMetric("wordarena_intent_rate_limited_total", "WebSocket connections closed by the per-seat intent rate limit.", "counter", m.IntentRateLimited)
+	writeMetric("wordarena_behavior_max_rejection_streak", "Longest consecutive-rejection streak observed on any seat this process.", "gauge", uint64(m.BehaviorMaxRejectionStreak))
 }

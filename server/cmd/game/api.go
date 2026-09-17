@@ -98,6 +98,13 @@ type API struct {
 	seatWindows map[seatWindowKey][]time.Time
 	seatWinMu   sync.Mutex
 
+	// behavior holds per-seat behavioral anti-cheat signals (M3 batch 40A,
+	// docs/M3-ANTI-CHEAT.md). Measurement only: it never influences
+	// admission, scoring, ordering or outcome - the signals exist so a
+	// future owner-gated enforcement policy has evidence to weigh and so
+	// an operator sees abuse patterns live.
+	behavior behaviorTracker
+
 	// profiles is the player registry (ProfileRepo: in-memory by default,
 	// Postgres when WORDARENA_POSTGRES_DSN is set); profiled marks matches
 	// that were created with explicit player_ids (stats fold on match end).
@@ -437,6 +444,7 @@ func (a *API) allowIntent(matchID uint64, seat int) bool {
 	}
 	if len(kept) >= a.intentsPerSec {
 		a.seatWindows[key] = kept
+		a.behavior.rateLimited.Add(1)
 		return false
 	}
 	a.seatWindows[key] = append(kept, now)
@@ -460,6 +468,7 @@ func (a *API) clearSeatWindows(matchID uint64, seats int) {
 	for seat := 0; seat < seats; seat++ {
 		delete(a.seatWindows, seatWindowKey{matchID: matchID, seat: seat})
 	}
+	a.behavior.clear(matchID, seats)
 }
 
 // reapResults removes match results older than resultTTL. Called by the
@@ -621,6 +630,13 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"telemetry_events_written":  m.TelemetryEventsWritten,
 		"telemetry_events_dropped":  m.TelemetryEventsDropped,
 		"telemetry_export_errors":   m.TelemetryExportErrors,
+
+		// Behavioral anti-cheat signals (M3 batch 40A, measurement only,
+		// docs/M3-ANTI-CHEAT.md).
+		"behavior_metronomic_events":       m.BehaviorMetronomicEvents,
+		"behavior_rejection_streak_events": m.BehaviorStreakEvents,
+		"intent_rate_limited_total":        m.IntentRateLimited,
+		"behavior_max_rejection_streak":    m.BehaviorMaxRejectionStreak,
 	})
 }
 
@@ -1965,6 +1981,18 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			a.m.wordsAccepted.Add(1)
 		} else {
 			a.m.wordsRejected.Add(1)
+		}
+		// Behavioral signals (M3 batch 40A): observe the submit outcome and
+		// publish any edge-triggered signal. Measurement only - nothing here
+		// influences the seat, the room or the result.
+		for _, sig := range a.behavior.observe(seatWindowKey{matchID: id, seat: int(seat)}, time.Now(), frame.Result) {
+			a.publishTelemetry(telemetryEvent{
+				Type:    "behavior_signal",
+				Signal:  sig,
+				MatchID: id,
+				Seat:    telemetryInt(int(seat)),
+				UserID:  room.UserID(seat),
+			})
 		}
 		a.publishTelemetry(telemetryEvent{
 			Type:           "word_validated",
