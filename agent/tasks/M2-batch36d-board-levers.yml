@@ -1,6 +1,6 @@
 id: M2-batch36d-board-levers
 title: "Anti-snowball board levers: claim/steal lock duration and the steal debit fraction"
-status: code_complete_sweep_running_pending_ci
+status: decided_implemented_measured_pending_ci
 priority: normal
 complexity: large
 dependencies:
@@ -46,6 +46,13 @@ file_ownership:
   - docs/M2-ANTI-SNOWBALL.md
   - docs/ROADMAP.md (the anti-snowball row only)
   - agent/tasks/M2-batch36d-board-levers.yml
+evidence:
+  sweep: "artifacts-36d/sweep-full.json - 768 pairs (24 seeds x rosters 2/8/30/60 x 8 arms), shards 2061/2172 s, run-meta.txt carries binary sha256 + host + repo_commit 4afaf12"
+  comparability: "baseline gaps 20.1 / 93.9 / 66.8 / 129.8 reproduce docs/M2-ANTI-SNOWBALL.md 36A table bit-for-bit on x86_64 after 35D measured on aarch64 (PD-003)"
+  headline: "lock300 @60: gap 129.8 -> 62.6 (-51.8%), 21/24 closed, total points 998 -> 678, leader share 12.8% -> 9.2%"
+  counter_finding: "debit0 @30: gap 66.8 -> 579.6 (+768%), 0/24 closed; @8 leader share improves 30.3 -> 19.4% while the distance grows 3.9x"
+  sign_flip: "lock300 @8: gap -31.6% but leader share +11.3 pp; @60: both improve; @2: gap +1.2% with words 143 -> 44"
+  decision: "no shipped constant changed; BoardParams kept as infrastructure; anti-snowball row closed on evidence in docs/ROADMAP.md"
 notes: |
   Deliberately NOT a request field, for the same reason as 36A's budget: PD-007
   and the server-authoritative rule keep fairness and physics out of the

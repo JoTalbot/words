@@ -353,6 +353,143 @@ that the pathology is repeated helping of the same chasers.
    only one that changes who can score rather than who is paid: **board-side**
    (leader lock duration, steal economics), with its own evidence.
 
+## The board: lock duration and steal economics (batch 36D)
+
+36A closed the ledger and left one sentence standing: the board is the only place
+a point can *move* instead of being minted. This batch measures that claim. Two
+knobs became calibration parameters (`match.BoardParams`, same code-level status
+as `CatchUpParams` and the 36A budget, and for the same reason not a request
+field):
+
+- **lock duration** - how long a claimed cell is safe from a rival (`LockTicks`,
+  shipped 90 ticks = 3 s). It is the leader's protection, so it is the one board
+  quantity a trailing seat cannot work around by playing better.
+- **steal debit** - what share of a stolen cell's `CreditedValue` is taken back
+  from its previous owner (shipped 100%). It is the reason a steal is a transfer
+  rather than a gift.
+
+Grid: the 35A/35D/36A grid (24 seeds x rosters 2/8/30/60), one arm per pair, and
+the catch-up rule **off in every row including the baseline** - the question was
+what the board does on its own, and a run mixing both could not answer it. The
+four baseline columns reproduce the published 36A table exactly (20.1 / 93.9 /
+66.8 / 129.8) on x86_64 after 35D measured aarch64, which is PD-003 holding again
+and, at the far end of the grid, the proof that the new zero value is a no-op.
+768 pairs, shard wall times 2061/2172 s, artifacts `artifacts-36d/` (mirrored on
+the OCI host), binary recorded in `run-meta.txt`.
+
+`closed` is 36A's column (final leader-to-last gap got smaller, out of 24).
+`share` is the leader's points as a fraction of every point scored in the match -
+the scale-free reading - and `total pts`/`words` say what happened to the match
+while the gap was moving. That last pair is not decoration here: see finding 3.
+
+| roster | arm | gap off -> on | delta | closed | share off -> on | share | total pts | words | flip |
+|---|---|---|---|---|---|---|---|---|---|
+| 2 | `lock45` | 20.1 -> 21.5 | +6.6% | 0/24 | 57.3% -> 57.2% | -0.2 pp | 208 -> 316 | 143 -> 284 | 4.2% |
+| 2 | `lock180` | 20.1 -> 20.1 | +0.0% | 0/24 | 57.3% -> 57.9% | +0.6 pp | 208 -> 154 | 143 -> 72 | 0.0% |
+| 2 | `lock300` | 20.1 -> 20.4 | +1.2% | 4/24 | 57.3% -> 58.6% | +1.3 pp | 208 -> 125 | 143 -> 44 | 0.0% |
+| 2 | `debit75` | 20.1 -> 13.2 | -34.6% | 22/24 | 57.3% -> 50.9% | -6.4 pp | 208 -> 750 | 143 -> 143 | 4.2% |
+| 2 | `debit50` | 20.1 -> 10.7 | -46.8% | 21/24 | 57.3% -> 50.6% | -6.7 pp | 208 -> 932 | 143 -> 143 | 8.3% |
+| 2 | `debit25` | 20.1 -> 5.8 | -71.0% | 20/24 | 57.3% -> 50.2% | -7.1 pp | 208 -> 1455 | 143 -> 143 | 29.2% |
+| 2 | `debit0` | 20.1 -> 5.5 | -72.7% | 19/24 | 57.3% -> 50.2% | -7.1 pp | 208 -> 1634 | 143 -> 143 | 50.0% |
+| 2 | `lock45-debit50` | 20.1 -> 11.4 | -43.5% | 20/24 | 57.3% -> 50.3% | -7.0 pp | 208 -> 1807 | 143 -> 284 | 12.5% |
+| 8 | `lock45` | 93.9 -> 143.5 | +52.8% | 7/24 | 30.3% -> 32.9% | +2.6 pp | 324 -> 473 | 246 -> 477 | 95.8% |
+| 8 | `lock180` | 93.9 -> 89.8 | -4.4% | 14/24 | 30.3% -> 43.8% | +13.5 pp | 324 -> 202 | 246 -> 124 | 95.8% |
+| 8 | `lock300` | 93.9 -> 64.2 | -31.6% | 17/24 | 30.3% -> 41.6% | +11.3 pp | 324 -> 152 | 246 -> 75 | 95.8% |
+| 8 | `debit75` | 93.9 -> 245.3 | +161.3% | 0/24 | 30.3% -> 22.8% | -7.5 pp | 324 -> 1244 | 246 -> 246 | 45.8% |
+| 8 | `debit50` | 93.9 -> 295.1 | +214.4% | 1/24 | 30.3% -> 22.2% | -8.1 pp | 324 -> 1537 | 246 -> 246 | 58.3% |
+| 8 | `debit25` | 93.9 -> 436.9 | +365.4% | 1/24 | 30.3% -> 21.9% | -8.4 pp | 324 -> 2381 | 246 -> 246 | 70.8% |
+| 8 | `debit0` | 93.9 -> 365.9 | +289.7% | 3/24 | 30.3% -> 19.4% | -10.9 pp | 324 -> 2634 | 246 -> 246 | 87.5% |
+| 8 | `lock45-debit50` | 93.9 -> 642.6 | +584.6% | 2/24 | 30.3% -> 25.7% | -4.6 pp | 324 -> 2943 | 246 -> 481 | 100.0% |
+| 30 | `lock45` | 66.8 -> 247.5 | +270.8% | 0/24 | 7.1% -> 18.0% | +10.9 pp | 1031 -> 1351 | 942 -> 1837 | 100.0% |
+| 30 | `lock180` | 66.8 -> 65.3 | -2.1% | 13/24 | 7.1% -> 8.3% | +1.2 pp | 1031 -> 790 | 942 -> 473 | 100.0% |
+| 30 | `lock300` | 66.8 -> 65.8 | -1.5% | 14/24 | 7.1% -> 9.7% | +2.6 pp | 1031 -> 679 | 942 -> 285 | 95.8% |
+| 30 | `debit75` | 66.8 -> 245.1 | +267.2% | 0/24 | 7.1% -> 5.9% | -1.1 pp | 1031 -> 4598 | 942 -> 942 | 100.0% |
+| 30 | `debit50` | 66.8 -> 314.4 | +371.0% | 0/24 | 7.1% -> 5.9% | -1.1 pp | 1031 -> 5793 | 942 -> 942 | 100.0% |
+| 30 | `debit25` | 66.8 -> 501.7 | +651.6% | 0/24 | 7.1% -> 6.1% | -1.0 pp | 1031 -> 8807 | 942 -> 942 | 100.0% |
+| 30 | `debit0` | 66.8 -> 579.6 | +768.3% | 0/24 | 7.1% -> 6.2% | -0.9 pp | 1031 -> 9958 | 942 -> 942 | 100.0% |
+| 30 | `lock45-debit50` | 66.8 -> 885.2 | +1226.2% | 0/24 | 7.1% -> 8.3% | +1.3 pp | 1031 -> 11365 | 942 -> 1880 | 95.8% |
+| 60 | `lock45` | 129.8 -> 138.0 | +6.3% | 8/24 | 12.8% -> 9.8% | -3.1 pp | 998 -> 1415 | 942 -> 1866 | 100.0% |
+| 60 | `lock180` | 129.8 -> 65.3 | -49.7% | 20/24 | 12.8% -> 8.2% | -4.7 pp | 998 -> 802 | 942 -> 473 | 100.0% |
+| 60 | `lock300` | 129.8 -> 62.6 | -51.8% | 21/24 | 12.8% -> 9.2% | -3.7 pp | 998 -> 678 | 942 -> 285 | 100.0% |
+| 60 | `debit75` | 129.8 -> 260.6 | +100.7% | 0/24 | 12.8% -> 5.7% | -7.1 pp | 998 -> 4593 | 942 -> 942 | 4.2% |
+| 60 | `debit50` | 129.8 -> 319.0 | +145.7% | 0/24 | 12.8% -> 5.6% | -7.3 pp | 998 -> 5807 | 942 -> 942 | 12.5% |
+| 60 | `debit25` | 129.8 -> 444.2 | +242.1% | 0/24 | 12.8% -> 5.0% | -7.9 pp | 998 -> 9039 | 942 -> 942 | 25.0% |
+| 60 | `debit0` | 129.8 -> 506.4 | +290.1% | 0/24 | 12.8% -> 5.0% | -7.8 pp | 998 -> 10201 | 942 -> 942 | 100.0% |
+| 60 | `lock45-debit50` | 129.8 -> 434.4 | +234.6% | 0/24 | 12.8% -> 4.1% | -8.7 pp | 998 -> 11337 | 942 -> 1880 | 100.0% |
+
+**Four findings.**
+
+1. **The board controls the gap; the ledger does not.** The best ledger arm in
+   36A closed 0/24 pairs at 60 seats. `lock300` closes **21/24** there and takes
+   the gap from 129.8 to **62.6** (-51.8 percent), with scores *falling*
+   (998 -> 678) instead of inflating, and the leader's share falling with them
+   (12.8 -> 9.2 percent). It is the first arm in the whole anti-snowball program -
+   32C, 35A, 35D, 36A - that materially flattens the distribution at Royale size,
+   and it does it without minting a single point.
+2. **It buys that with the board's own activity, which is a product-visible
+   price, not a rounding error.** At 60 seats the words played per match fall from
+   942 to 285; in the duel from 143 to 44. A long lock does not redistribute the
+   fight, it ends it: cells stop changing hands, so the roster stops scoring
+   against itself. That is a different game mode, not a tuned one, and no
+   measurement can decide whether it is the one Word Arena wants.
+3. **Lowering the steal debit is a snowball accelerator, and it is the trap in
+   this family.** At 8 and 30 seats the gap *explodes* - 93.9 -> 245.3 (+161
+   percent) and 66.8 -> 245.1 (+267 percent) at `debit75`, rising to 66.8 ->
+   **579.6** (+768 percent) at `debit0`, with `closed` 0/24 in every large-roster
+   row. The reason is structural: the debit is what makes stealing cost the
+   holder, so removing it turns every contested cell into net new points for
+   whoever takes it, and the driver's own comment already describes the failure
+   mode this enables (seats ping-ponging the lexicographically smallest word).
+   The trap is the scale-free column: at 8 seats `debit0` *improves* leader share
+   from 30.3 to 19.4 percent while the distance grows 3.9x, because the minted
+   points make every seat enormous. A board lever read without total points in
+   view reports the opposite of what happened. The duel is the only place the arm
+   looks like catch-up (-34.6 percent, 22/24 at 2 seats) - the same
+   size-dependence 35A found in the thresholds, arriving from the other side.
+4. **The sign of the lock flips with roster size, so a shipped version could not
+   be a constant.** At 8 seats `lock300` cuts the gap (-31.6 percent, 17/24) yet
+   *raises* the leader's share by 11.3 points (30.3 -> 41.6 percent); at 60 seats
+   both improve; at 30 the gap is flat (-1.5 percent) and the share worsens
+   (+2.6 points); at 2 the gap does not move at all (+1.2 percent) while activity
+   drops by two thirds. The mechanism is one sentence: **a lock protects whoever
+   currently holds cells**, and who that is changes with the size of the pack - at
+   Royale size it is mostly trailing seats stealing from each other, in an
+   eight-seat ladder it is mostly the leader.
+
+`flip` deserves its own caveat rather than a finding: at 30 and 60 seats *every*
+arm flips the winner in about 100 percent of pairs, including `lock180` at 30
+seats, which barely moves the gap. At those sizes the board is knife-edge and "the
+crown changed" says nothing about catch-up (36A could read a monotone signal in
+flip because its arms were one lever at different volumes; here the arms change
+what the game is). Where flip is informative it is reassuring: in the duel
+`lock180` and `lock300` leave it at **0.0 percent** - a quieter board does not make
+the winner less determined, it makes the match less played.
+
+One side finding, recorded because it cost a test failure to notice: the lock
+boundary is exact, not inclusive. A cell locked for N ticks is stealable after N
+ticks, because the counter is decremented on the tick that follows the claim. The
+35A-era test used `LockTicks+1` and so never measured the edge; `boardlevers_test`
+now asserts N-1 protected and N released, in both directions.
+
+**Decision.**
+
+1. **No shipped constant changes.** `LockTicks` stays 90 and the steal debits in
+   full. The lock result is real but it is a pacing decision about how
+   interactive a Royale board should feel, and 24 seeds cannot settle an
+   aesthetic question - it can only show that the trade exists, which it now does.
+2. **`BoardParams` stays in the tree** as measurement infrastructure, exactly as
+   36A kept `BonusBudget`: two lines of rule logic plus normalization, zero cost
+   at the default, and a future pacing or steal-economics decision can be swept on
+   the existing grid instead of needing a harness again. Nothing is provisioned.
+3. **The anti-snowball row is closed on evidence, both halves of it.** The ledger
+   cannot close a Royale gap (35A thresholds, 35D relative selection, 36A volume -
+   three independent levers, three negatives, one grid). The board can, and its
+   price is the interaction that makes the mode worth playing (36D). The shipped
+   answer stays what 32C shipped: an opt-in, duel-calibrated rule, OFF for Royale.
+   Any reopening has to arrive as a roster-scaled rule measured at n>=96 with
+   words-per-match published beside the gap, because a lever that closes the
+   distance by ending the fight is not a catch-up win.
+
 ## Validation
 
 `server/internal/match/antisnowball_test.go`:
@@ -372,3 +509,14 @@ that the pathology is repeated helping of the same chasers.
 | `TestCatchUpNegativeBudgetAwardsNothing` | A nonsensical negative resolves to "allows nothing", never to "unlimited". |
 | `TestCatchUpBudgetReplaysExactly` | The ledger is derived: same driven words, same fingerprint. |
 | `TestAntiSnowballIsDeterministicAndParticipatesInTheFingerprint` | Same log, same outcome; the rule is visible in the fingerprint. |
+`server/internal/match/boardlevers_test.go` (batch 36D):
+
+| Test | Property |
+|---|---|
+| `TestBoardZeroValueIsTheShippedRule` | An omitted board is fingerprint-identical to explicit defaults; no fixture, replay or baseline moves. |
+| `TestBoardLockTicksShortensLeaderProtection` | The lock boundary is exact - N-1 ticks still protected, N released - at both the shipped and a 1-tick setting, and a fresh claim cannot be recaptured inside its own wave even at `LockTicks=1`. |
+| `TestBoardStealDebitIsAFractionOfTheCreditedValue` | The debit is the per-cell credited value times the percent, floored per cell, at 100/75/50/25/none. |
+| `TestBoardDebitFractionLeavesTheStealersWordScoreAlone` | The victim's loss is strictly monotone in the percent while the stealer's score is identical: the lever moves a point, it does not reprice a word. |
+| `TestBoardParamsAreClamped` | Nonsense normalizes to a playable match instead of erroring; the 20 s ceiling and the 0-100 band hold. |
+| `TestDriverIsDeterministic` (36D rows) | An explicit default board reproduces the shipped record byte-for-byte, and removing the debit changes at least one of twelve seeds - a sweep arm cannot be a silent no-op. |
+
