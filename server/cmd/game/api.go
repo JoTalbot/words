@@ -1788,6 +1788,14 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer a.publishTelemetry(telemetryEvent{Type: "ws_disconnected", MatchID: id, Seat: telemetryInt(int(seat)), UserID: room.UserID(seat)})
 	sub := room.Subscribe(seat)
 	ctx := r.Context()
+	// Batch 38A: the writer goroutine and every write it performs run on a
+	// context the HANDLER also controls. It previously watched r.Context()
+	// alone, which is only cancelled when this handler returns - but the
+	// handler waits for the writer (<-done below) before it can return, so a
+	// client-initiated disconnect deadlocked BOTH goroutines forever (the
+	// 37B soak measured exactly +2 leaked goroutines per closed connection).
+	wctx, cancelWS := context.WithCancel(ctx)
+	defer cancelWS()
 
 	// lastSentVersion is the canonical state version this connection is known
 	// to hold, and is the whole of the per-connection delta state (batch
@@ -1823,7 +1831,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		defer close(done)
 		for {
 			select {
-			case <-ctx.Done():
+			case <-wctx.Done():
 				return
 			case ev := <-sub.Events:
 				// Batch 31B: every subscriber receives the same
@@ -1839,7 +1847,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return
 				}
-				if err := wsWriteBytes(ctx, conn, b); err != nil {
+				if err := wsWriteBytes(wctx, conn, b); err != nil {
 					return
 				}
 			case sf := <-sub.Snapshots:
@@ -1853,7 +1861,7 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return
 				}
-				if err := wsWriteBytes(ctx, conn, b); err != nil {
+				if err := wsWriteBytes(wctx, conn, b); err != nil {
 					return
 				}
 			}
@@ -1956,6 +1964,10 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "bye")
 	room.Unsubscribe(seat)
+	// Batch 38A: release the writer BEFORE waiting on it; doing it the other
+	// way around was the deadlock (handler waits for done, writer waits for a
+	// handler return that never comes).
+	cancelWS()
 	<-done
 }
 
