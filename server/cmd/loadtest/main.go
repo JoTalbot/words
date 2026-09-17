@@ -399,12 +399,24 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 	// work rather than reject cheap nonsense.
 	ticker := time.NewTicker(h.intentGap)
 	defer ticker.Stop()
+	// draining is the run finishing, not this seat failing: the seat stops
+	// submitting but keeps matching acks, because turning an ack into a latency
+	// sample happens HERE, in the same select that receives the ticker. Returning
+	// on stopCh instead - the obvious way to stop a seat - throws away every ack
+	// that arrives during the drain window, which is the only reason to have one.
+	draining := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-h.stopCh:
-			return
+			draining = true
+			stateMu.Lock()
+			outstanding := len(pending)
+			stateMu.Unlock()
+			if outstanding == 0 {
+				return // nothing in flight left to match
+			}
 		case <-readDone:
 			return
 		case w := <-acks:
@@ -424,7 +436,21 @@ func (h *harness) playSeat(ctx context.Context, m *gameMatch, seat int, stats *c
 			if found {
 				h.recordIntent(time.Since(matched.sent))
 			}
+			if draining {
+				// Drain ends as soon as this seat's outstanding intents are
+				// accounted for, so a healthy run does not wait out the full
+				// window; the window is only a bound on a lost ack.
+				stateMu.Lock()
+				outstanding := len(pending)
+				stateMu.Unlock()
+				if outstanding == 0 {
+					return
+				}
+			}
 		case <-ticker.C:
+			if draining {
+				continue
+			}
 			stateMu.Lock()
 			snap := latest
 			stateMu.Unlock()
@@ -784,8 +810,18 @@ loop:
 	rep.DurationS = round1(time.Since(startHold).Seconds())
 
 	// --- drain: stop driving, keep sockets open briefly so in-flight acks land ---
-	time.Sleep(2 * time.Second)
+	// The order is the fix. close(stopCh) is what makes the seats stop
+	// submitting, and the sleep after it is the window in which the acks for
+	// intents already on the wire arrive and are recorded. Sleeping first, as
+	// this did, left every seat submitting through the supposed drain and then
+	// cancel() cut the readers off mid-flight: the run's last intent was written
+	// but never acked, and the one write that raced the cancelled context was
+	// counted as a transport error. That is the flake this closes -
+	// "sent 157 intents but got 156 acks" plus "transport errors: read 0 write 1",
+	// seen on main and on three branches in a row, always in this one test and
+	// never in the code the branch changed.
 	close(h.stopCh)
+	time.Sleep(2 * time.Second)
 	cancel()
 	wg.Wait()
 
