@@ -1,6 +1,6 @@
 id: M3-batch42b-closed-aggregates
 title: "Behavioral longitudinal aggregates at room close: closed_with_signals / closed_flagged_seats / closed_family_seats (measurement only)"
-status: running
+status: merged_green
 priority: normal
 complexity: small
 inputs:
