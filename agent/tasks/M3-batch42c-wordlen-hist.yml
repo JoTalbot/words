@@ -1,6 +1,6 @@
 id: M3-batch42c-wordlen-hist
 title: "Behavioral measurement: intent word-length histograms by outcome class (cell-path geometry candidate, measurement only)"
-status: running
+status: merged_green
 priority: normal
 complexity: small
 inputs:

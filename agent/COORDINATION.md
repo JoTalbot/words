@@ -298,6 +298,8 @@ Owns (exclusive while this lane is active):
 - `infra/monitoring/grafana/dashboards/wordarena.json` (panel 11 targets)
 - `docs/M3-ANTI-CHEAT.md`
 
-Batch 42A (multi_signal join of distinct signal families) is the first item on
-this lane. Enforcement stays owner-gated per the boundary document; nothing
-here influences admission, scoring or outcome.
+Batches on this lane: 42A (multi_signal join of distinct signal families),
+42B (close-time longitudinal aggregates), 42C (intent word-length histograms
+by outcome; adds `wordlenhist.go` + `wordlenhist_test.go` to the owned set).
+Enforcement stays owner-gated per the boundary document; nothing here
+influences admission, scoring or outcome.
