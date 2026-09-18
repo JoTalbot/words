@@ -240,7 +240,7 @@ type apiMetricsSnapshot struct {
 	TelemetryEventsDropped  uint64
 	TelemetryExportErrors   uint64
 
-	// Behavioral anti-cheat signals (M3 batches 40A/41A/42A, measurement only).
+	// Behavioral anti-cheat signals (M3 batches 40A/41A/42A/42B, measurement only).
 	BehaviorMetronomicEvents   uint64
 	BehaviorStreakEvents       uint64
 	BehaviorWordProbeEvents    uint64
@@ -248,6 +248,9 @@ type apiMetricsSnapshot struct {
 	BehaviorMultiSignalEvents  uint64
 	IntentRateLimited          uint64
 	BehaviorMaxRejectionStreak int64
+	ClosedWithSignals          uint64
+	ClosedFlaggedSeats         uint64
+	ClosedFamilySeats          uint64
 }
 
 func (a *API) metricsSnapshot() apiMetricsSnapshot {
@@ -275,6 +278,9 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		BehaviorMultiSignalEvents:  a.behavior.multiSignalEvents.Load(),
 		IntentRateLimited:          a.behavior.rateLimited.Load(),
 		BehaviorMaxRejectionStreak: a.behavior.maxRejectionStreak.Load(),
+		ClosedWithSignals:          a.behavior.closedWithSignals.Load(),
+		ClosedFlaggedSeats:         a.behavior.closedFlaggedSeats.Load(),
+		ClosedFamilySeats:          a.behavior.closedFamilySeats.Load(),
 	}
 }
 
@@ -312,6 +318,9 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeMetric("wordarena_behavior_word_probe_events_total", "Behavioral signal: same-word rejection episodes reaching the probe threshold (measurement only).", "counter", m.BehaviorWordProbeEvents)
 	writeMetric("wordarena_behavior_flash_path_events_total", "Behavioral signal: seats whose multi-cell submits arrived back-to-back faster than a person gestures (measurement only).", "counter", m.BehaviorFlashPathEvents)
 	writeMetric("wordarena_behavior_multi_signal_events_total", "Behavioral signal: seats that fired two or more distinct signal families in one match (measurement only).", "counter", m.BehaviorMultiSignalEvents)
+	writeMetric("wordarena_behavior_closed_with_signals_total", "Behavioral signal: matches closed with at least one flagged seat (42B longitudinal aggregate, measurement only).", "counter", m.ClosedWithSignals)
+	writeMetric("wordarena_behavior_closed_flagged_seats_total", "Behavioral signal: flagged seats summed over closed matches (42B longitudinal aggregate, measurement only).", "counter", m.ClosedFlaggedSeats)
+	writeMetric("wordarena_behavior_closed_family_seats_total", "Behavioral signal: (seat, family) incidences summed over closed matches (42B longitudinal aggregate, measurement only).", "counter", m.ClosedFamilySeats)
 	writeMetric("wordarena_intent_rate_limited_total", "WebSocket connections closed by the per-seat intent rate limit.", "counter", m.IntentRateLimited)
 	writeMetric("wordarena_behavior_max_rejection_streak", "Longest consecutive-rejection streak observed on any seat this process.", "gauge", uint64(m.BehaviorMaxRejectionStreak))
 }

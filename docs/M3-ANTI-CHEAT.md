@@ -54,13 +54,17 @@ already measures it and it reflects the server, not the player).
 - `/metrics` (JSON): `behavior_metronomic_events`,
   `behavior_rejection_streak_events`, `behavior_word_probe_events`,
   `behavior_flash_path_events`, `behavior_multi_signal_events`,
-  `intent_rate_limited_total`,
+  `behavior_closed_with_signals`, `behavior_closed_flagged_seats`,
+  `behavior_closed_family_seats`, `intent_rate_limited_total`,
   `behavior_max_rejection_streak` (running max, process lifetime).
 - `/metrics/prometheus`: `wordarena_behavior_metronomic_events_total`,
   `wordarena_behavior_rejection_streak_events_total`,
   `wordarena_behavior_word_probe_events_total`,
   `wordarena_behavior_flash_path_events_total`,
   `wordarena_behavior_multi_signal_events_total`,
+  `wordarena_behavior_closed_with_signals_total`,
+  `wordarena_behavior_closed_flagged_seats_total`,
+  `wordarena_behavior_closed_family_seats_total`,
   `wordarena_intent_rate_limited_total`,
   `wordarena_behavior_max_rejection_streak`.
 - JSONL telemetry: `behavior_signal` events carrying `signal`, `match_id`,
@@ -72,6 +76,25 @@ Counters are cumulative for the process lifetime and are not reset at match
 end; per-seat state is deleted with the rate-limit windows when the room
 closes (`clearSeatWindows` path), so a long-lived server does not accumulate
 seat state.
+
+## Longitudinal aggregates (42B)
+
+The event-time counters above fire at the INSTANT a signal fires; they never
+answer "how many matches actually ended with a flagged seat", because that
+only becomes knowable when the room closes. `clear` therefore scans the
+final per-seat family mask before dropping it:
+
+- `behavior_closed_with_signals` — matched closed with at least one flagged
+  seat (the per-match denominator);
+- `behavior_closed_flagged_seats` — flagged seats summed over closed matches;
+- `behavior_closed_family_seats` — (seat, family) incidences summed over
+  closed matches (a seat with two families counts twice).
+
+The scan reads the FINAL family mask, not the event counters: a seat that
+fires one family twice closes with one incidence. These aggregates are what
+future per-signal longitudinal deltas build on (per-match maxima alongside
+the process-lifetime maxima), and they stay measurement-only like everything
+else in this file.
 
 ## Threshold rationale
 
