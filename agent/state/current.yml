@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-17 (session 11: 41A signal pair 2, 39C intent decomposition measured, 41B telemetry-drain test fix, live promoted to 6e8fac0)
+# Updated: 2026-09-18 (session 12: 42A multi_signal behavioral join, merged and live-promoted to 18bcde3)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "6e8fac0"
+last_verified_commit: "18bcde3"
 
 session:
   7:
@@ -54,6 +54,13 @@ session:
     merges_this_session: ["41A PR #73 -> 1e84eac", "39C PR #74 -> b402d8a", "39C evidence PR #75 -> 6e8fac0 (after merging 41B main for a green gate)", "41B PR #76 -> 5e4e780"]
     next_action: "M3 measurement lane continues owner-independently: cross-match aggregation per user stays parked on identity maturity; candidate next signals and the boundary remain in docs/M3-ANTI-CHEAT.md. Optional measurement: add the server-intent decomposition column to the capacity-curve table on the next multi-room leg. The release gate still waits only on the seven owner questions in GitHub issue #1."
 
+  12:
+    what: "Session 12 continued the M3 measurement lane, again without owner input. One batch merged (42A multi_signal behavioral join), the live service was promoted to main 18bcde3 and fully re-verified (smoke 27/0, exit gate 6/6 on the baseline scores). The seven owner questions are unchanged and still gate nothing in engineering. One Q&A tooling note: the current repo WORDS_SERVER_URL variable was stale before this session but a different (younger) trycloudflare hostname from the tunnel log answers 200, so the sandbox re-probed rather than trusting either name - the tunnel re-issues URLs and the safest fact is 'probe /healthz, then trust'."
+    batch_42a: "MERGED via PR #78 -> 18bcde3 (CI + Container smoke green on the merge commit). Behavioral signal, measurement only: multi_signal - a seat fires it exactly once per match when it has fired TWO OR MORE DISTINCT signal families (rejection_streak / metronomic_cadence / word_probe / flash_path) in that match. No new heuristic: the family bitmask is populated only as the individual edge-triggered signals fire; the single constant is multiSignalArity = 2; repeated families never advance the join; rate-limited closes are a transport guard and not a family; nothing consumes the signal authoritatively. This is the observable half of the enforcement boundary's 'weigh multiple signals together' rule - a policy day can only weigh signals it has observed co-occurring. Fixed-cardinality counter wordarena_behavior_multi_signal_events_total (JSON behavior_multi_signal_events) + Prometheus + panel 11 target (the drift gate required the plot and got it), behavior_signal JSONL event. 3 new deterministic tests (join at the second distinct family over all four family pairings; repeats of one family stay quiet; clear() re-separates families while the process-lifetime counter survives). The 'cell-path geometry vs dictionary structure' candidate was evaluated and declined for now: its obvious incarnation (longer-than-longest-word admits) cannot fire because there is no word below the board's ALWAYS-ADMISSIBLE size on the 12-cell 1v1 board, and the 60-cell Royale ceiling is large enough to admit even the longest pinned words - a signal that can never fire would measure nothing."
+    promotion: "LIVE PROMOTED to 18bcde3 at 2026-09-18 ~05:15 UTC (sha24 bb5a311be07a294a493a35af, prev kept, copy-then-rename, restart). Verified: /opt/words reset to origin/main, go vet clean, service active NRestarts=0, /healthz ok, /readyz ready storage=postgres, all six behavioral counters live in /metrics (behavior_multi_signal_events present), infra/smoke.sh 27 passed / 0 failed (postgres), deterministic exit gate 6/6 PASS reproducing the baseline scores exactly (43:45 / 37:60 / 44:40, terminal_snapshots_equal and client_streams_equal true)."
+    merges_this_session: ["42A PR #78 -> 18bcde3"]
+    next_action: "M3 measurement lane continues owner-independently: cross-match aggregation per user stays parked on identity maturity; the remaining Known-limit candidates are 'longitudinal deltas of the per-signal series' (e.g. per-match maxima alongside the process maxima) and a re-scoped cell-path study (per-seat word-length vs accepted-history shape, rather than an admit reject on the longest word). The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs)."
+
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
@@ -72,19 +79,19 @@ facts_non_relitigable:
 server:
   host: 129.213.177.56
   key: "/home/user/.ssh/oci_server_key (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 6e8fac0); live binary /opt/words/bin/wordarena-server serves 6e8fac0 (sha24 dde68c71eafced0f6bad1b51, promoted 2026-09-17 ~14:05 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
-  live_service: "wordarena.service active on 24acdd7 (promoted 2026-09-17 10:33 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
-  tunnel_url: "https://hour-define-resistant-roan.trycloudflare.com (ephemeral quick tunnel; re-read from /var/log/words-tunnel.log after any tunnel restart and refresh the WORDS_SERVER_URL repo variable - a stale URL fails DNS, which is exactly what happened this session)"
+  deploy_checkout: "/opt/words (clean, main 18bcde3); live binary /opt/words/bin/wordarena-server serves 18bcde3 (sha24 bb5a311be07a294a493a35af, promoted 2026-09-18 ~05:15 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
+  live_service: "wordarena.service active on 18bcde3 (promoted 2026-09-18 ~05:15 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
+  tunnel_url: "2026-09-18 probe: the /var/log/words-tunnel.log names two hostnames - ireland-placement-dot-inner (dead, 000) and hour-define-resistant-loan (200, and the current WORDS_SERVER_URL repo variable). Quick tunnels re-issue URLs; always probe /healthz before trusting a name."
   worktrees: "wt/batch18 and wt/proto-version remain (historical, untouched)"
   go: "/home/ubuntu/go-toolchain/bin/go (go1.27.1); GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35. The Arena sandbox has its own go1.27.1 for local build and test."
   ollama: "qwen2.5:3b on 127.0.0.1:11434 (bounded drafting only)"
   android: "no local AVD and no emulator/system-images on the host: the device leg is the GitHub-hosted emulator in .github/workflows/unity-android.yml, green 2026-09-17 08:36 UTC on bc0a144e (schedule). The WORDS_SERVER_URL repo variable is an ephemeral quick tunnel, but batch 34D made the full-match leg self-contained (runner-local server reached at 10.0.2.2), so tunnel churn cannot fail it"
-  artifacts: "Arena sandbox: artifacts-38c (prefix-royale.json, fixed-royale.json, fixed2-royale.json). Host: artifacts-35a/35c/35d/36a/36d/37b."
+  artifacts: "Host: artifacts-35a/35c/35d/36a/36d/37b/39a/39b/39c/40a/42a (42a holds the qwen2.5:3b docs draft that was reviewed and declined for commit)."
 
 sandbox:
   note: "fresh Arena sandbox - the workspace started EMPTY, so the repository was cloned from GitHub and the handoff SSH key written from the task message. Nothing sandbox-local is load-bearing."
   ssh_key: "/home/user/.ssh/oci_server_key (chmod 600)"
 
 resume_from:
-  - "Session 11 merged 41A (word_probe + flash_path), 39C (harness server-intent decomposition + measured 2x60 evidence), 41B (telemetry drain test fix) and promoted live to 6e8fac0 with smoke 27/0 and exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
-  - "Continue the M3 measurement lane per docs/M3-ANTI-CHEAT.md (boundary + candidate signals); the capacity curve gains a server-decomposition column on its next leg. The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running."
+  - "Session 12 merged 42A (multi_signal behavioral join) and promoted live to 18bcde3 with smoke 27/0 and exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
+  - "Continue the M3 measurement lane per docs/M3-ANTI-CHEAT.md (the remaining Known-limit candidates are per-signal longitudinal deltas and a re-scoped cell-path study); cross-match per-user aggregation stays parked on identity maturity. The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running."

@@ -1,6 +1,6 @@
 id: M3-batch42a-multi-signal
 title: "Behavioral signal: multi_signal join of distinct families per seat per match (measurement only), the observable half of the enforcement boundary's multi-signal rule"
-status: running
+status: merged_green
 priority: normal
 complexity: small
 inputs:
