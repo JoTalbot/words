@@ -136,3 +136,68 @@ func TestShippedSnapshotsCanonical(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyHotfixDeterministicAndAuditable(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "parent.words")
+	// Parent with the canonical leading comment and sorted data lines.
+	os.WriteFile(parent, []byte("# canonical header\ncat\ndog\nrun\n"), 0o644)
+	add := filepath.Join(dir, "add.txt")
+	os.WriteFile(add, []byte("sun\nchat\n"), 0o644) // "chat" and "sun" are both new
+	remove := filepath.Join(dir, "remove.txt")
+	os.WriteFile(remove, []byte("run\n"), 0o644)
+
+	want := []string{"cat", "chat", "dog", "sun"}
+	words, entry, err := applyHotfix(dictionary.En, parent, add, remove, 3, 9, "2026-09-18.hf1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(words) != len(want) {
+		t.Fatalf("words = %v, want %v", words, want)
+	}
+	for i := range want {
+		if words[i] != want[i] {
+			t.Fatalf("word %d = %q, want %q", i, words[i], want[i])
+		}
+	}
+	if entry.Added != 2 || entry.Removed != 1 {
+		t.Fatalf("provenance: added=%d removed=%d want 2/1", entry.Added, entry.Removed)
+	}
+	if entry.ParentSHA256 == "" {
+		t.Fatal("parent sha must be recorded")
+	}
+	if entry.Version != "2026-09-18.hf1" {
+		t.Fatalf("version = %q", entry.Version)
+	}
+	if entry.Words != 4 {
+		t.Fatalf("words count = %d, want 4", entry.Words)
+	}
+
+	// Determinism: identical inputs rebuild a byte-identical artifact.
+	words2, entry2, err := applyHotfix(dictionary.En, parent, add, remove, 3, 9, "2026-09-18.hf1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encodeArtifact(words2)) != string(encodeArtifact(words)) {
+		t.Fatal("hotfix output is not deterministic")
+	}
+	if entry2.ParentSHA256 != entry.ParentSHA256 {
+		t.Fatal("parent sha must be stable")
+	}
+}
+
+func TestApplyHotfixEmptyDeltasReplicateParentData(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "parent.words")
+	os.WriteFile(parent, []byte("# canonical header\ncat\ndog\n"), 0o644)
+	words, entry, err := applyHotfix(dictionary.En, parent, "", "", 3, 9, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(words) != 2 || words[0] != "cat" || words[1] != "dog" {
+		t.Fatalf("words = %v", words)
+	}
+	if entry.Added != 0 || entry.Removed != 0 {
+		t.Fatalf("no-op delta must report added/removed 0/0, got %d/%d", entry.Added, entry.Removed)
+	}
+}
