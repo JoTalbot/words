@@ -136,13 +136,14 @@ type seatBehavior struct {
 	probeCounts map[string]int
 
 	// multiFam is a bitmask of the signal families this seat has fired in
-	// the current match, written only by the seat's reader goroutine (an
-	// int is not atomic, but the single-writer guarantee plus a same-key
-	// LoadOrStore handoff makes that safe - the same model probeCounts uses).
+	// the current match. The seat's reader goroutine is the only WRITER,
+	// but closeScan reads the mask from the room-close path, so it is
+	// atomic (a plain int would be a data race across those two goroutines).
 	// multiFlag records that the multi_signal join has already fired once,
-	// so the counter and the event are per seat per match.
-	multiFam  int
-	multiFlag bool
+	// so the counter and the event are per seat per match; atomic for the
+	// same cross-goroutine read reason.
+	multiFam  atomic.Int64
+	multiFlag atomic.Bool
 }
 
 // behaviorTracker holds the per-seat behavioral signal state plus the
@@ -160,6 +161,15 @@ type behaviorTracker struct {
 	multiSignalEvents  atomic.Uint64
 	rateLimited        atomic.Uint64
 	maxRejectionStreak atomic.Int64
+
+	// Longitudinal aggregates recorded at room close (42B), from the final
+	// per-seat family state. These are the per-match denominator the
+	// event-time counters lack: the event counters fire at the INSTANT a
+	// signal fires, while these count how many matches actually ended with
+	// flagged seats, which only becomes knowable when the room closes.
+	closedWithSignals  atomic.Uint64 // matches closed with >= 1 flagged seat
+	closedFlaggedSeats atomic.Uint64 // flagged seats summed over closed matches
+	closedFamilySeats  atomic.Uint64 // (seat, family) incidences over closed matches
 }
 
 // observe records one submitted intent for a seat and returns the names of
@@ -241,12 +251,15 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 	for _, s := range signals {
 		fam |= famBit(s)
 	}
-	if fam != 0 && !b.multiFlag {
-		if added := fam &^ b.multiFam; added != 0 {
-			b.multiFam |= added
-			if bits.OnesCount(uint(b.multiFam)) >= multiSignalArity {
+	if fam != 0 && !b.multiFlag.Load() {
+		// Single-writer per seat (the websocket reader goroutine), so a
+		// Load-then-Store is safe against other writers; the atomics exist
+		// for the room-close reader, not for writer contention.
+		if added := fam &^ int(b.multiFam.Load()); added != 0 {
+			mask := b.multiFam.Load() | int64(added)
+			b.multiFam.Store(mask)
+			if bits.OnesCount(uint(mask)) >= multiSignalArity && b.multiFlag.CompareAndSwap(false, true) {
 				t.multiSignalEvents.Add(1)
-				b.multiFlag = true
 				signals = append(signals, signalMulti)
 			}
 		}
@@ -302,9 +315,25 @@ func cadenceStats(b *seatBehavior) (mean float64, cv float64) {
 
 // clear drops the per-seat state for a finished match, exactly like
 // clearSeatWindows does for the rate-limit windows. Counters survive: they
-// are process-lifetime facts.
+// are process-lifetime facts. It also runs the 42B longitudinal scan: the
+// flagged-seat fact only becomes knowable when a room closes, so it is
+// aggregated here (per-match denominators for the event-time counters).
 func (t *behaviorTracker) clear(matchID uint64, seats int) {
+	var flaggedSeats, familyIncidences int
 	for seat := 0; seat < seats; seat++ {
-		t.seats.Delete(seatWindowKey{matchID: matchID, seat: seat})
+		v, ok := t.seats.LoadAndDelete(seatWindowKey{matchID: matchID, seat: seat})
+		if !ok {
+			continue
+		}
+		fam := int(v.(*seatBehavior).multiFam.Load())
+		if fam != 0 {
+			flaggedSeats++
+			familyIncidences += bits.OnesCount(uint(fam))
+		}
+	}
+	if flaggedSeats > 0 {
+		t.closedWithSignals.Add(1)
+		t.closedFlaggedSeats.Add(uint64(flaggedSeats))
+		t.closedFamilySeats.Add(uint64(familyIncidences))
 	}
 }

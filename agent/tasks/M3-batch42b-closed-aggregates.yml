@@ -1,0 +1,37 @@
+id: M3-batch42b-closed-aggregates
+title: "Behavioral longitudinal aggregates at room close: closed_with_signals / closed_flagged_seats / closed_family_seats (measurement only)"
+status: running
+priority: normal
+complexity: small
+inputs:
+  - "docs/M3-ANTI-CHEAT.md Known limits ('longitudinal deltas of the signals this file already produces') and the clear() state-drop point (api.go clearSeatWindows)"
+  - "server/cmd/game/behaviorsignal.go (42A family bitmask + clear), telemetry.go snapshot/prometheus, panel structure of the Grafana dashboard"
+outputs:
+  - "three fixed-cardinality counters recorded in clear() from the FINAL per-seat family mask: behavior_closed_with_signals, behavior_closed_flagged_seats, behavior_closed_family_seats"
+  - "multiFam/multiFlag made atomic (room-close reader pops them in a different goroutine than the per-seat writer) - the 42A join semantics are unchanged"
+  - "a Grafana stat panel plotting the three aggregates (the drift gate requires every emitted metric be plotted)"
+  - "docs/M3-ANTI-CHEAT.md 'Longitudinal aggregates (42B)' section + surface lists; infra/monitoring/README.md metric reference"
+  - "3 deterministic tests: aggregates on clear, quiet for a clean match, repeated family closes as ONE incidence"
+acceptance:
+  - "a match closing with zero flagged seats advances none of the three counters"
+  - "a match with two flagged seats (one family each) advances closed_with_signals by 1, closed_flagged_seats by 2, closed_family_seats by 2; a two-family seat counts two incidences"
+  - "a seat that fires the same family twice closes with exactly one family incidence (final mask, not event count)"
+  - "no signal influences admission, scoring, ordering or outcome; -race clean on the cross-goroutine read"
+validation:
+  - "go test -race ./cmd/game/ -run Closed"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with the new stat panel)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/game/behaviorsignal.go"
+  - "server/cmd/game/behaviorsignal_test.go"
+  - "server/cmd/game/telemetry.go (snapshot + prometheus)"
+  - "server/cmd/game/api.go (metrics JSON)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (new stat panel)"
+  - "docs/M3-ANTI-CHEAT.md"
+  - "infra/monitoring/README.md"
+escalation: none
+notes: "42B is the longitudinal-delta candidate from the 40A Known limits, but measured as per-match close aggregates rather than per-signal delta series: these are the denominators future deltas build on. clear() already walked every seat to delete state, so the scan is free; the only cost is three atomics per closed match."

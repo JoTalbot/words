@@ -339,6 +339,71 @@ func TestMultiSignalClearResetsFamiliesButNotCounters(t *testing.T) {
 	}
 }
 
+// ---- 42B: longitudinal aggregates at room close ----
+
+func TestClosedAggregatesRecordOnClear(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	// seat 0: one family (streak).
+	multiFires(t, &tr, seatWindowKey{matchID: 4001, seat: 0}, base, signalRejectionStreak)
+	// seat 1: two families (streak + metronomic).
+	multiFires(t, &tr, seatWindowKey{matchID: 4001, seat: 1}, base, signalRejectionStreak)
+	multiFires(t, &tr, seatWindowKey{matchID: 4001, seat: 1}, base.Add(2*time.Minute), signalMetronomic)
+	// seat 2: clean.
+
+	tr.clear(4001, 3)
+	if got := tr.closedWithSignals.Load(); got != 1 {
+		t.Fatalf("closedWithSignals: want 1, got %d", got)
+	}
+	if got := tr.closedFlaggedSeats.Load(); got != 2 {
+		t.Fatalf("closedFlaggedSeats: want 2, got %d", got)
+	}
+	if got := tr.closedFamilySeats.Load(); got != 3 {
+		t.Fatalf("closedFamilySeats: want 3, got %d", got)
+	}
+}
+
+func TestClosedAggregatesStayQuietForCleanMatch(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	// Two seats, sub-threshold noise only (human jitter, no family fires).
+	gaps := []time.Duration{180, 320, 540, 260, 710, 410, 230, 640, 390, 505}
+	for seat := 0; seat < 2; seat++ {
+		key := seatWindowKey{matchID: 5001, seat: seat}
+		clock := base
+		for i := 0; i < 15; i++ {
+			clock = clock.Add(gaps[i%len(gaps)] * time.Millisecond)
+			tr.observe(key, clock, match.ResultAccepted, "word", 1)
+		}
+	}
+	tr.clear(5001, 2)
+	if tr.closedWithSignals.Load() != 0 || tr.closedFlaggedSeats.Load() != 0 || tr.closedFamilySeats.Load() != 0 {
+		t.Fatalf("clean match must not advance the closed aggregates")
+	}
+}
+
+func TestClosedScanUsesFinalFamilyMaskNotEventCounts(t *testing.T) {
+	// A seat that fires the SAME family twice still closes with exactly one
+	// family incidence - the final mask, not the event-time counter, is the
+	// longitudinal fact.
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	key := seatWindowKey{matchID: 6001, seat: 0}
+	multiFires(t, &tr, key, base, signalRejectionStreak)
+	tr.observe(key, base.Add(time.Minute), match.ResultAccepted, "word", 1) // re-arm
+	multiFires(t, &tr, key, base.Add(2*time.Minute), signalRejectionStreak)
+	tr.clear(6001, 1)
+	if got := tr.closedFamilySeats.Load(); got != 1 {
+		t.Fatalf("repeated family must close as ONE incidence, got %d", got)
+	}
+	if got := tr.closedFlaggedSeats.Load(); got != 1 {
+		t.Fatalf("closedFlaggedSeats: want 1, got %d", got)
+	}
+	if got := tr.closedWithSignals.Load(); got != 1 {
+		t.Fatalf("closedWithSignals: want 1, got %d", got)
+	}
+}
+
 func TestFlashPathIgnoresShortPathsAndSlowSubmits(t *testing.T) {
 	var tr behaviorTracker
 	base := time.Unix(1700000000, 0)

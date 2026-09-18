@@ -113,6 +113,9 @@ while gameplay looks perfectly healthy.
 | `wordarena_behavior_word_probe_events_total` | counter | same-word rejection episodes reaching the probe threshold (M3 batch 41A) |
 | `wordarena_behavior_flash_path_events_total` | counter | seats whose multi-cell submits arrived back-to-back faster than a person gestures (M3 batch 41A) |
 | `wordarena_behavior_multi_signal_events_total` | counter | seats that fired two or more distinct signal families in one match (M3 batch 42A) |
+| `wordarena_behavior_closed_with_signals_total` | counter | matches closed with at least one flagged seat (M3 batch 42B) |
+| `wordarena_behavior_closed_flagged_seats_total` | counter | flagged seats summed over closed matches (M3 batch 42B) |
+| `wordarena_behavior_closed_family_seats_total` | counter | (seat, family) incidences summed over closed matches (M3 batch 42B) |
 | `wordarena_intent_rate_limited_total` | counter | WebSocket connections closed by the per-seat intent rate limit |
 | `wordarena_behavior_max_rejection_streak` | gauge | longest consecutive-rejection streak observed on any seat this process |
 

@@ -301,6 +301,57 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Behavioral matches (measurement only)",
+      "description": "M3 batch 42B longitudinal aggregates, recorded at room close. Present the per-match denominators the event-time counters in panel 11 lack: matches that closed with at least one flagged seat, the flagged seats summed over those matches, and the (seat, family) incidences. Measurement only: nothing here influences admission, scoring or outcome.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "wordarena_behavior_closed_with_signals_total",
+          "legendFormat": "closed with signals",
+          "refId": "A"
+        },
+        {
+          "expr": "wordarena_behavior_closed_flagged_seats_total",
+          "legendFormat": "flagged seats",
+          "refId": "B"
+        },
+        {
+          "expr": "wordarena_behavior_closed_family_seats_total",
+          "legendFormat": "family incidences",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      }
     }
   ]
 }
