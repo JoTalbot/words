@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -239,6 +240,102 @@ func TestFlashPathFiresOnceForFastMultiCellSubmits(t *testing.T) {
 	}
 	if tr.flashPathEvents.Load() != 1 {
 		t.Fatalf("flash path counter: want 1, got %d", tr.flashPathEvents.Load())
+	}
+}
+
+// ---- 42A: multi signal ----
+
+// multiFires drives one seat past a target signal with jittered single-cell
+// submits (cells=1, irregular gaps) so ONLY that signal's family bit lands.
+// rejections are ResultRejectedNotInDict; everything else is ResultAccepted.
+func multiFires(t *testing.T, tr *behaviorTracker, key seatWindowKey, base time.Time, target string) {
+	t.Helper()
+	gaps := []time.Duration{220, 480, 310, 750, 260, 540, 330, 690, 415, 285}
+	clock := base
+	total := 0
+	switch target {
+	case signalRejectionStreak:
+		// A distinct word each rejection so the probe detector (same string
+		// five times) stays quiet: this case is about the streak family only.
+		for i := 1; i <= rejectionStreakSignalAt; i++ {
+			clock = clock.Add(gaps[i%len(gaps)]*time.Millisecond + time.Duration(i%7)*time.Millisecond)
+			total += countSignals(tr.observe(key, clock, match.ResultRejectedNotInDict, fmt.Sprintf("qzx%d", i), 1), signalRejectionStreak)
+		}
+	case signalMetronomic:
+		for i := 1; i <= 30; i++ {
+			total += countSignals(tr.observe(key, behaviorAt(base, i, 400*time.Millisecond), match.ResultAccepted, "word", 1), signalMetronomic)
+		}
+	case signalWordProbe:
+		for i := 1; i <= 5; i++ {
+			clock = clock.Add(gaps[i%len(gaps)]*time.Millisecond + time.Duration(i%7)*time.Millisecond)
+			total += countSignals(tr.observe(key, clock, match.ResultRejectedNotInDict, "QEAEZ", 1), signalWordProbe)
+		}
+	case signalFlashPath:
+		for i := 1; i <= 2; i++ {
+			total += countSignals(tr.observe(key, behaviorAt(base, i, 200*time.Millisecond), match.ResultAccepted, "word", 5), signalFlashPath)
+		}
+	default:
+		t.Fatalf("multiFires: unknown target %q", target)
+	}
+	if total != 1 {
+		t.Fatalf("multiFires(%s): must fire exactly once, got %d", target, total)
+	}
+}
+
+func TestMultiSignalFiresOnSecondDistinctFamily(t *testing.T) {
+	for i, tc := range []struct{ first, second string }{
+		{signalRejectionStreak, signalMetronomic},
+		{signalWordProbe, signalFlashPath},
+		{signalFlashPath, signalRejectionStreak},
+		{signalMetronomic, signalWordProbe},
+	} {
+		var tr behaviorTracker
+		key := seatWindowKey{matchID: uint64(1000 + i), seat: i}
+		base := time.Unix(1700000000, 0)
+		multiFires(t, &tr, key, base, tc.first)
+		multiFires(t, &tr, key, base.Add(2*time.Minute), tc.second)
+		if got := countSignals(tr.observe(key, base.Add(3*time.Minute), match.ResultAccepted, "word", 1), signalMulti); got != 0 {
+			t.Fatalf("pair %v: multi_signal must not fire on the observe AFTER it already fired", tc)
+		}
+		if tr.multiSignalEvents.Load() != 1 {
+			t.Fatalf("pair %v: multiSignalEvents counter: want 1, got %d", tc, tr.multiSignalEvents.Load())
+		}
+	}
+}
+
+func TestMultiSignalNeedsDistinctFamiliesNotRepeats(t *testing.T) {
+	// Two INDEPENDENT rejection streaks are one family - the join must stay
+	// quiet. (The second streak needs an accepted word to re-arm, or it is
+	// one long streak.)
+	var tr behaviorTracker
+	key := seatWindowKey{matchID: 2001, seat: 0}
+	base := time.Unix(1700000000, 0)
+	multiFires(t, &tr, key, base, signalRejectionStreak)
+	tr.observe(key, base.Add(time.Minute), match.ResultAccepted, "word", 1) // re-arm
+	multiFires(t, &tr, key, base.Add(2*time.Minute), signalRejectionStreak)
+	if got := countSignals(tr.observe(key, base.Add(3*time.Minute), match.ResultAccepted, "word", 1), signalMulti); got != 0 {
+		t.Fatalf("repeated single family must not fire multi_signal")
+	}
+	if tr.multiSignalEvents.Load() != 0 {
+		t.Fatalf("multiSignalEvents counter: want 0, got %d", tr.multiSignalEvents.Load())
+	}
+}
+
+func TestMultiSignalClearResetsFamiliesButNotCounters(t *testing.T) {
+	var tr behaviorTracker
+	key := seatWindowKey{matchID: 3001, seat: 2}
+	base := time.Unix(1700000000, 0)
+	multiFires(t, &tr, key, base, signalRejectionStreak)
+	multiFires(t, &tr, key, base.Add(time.Minute), signalMetronomic)
+	tr.clear(3001, 4)
+
+	// A fresh seat (same key after clear) with only one family again: no join.
+	multiFires(t, &tr, key, base.Add(2*time.Minute), signalFlashPath)
+	if got := countSignals(tr.observe(key, base.Add(3*time.Minute), match.ResultAccepted, "word", 1), signalMulti); got != 0 {
+		t.Fatalf("family state survived clear: multi_signal fired")
+	}
+	if tr.multiSignalEvents.Load() != 1 {
+		t.Fatalf("multiSignalEvents counter is process-lifetime: want 1, got %d", tr.multiSignalEvents.Load())
 	}
 }
 

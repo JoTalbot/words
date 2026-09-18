@@ -284,3 +284,20 @@ Notes for the next session, in the order they cost the most to rediscover:
   host-side worker.
 - A worktree left in `~/wt-35*` on the host is not a lane claim; those branches
   are all merged and the directories are prunable.
+
+## Active session: Arena session 12 (started 2026-09-18, ~05:10 UTC)
+
+Lane: **M3 behavioral anti-cheat measurement** — the owner-independent lane
+named in `docs/M3-ANTI-CHEAT.md` Known limits (longitudinal deltas of the
+signals the file already produces).
+
+Owns (exclusive while this lane is active):
+
+- `server/cmd/game/behaviorsignal.go`, `behaviorsignal_test.go`
+- `server/cmd/game/telemetry.go`, `server/cmd/game/api.go` (metrics wiring only)
+- `infra/monitoring/grafana/dashboards/wordarena.json` (panel 11 targets)
+- `docs/M3-ANTI-CHEAT.md`
+
+Batch 42A (multi_signal join of distinct signal families) is the first item on
+this lane. Enforcement stays owner-gated per the boundary document; nothing
+here influences admission, scoring or outcome.

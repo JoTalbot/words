@@ -242,7 +242,7 @@
       "id": 11,
       "title": "Behavioral anti-cheat signals (measurement only)",
       "type": "timeseries",
-      "description": "M3 batch 40A behavioral signals, per docs/M3-ANTI-CHEAT.md. Measurement only: nothing here influences admission, scoring or outcome. Streak episodes fire once per consecutive-rejection episode (an accepted word re-arms); metronomic flags fire once per seat whose submit gaps turn machine-regular; rate-limited closes are the per-seat intent limiter (transport guard, shown beside them for context); max streak is the running process maximum.",
+      "description": "M3 batch 40A behavioral signals, per docs/M3-ANTI-CHEAT.md. Measurement only: nothing here influences admission, scoring or outcome. Streak episodes fire once per consecutive-rejection episode (an accepted word re-arms); metronomic flags fire once per seat whose submit gaps turn machine-regular; rate-limited closes are the per-seat intent limiter (transport guard, shown beside them for context); max streak is the running process maximum. multi_signal (42A) records a seat firing two or more distinct signal families in one match - the observable half of the enforcement boundary's multi-signal rule.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -274,6 +274,11 @@
           "expr": "rate(wordarena_behavior_flash_path_events_total[5m])",
           "legendFormat": "flash-path flags/s",
           "refId": "F"
+        },
+        {
+          "expr": "rate(wordarena_behavior_multi_signal_events_total[5m])",
+          "legendFormat": "multi-signal joins/s",
+          "refId": "G"
         },
         {
           "expr": "wordarena_behavior_max_rejection_streak",
