@@ -42,3 +42,4 @@ Evidence references are local to this repo; no new secrets or credentials.
 - Owner should review this draft and provide ONE consolidated response per item, or approve the safe-default bundle as-is.
 - Engineering does NOT need answers to continue M3 measurement or maintain live service.
 - If owner approves safe defaults, the release gate is satisfied for engineering and only cosmetic/monetization/enforcement work remains.
+DECISION LOCKED 2026-09-18: Safe bundle (all 7) + B2 uk fully disabled (no publication). No code/config changes.
