@@ -1,6 +1,6 @@
 id: M3-batch43-dict-hotfix
 title: "Dictionary hotfix pipeline: deterministic -parent/-add/-remove delta mode in dictcompile with provenance (tooling half; publishing stays owner-gated)"
-status: running
+status: merged_green
 priority: normal
 complexity: small
 inputs:
