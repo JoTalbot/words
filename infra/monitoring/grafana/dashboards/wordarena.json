@@ -352,6 +352,55 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Intent word length by outcome (measurement only)",
+      "description": "M3 batch 42C: submitted path length in cells, split by the authoritative outcome class. This is the measurement half of the 'cell-path geometry vs dictionary structure' candidate - recording what length distributions look like per outcome so a future signal threshold is calibrated from evidence, not guessed. MATCH_NOT_ACTIVE refusals are not recorded.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(wordarena_intent_wordlen_accepted_cells_count[5m]))",
+          "legendFormat": "accepted/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(wordarena_intent_wordlen_rejected_not_in_dict_cells_count[5m]))",
+          "legendFormat": "rejected (dict)/s",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(wordarena_intent_wordlen_blocked_by_rule_cells_count[5m]))",
+          "legendFormat": "blocked/s",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(wordarena_intent_wordlen_invalid_input_cells_count[5m]))",
+          "legendFormat": "invalid/s",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     }
   ]
 }

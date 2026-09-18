@@ -103,6 +103,10 @@ while gameplay looks perfectly healthy.
 | `wordarena_words_accepted_total` | counter | accepted intents |
 | `wordarena_words_rejected_total` | counter | rejected intents |
 | `wordarena_intent_process_us` | histogram | server-side microseconds inside the authoritative intent submit (path latency excluded); `_bucket{le=...}`, `_sum`, `_count` (batch 35C) |
+| `wordarena_intent_wordlen_accepted_cells` | histogram | submitted path length (cells) of accepted intents; `_bucket{le=...}`, `_sum`, `_count` (batch 42C) |
+| `wordarena_intent_wordlen_rejected_not_in_dict_cells` | histogram | submitted path length (cells) of intents rejected as not in dictionary (batch 42C) |
+| `wordarena_intent_wordlen_blocked_by_rule_cells` | histogram | submitted path length (cells) of intents blocked by rule (batch 42C) |
+| `wordarena_intent_wordlen_invalid_input_cells` | histogram | submitted path length (cells) of invalid-input intents (batch 42C) |
 | `wordarena_active_matches` | gauge | live rooms |
 | `wordarena_telemetry_events_enqueued_total` | counter | events accepted into the async buffer |
 | `wordarena_telemetry_events_written_total` | counter | events written by the exporter |

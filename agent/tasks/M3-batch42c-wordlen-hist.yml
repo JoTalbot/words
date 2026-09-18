@@ -1,0 +1,37 @@
+id: M3-batch42c-wordlen-hist
+title: "Behavioral measurement: intent word-length histograms by outcome class (cell-path geometry candidate, measurement only)"
+status: running
+priority: normal
+complexity: small
+inputs:
+  - "docs/M3-ANTI-CHEAT.md Known limits ('cell-path geometry vs dictionary structure') and the 42A decline note (a longest-word admit reject can never fire on the board sizes the game actually ships)"
+  - "server/cmd/game/intenthist.go (the 35C fixed-bucket histogram pattern: atomics, cumulative buckets, prometheusLines method)"
+  - "the authoritative outcome class frame.Result in the api.go submit call site, telemetry.go snapshot/prometheus exporters, the Grafana dashboard panel conventions"
+outputs:
+  - "server/cmd/game/wordlenhist.go - four fixed-bucket histograms (accepted / rejected_not_in_dict / blocked_by_rule / invalid_input) of the submitted path length in cells, recorded lock-free on the intent path"
+  - "MATCH_NOT_ACTIVE deliberately not recorded (designed post-over refusal)"
+  - "JSON intent_wordlen + four Prometheus histogram families + a Grafana panel (the drift gate requires every emitted metric be plotted)"
+  - "docs/M3-ANTI-CHEAT.md 'Cell-path length measurement (42C)' section; infra/monitoring/README.md metric reference; 3 deterministic tests"
+acceptance:
+  - "a 2-cell accepted path lands in bucket le_3; a 10-cell path lands in overflow; outcome classes route to their own histograms"
+  - "MATCH_NOT_ACTIVE advances none of the four histograms"
+  - "prometheusLines renders exactly len(wordLenBounds)+4 lines with the documented name"
+  - "no signal influences admission, scoring, ordering or outcome; recording is allocation-free atomics on the hot path"
+validation:
+  - "go test ./cmd/game/ -run WordLen"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with the new panel)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/game/wordlenhist.go (new)"
+  - "server/cmd/game/wordlenhist_test.go (new)"
+  - "server/cmd/game/api.go (metrics struct field + record call + JSON key)"
+  - "server/cmd/game/telemetry.go (snapshot + prometheus lines)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (new panel)"
+  - "docs/M3-ANTI-CHEAT.md"
+  - "infra/monitoring/README.md"
+escalation: none
+notes: "42C is the measurement half of the re-scoped cell-path candidate: record the length distribution the future signal would threshold, instead of shipping a signal that can never fire. Buckets are FIXED so scrapes stay comparable, exactly like the 35C intent processing histogram."

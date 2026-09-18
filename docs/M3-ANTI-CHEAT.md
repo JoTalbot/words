@@ -96,6 +96,22 @@ future per-signal longitudinal deltas build on (per-match maxima alongside
 the process-lifetime maxima), and they stay measurement-only like everything
 else in this file.
 
+## Cell-path length measurement (42C)
+
+The "cell-path geometry vs dictionary structure" candidate is the one Known
+limit whose naive incarnation cannot fire: an admit-reject on
+"longer than the longest word" has no reachable state below the board's
+always-admissible size on a 12-cell board, and the 60-cell ceiling admits
+even the longest pinned words. A signal that can never fire measures nothing,
+so 42C records the DISTRIBUTION the future signal would threshold instead:
+four fixed-bucket histograms of the submitted path length (cells), split by
+the authoritative outcome class (`accepted`, `rejected_not_in_dict`,
+`blocked_by_rule`, `invalid_input`). `MATCH_NOT_ACTIVE` is not recorded - it
+is the designed post-over refusal, and its length distribution is not a word
+signal. When the owner opens enforcement, a threshold can be calibrated from
+these histograms (e.g. the outcome-conditional length bands a human never
+produces) rather than declared from intuition.
+
 ## Threshold rationale
 
 - 20 consecutive rejections: no human-plausible reading of pure failure at

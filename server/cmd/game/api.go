@@ -190,6 +190,13 @@ type metrics struct {
 	// latency run separate "the server is slow" from "the path is long"
 	// (docs/M2-LOAD-TESTING.md, generator off-box stage).
 	intentProcess intentHist
+
+	// wordLen is the M3 batch 42C word-length-by-outcome histogram: the
+	// submitted path length (cells) split by the authoritative outcome class.
+	// It is the measurement half of the "cell-path geometry vs dictionary
+	// structure" candidate - how often a seat submits implausibly long words,
+	// and how those land. Measurement only.
+	wordLen wordLenHist
 }
 
 // matchResult is the persisted post-match outcome served by
@@ -630,6 +637,9 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"telemetry_events_written":  m.TelemetryEventsWritten,
 		"telemetry_events_dropped":  m.TelemetryEventsDropped,
 		"telemetry_export_errors":   m.TelemetryExportErrors,
+
+		// Intent word-length histograms (M3 batch 42C, measurement only).
+		"intent_wordlen": m.IntentWordLen,
 
 		// Behavioral anti-cheat signals (M3 batch 40A, measurement only,
 		// docs/M3-ANTI-CHEAT.md).
@@ -1982,6 +1992,11 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusInternalError, "submit failed")
 			break
 		}
+		// Word-length histogram (M3 batch 42C): record the submitted path
+		// length against the authoritative outcome class. Measurement only -
+		// nothing here influences the seat, the room or the result. MATCH_NOT_ACTIVE
+		// (the designed post-over refusal) is deliberately not recorded.
+		a.m.wordLen.record(frame.Result, len(ids))
 		a.m.intentsReceived.Add(1)
 		if frame.Result == match.ResultAccepted {
 			a.m.wordsAccepted.Add(1)
