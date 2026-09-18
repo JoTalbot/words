@@ -234,6 +234,7 @@ type apiMetricsSnapshot struct {
 	WordsAccepted           uint64
 	WordsRejected           uint64
 	IntentProcess           intentHistSnapshot
+	IntentWordLen           wordLenSnapshot
 	ActiveMatches           int
 	TelemetryEventsEnqueued uint64
 	TelemetryEventsWritten  uint64
@@ -265,6 +266,7 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		WordsAccepted:           a.m.wordsAccepted.Load(),
 		WordsRejected:           a.m.wordsRejected.Load(),
 		IntentProcess:           a.m.intentProcess.snapshot(),
+		IntentWordLen:           a.m.wordLen.snapshot(),
 		ActiveMatches:           a.activeRooms(),
 		TelemetryEventsEnqueued: ts.EventsEnqueued,
 		TelemetryEventsWritten:  ts.EventsWritten,
@@ -306,6 +308,32 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_process_us Server-side processing time of word intents in microseconds.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_process_us histogram\n")
 	for _, line := range a.m.intentProcess.prometheusLines("wordarena_intent_process_us") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	// The intent word-length histograms (M3 batch 42C): submitted path
+	// length (cells) split by the authoritative outcome class. This is the
+	// measurement half of the "cell-path geometry vs dictionary structure"
+	// signal candidate, and it is a histogram so a future signal threshold
+	// can be calibrated from recorded evidence instead of guessed. Each is
+	// emitted explicitly so the drift gate can see the names.
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_wordlen_accepted_cells Submitted path length in cells for accepted intents.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_wordlen_accepted_cells histogram\n")
+	for _, line := range a.m.wordLen.accepted.prometheusLines("wordarena_intent_wordlen_accepted_cells") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_wordlen_rejected_not_in_dict_cells Submitted path length in cells for intents rejected as not in dictionary.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_wordlen_rejected_not_in_dict_cells histogram\n")
+	for _, line := range a.m.wordLen.rejectedNotInDict.prometheusLines("wordarena_intent_wordlen_rejected_not_in_dict_cells") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_wordlen_blocked_by_rule_cells Submitted path length in cells for intents blocked by rule.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_wordlen_blocked_by_rule_cells histogram\n")
+	for _, line := range a.m.wordLen.blockedByRule.prometheusLines("wordarena_intent_wordlen_blocked_by_rule_cells") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_intent_wordlen_invalid_input_cells Submitted path length in cells for invalid-input intents.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_intent_wordlen_invalid_input_cells histogram\n")
+	for _, line := range a.m.wordLen.invalidInput.prometheusLines("wordarena_intent_wordlen_invalid_input_cells") {
 		_, _ = fmt.Fprintln(w, line)
 	}
 	writeMetric("wordarena_active_matches", "Currently active matches.", "gauge", uint64(m.ActiveMatches))
