@@ -1,0 +1,30 @@
+id: M3-batch43-dict-hotfix
+title: "Dictionary hotfix pipeline: deterministic -parent/-add/-remove delta mode in dictcompile with provenance (tooling half; publishing stays owner-gated)"
+status: running
+priority: normal
+complexity: small
+inputs:
+  - "docs/ROADMAP.md M3 row 'dictionary hotfix pipeline' (empty), docs/ARCHITECTURE.md 'immutable runtime snapshot + delta buffer' and 'versioned delta buffers'"
+  - "server/cmd/dictcompile/main.go (the existing deterministic full-compile pipeline), server/cmd/dictcompile/main_test.go, docs/PRODUCT-DECISIONS.md B2 (uk licence)"
+outputs:
+  - "hotfix mode in dictcompile: -parent (previous artifact) + -add/-remove wordlists, deterministic rebuild with parent_sha256/added/removed provenance in the printed manifest entry"
+  - "docs/M3-DICT-HOTFIX.md documenting the tooling, the determinism guarantees and what stays owner-gated"
+  - "two determinism tests: byte-identical rebuild on identical inputs, empty delta replicates the parent data lines"
+acceptance:
+  - "removals actually drop the word (a bug where they did not was caught by the test), additions are normalized and deduped, empty deltas replicate parent data"
+  - "the printed manifest entry carries parent_sha256, added, removed and the version label"
+  - "the tooling does NOT publish: it writes a file and prints provenance; no snapshot data is changed by this batch"
+validation:
+  - "go test ./cmd/dictcompile/ -v"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/dictcompile/main.go"
+  - "server/cmd/dictcompile/main_test.go"
+  - "docs/M3-DICT-HOTFIX.md"
+  - "docs/ROADMAP.md (M3 row note)"
+escalation: none
+notes: "43 builds the uncontentious tooling half of the M3 hotfix row; the content half (which words to add/remove, and shipping uk at all) stays owner-gated per B2 and the M3 security posture. No shipped snapshot bytes change in this batch."
