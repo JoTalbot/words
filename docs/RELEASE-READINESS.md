@@ -1,4 +1,6 @@
-# Release Readiness — 2026-09-18 (Session 13 wrap)
+# Release Readiness — 2026-09-18 (Session 13 wrap + OWNER SAFE-BUNDLE APPROVED)
+
+Owner decision (2026-09-18): safe-default bundle approved for all 7 questions. Engineering unblocked; no server/live/config/code changes required.
 
 Verified (autonomous, evidence in repo):
 - M0 acceptance: 8/8 (docs/M0.md) — replay fixtures, deterministic scoring, reconnect, dictionary parity

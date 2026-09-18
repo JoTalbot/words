@@ -1,5 +1,8 @@
 # Owner-Gate Draft — Session 13 (2026-09-18)
 
+DECISION RECORDED 2026-09-18: OWNER APPROVED SAFE-DEFAULT BUNDLE for all 7 items.
+No autonomous product decision made before this point; after approval, safe defaults stay as documented.
+
 Consolidation of the seven owner-blocked items from docs/ROADMAP.md / GitHub #1.
 No autonomous product decision is made; safe defaults remain shipped.
 Evidence references are local to this repo; no new secrets or credentials.
