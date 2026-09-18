@@ -36,6 +36,13 @@ package main
 // pattern), and so are slower multi-cell submits - the signal is the
 // COMBINATION of path length and machine cadence.
 //
+// 42A multi signal - a seat that has fired TWO OR MORE DISTINCT signal
+// families in one match. No new heuristic of its own: it records the join,
+// which is the measurement half of the enforcement boundary's "weigh
+// multiple signals together" rule (docs/M3-ANTI-CHEAT.md) - a policy day
+// can only weigh signals it has observed co-occurring. Rate-limited closes
+// are a transport guard and are deliberately not a family.
+//
 // Concurrency model: each seat has exactly ONE writer - the websocket reader
 // goroutine that calls observe. Per-seat scalars, the probe map and the gap
 // ring are therefore single-writer, read by any /metrics scrape through
@@ -47,6 +54,7 @@ package main
 
 import (
 	"math"
+	"math/bits"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,6 +68,23 @@ const (
 	signalMetronomic      = "metronomic_cadence"
 	signalWordProbe       = "word_probe"
 	signalFlashPath       = "flash_path"
+	signalMulti           = "multi_signal"
+
+	// multiSignalArity is the number of distinct signal families a seat must
+	// fire before multi_signal records the join. Arity 2 is the minimum that
+	// can mean "more than one thing is wrong with this seat", and families
+	// are edge-triggered, so the join is a statement about cohort evidence,
+	// not a new heuristic.
+	multiSignalArity = 2
+
+	// Signal family bits for the multi_signal join. Families are distinct
+	// behavioral categories, not individual thresholds: a metronomic burst
+	// that also flashes is metronomic + flash, not a new family. Explicit
+	// powers of two so the values never shift if the const block grows.
+	famRejectionStreak = 1
+	famMetronomic      = 2
+	famWordProbe       = 4
+	famFlashPath       = 8
 
 	// rejectionStreakSignalAt is the consecutive-rejection count that fires
 	// the streak signal once per episode. 20 in a row has no human-plausible
@@ -109,6 +134,15 @@ type seatBehavior struct {
 	// probeCounts is written only by the seat's reader goroutine, so a plain
 	// map is safe here; it dies with the seat state on clear().
 	probeCounts map[string]int
+
+	// multiFam is a bitmask of the signal families this seat has fired in
+	// the current match, written only by the seat's reader goroutine (an
+	// int is not atomic, but the single-writer guarantee plus a same-key
+	// LoadOrStore handoff makes that safe - the same model probeCounts uses).
+	// multiFlag records that the multi_signal join has already fired once,
+	// so the counter and the event are per seat per match.
+	multiFam  int
+	multiFlag bool
 }
 
 // behaviorTracker holds the per-seat behavioral signal state plus the
@@ -123,6 +157,7 @@ type behaviorTracker struct {
 	streakEvents       atomic.Uint64
 	wordProbeEvents    atomic.Uint64
 	flashPathEvents    atomic.Uint64
+	multiSignalEvents  atomic.Uint64
 	rateLimited        atomic.Uint64
 	maxRejectionStreak atomic.Int64
 }
@@ -194,7 +229,46 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 			}
 		}
 	}
+
+	// --- multi signal (42A): the join of distinct families, once per seat ---
+	// No heuristic of its own: families are recorded only as the individual
+	// edge-triggered signals fire (so the family bit is set exactly once per
+	// category), and arity >= 2 is the first instant the seat shows more than
+	// one kind of machine behaviour in the same match. This is the observable
+	// half of "weigh multiple signals together" - the policy that would weigh
+	// them cannot exist yet, but the evidence it needs can be recorded now.
+	var fam int
+	for _, s := range signals {
+		fam |= famBit(s)
+	}
+	if fam != 0 && !b.multiFlag {
+		if added := fam &^ b.multiFam; added != 0 {
+			b.multiFam |= added
+			if bits.OnesCount(uint(b.multiFam)) >= multiSignalArity {
+				t.multiSignalEvents.Add(1)
+				b.multiFlag = true
+				signals = append(signals, signalMulti)
+			}
+		}
+	}
 	return signals
+}
+
+// famBit maps a fired family signal name to its multi_signal family bit.
+// signalMulti itself is the join and has no family bit of its own.
+func famBit(signal string) int {
+	switch signal {
+	case signalRejectionStreak:
+		return famRejectionStreak
+	case signalMetronomic:
+		return famMetronomic
+	case signalWordProbe:
+		return famWordProbe
+	case signalFlashPath:
+		return famFlashPath
+	default:
+		return 0
+	}
 }
 
 // cadenceStats reads the gap ring (atomically; a concurrent writer may make

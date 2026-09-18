@@ -637,6 +637,7 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"behavior_rejection_streak_events": m.BehaviorStreakEvents,
 		"behavior_word_probe_events":       m.BehaviorWordProbeEvents,
 		"behavior_flash_path_events":       m.BehaviorFlashPathEvents,
+		"behavior_multi_signal_events":     m.BehaviorMultiSignalEvents,
 		"intent_rate_limited_total":        m.IntentRateLimited,
 		"behavior_max_rejection_streak":    m.BehaviorMaxRejectionStreak,
 	})

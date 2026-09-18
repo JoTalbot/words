@@ -1,0 +1,35 @@
+id: M3-batch42a-multi-signal
+title: "Behavioral signal: multi_signal join of distinct families per seat per match (measurement only), the observable half of the enforcement boundary's multi-signal rule"
+status: running
+priority: normal
+complexity: small
+inputs:
+  - "docs/M3-ANTI-CHEAT.md Known limits ('longitudinal deltas of the signals this file already produces') and The boundary item 2 ('weigh multiple signals together')"
+  - "server/cmd/game/behaviorsignal.go (40A/41A tracker + family signals), the observe call site in api.go, panel 11 of the Grafana dashboard"
+outputs:
+  - "one edge-triggered join signal multi_signal: a seat fires it exactly once per match when its set of DISTINCT fired signal families reaches arity 2; a family bit is set only when its own signal fires, and repeated families never advance the join"
+  - "one fixed-cardinality counter wordarena_behavior_multi_signal_events_total (JSON behavior_multi_signal_events) + Prometheus + panel 11 target (the drift gate requires the plot)"
+  - "behavior_signal JSONL event with signal=multi_signal, per-seat context in the event as usual"
+  - "docs/M3-ANTI-CHEAT.md signals table + threshold rationale + validation text updated; 3 new deterministic tests"
+acceptance:
+  - "the join fires exactly once per seat per match, only at the instant the second distinct family fires"
+  - "re-firing a family never advances the join (an independent repeat of one family stays quiet)"
+  - "clear() resets the family set (fresh state re-separates families) while the process-lifetime counter survives"
+  - "rate-limited closes are a transport guard and are not a family; no signal influences admission, scoring, ordering or outcome (observe-and-publish only)"
+validation:
+  - "go test ./cmd/game/ -run MultiSignal"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with the new panel target)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/game/behaviorsignal.go"
+  - "server/cmd/game/behaviorsignal_test.go"
+  - "server/cmd/game/telemetry.go (snapshot + prometheus)"
+  - "server/cmd/game/api.go (metrics JSON)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (panel 11 target)"
+  - "docs/M3-ANTI-CHEAT.md"
+escalation: none
+notes: "42A is the longitudinal-delta candidate from the 40A Known limits, implemented as the join rather than a per-signal delta series: the single constant is multiSignalArity=2, no new heuristic, server clock only. The family bitmask shares the single-writer model of probeCounts (each seat has exactly one writer, the websocket reader goroutine)."

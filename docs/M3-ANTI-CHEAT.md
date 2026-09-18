@@ -38,6 +38,7 @@ The day any enforcement consumes these signals, it must:
 | `metronomic_cadence` | inter-submit gaps become machine-regular: coefficient of variation (stddev/mean) < 5% over ≥ 8 gaps while the mean sits in 200 ms..10 s | cv 0.05; mean floor 200 ms excludes bursts (the per-seat intent rate limiter's domain); mean ceiling 10 s excludes idle stretches | seat per match |
 | `word_probe` (41A) | the SAME word string is rejected again and again in one match | 5 identical rejections of one word; only the three rejection classes advance the counter; a different word is its own episode | (seat, word) episode per match |
 | `flash_path` (41A) | a path of ≥ 4 cells arrives back-to-back within 400 ms of the seat's previous submit | cells ≥ 4 AND gap < 400 ms; short paths and slower multi-cell submits are excluded | seat per match |
+| `multi_signal` (42A) | two or more DISTINCT signal families have fired for the same seat in one match | the join fires when the seat's family set reaches arity 2; re-firing a family never advances it; rate-limited closes are a transport guard and are not a family | seat per match |
 
 Plus one counter that existed as a telemetry event since M1 and is now also a
 metric: `intent_rate_limited_total` (websocket connections closed by the
@@ -52,12 +53,14 @@ already measures it and it reflects the server, not the player).
 
 - `/metrics` (JSON): `behavior_metronomic_events`,
   `behavior_rejection_streak_events`, `behavior_word_probe_events`,
-  `behavior_flash_path_events`, `intent_rate_limited_total`,
+  `behavior_flash_path_events`, `behavior_multi_signal_events`,
+  `intent_rate_limited_total`,
   `behavior_max_rejection_streak` (running max, process lifetime).
 - `/metrics/prometheus`: `wordarena_behavior_metronomic_events_total`,
   `wordarena_behavior_rejection_streak_events_total`,
   `wordarena_behavior_word_probe_events_total`,
   `wordarena_behavior_flash_path_events_total`,
+  `wordarena_behavior_multi_signal_events_total`,
   `wordarena_intent_rate_limited_total`,
   `wordarena_behavior_max_rejection_streak`.
 - JSONL telemetry: `behavior_signal` events carrying `signal`, `match_id`,
@@ -81,8 +84,16 @@ seat state.
   intent limiter and surface as rate-limit closes; double-reporting a
   metronome there would conflate a transport guard with a behavior signal.
 - 10 s mean ceiling: gaps that wide are idle stretches, not a cadence.
+- arity 2 for `multi_signal`: one fired family can be a fluke; two DISTINCT
+  families in the same match is the first instant a seat shows more than one
+  kind of machine behaviour at once. Families are edge-triggered, so the
+  join is cohort evidence (which families co-occur) rather than a new
+  heuristic of its own — it is the observable half of the enforcement
+  boundary's "weigh multiple signals together" rule, because a policy day
+  can only weigh signals it has observed co-occurring. Re-firing a family
+  never advances the join.
 
-All four constants are fixed in code (like the intent histogram's fixed
+All thresholds are fixed in code (like the intent histogram's fixed
 buckets) so two scrapes days apart are comparable; retuning them is a code
 change with a test update, not a config knob.
 
@@ -110,5 +121,8 @@ change with a test update, not a config knob.
 per seat, human jitter never flagging, burst and idle cadences excluded,
 word-probe episode semantics (fires at the 5th identical rejection, per
 word, immune to accepted/MATCH_NOT_ACTIVE outcomes), flash-path firing once
-for fast multi-cell spam while short paths and slow submits stay quiet, and
-state clearing with process-lifetime counters surviving.
+for fast multi-cell spam while short paths and slow submits stay quiet,
+multi-signal joining exactly at the second distinct family (repeats of one
+family never advance it, cleared state re-separates the families while the
+process-lifetime counter survives), and state clearing with process-lifetime
+counters surviving.
