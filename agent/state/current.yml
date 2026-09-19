@@ -145,3 +145,12 @@ sandbox:
 resume_from:
   - "Session 12 merged 42A (multi_signal behavioral join), 42B (close-time longitudinal aggregates), 42C (intent word-length histograms by outcome) and 43 (dictionary hotfix tooling), and promoted live to 3555a82 with smoke 27/0 and exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
   - "The M3 measurement lane and its tooling are largely instrumented; the remaining M3 rows (seasons/cosmetics/economy, appeals/moderation, uk publication) are pure product/content/owner work. Cross-match per-user aggregation stays parked on identity maturity. The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running."
+
+release_scope_recovery:
+  session: 14
+  batch: 44C
+  status: validated_local_pending_ci
+  changes: "Corrected owner consolidation, roadmap counts, stale M0/architecture blockers, and release-readiness. Safe-default approval does not implement unbuilt milestones. M2 last row closes on prior evidence, not new gameplay."
+  roadmap_counts: "M0 10/10; M1 7/7; M2 6/6; M3 0/6 complete + 2 partial; M4 0/6; M5 0/6. Programmatically compared with readiness table."
+  blocker: "B2: publication hold versus release-specific full uk exclusion. Recorded fully-disabled claim conflicts with PD-008 and actual embedded data/API admission (isolated HTTP 201 uk). No language or live policy changed."
+  resume: "Finish 44D device/vision gate, integrate checked branches, then final state handoff. Ask only the B2 scope question, not all seven already-recorded defaults."
