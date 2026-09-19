@@ -117,17 +117,18 @@ the roster rather than a hardcoded pair:
 - the fingerprint folds every seat's score and combo, so replay equality
   cannot ignore seats 2..N.
 
-Still 1v1-shaped above the simulation, and therefore the next M2 batches:
+The original 30A table below was a work queue, not the current architecture.
+Reconciled against merged batches 30B–32D in session 14 (2026-09-19):
 
-| Layer | State | Needed for 60-player |
+| Layer | Current state | Evidence |
 |---|---|---|
-| `internal/match` | roster-shaped | — |
-| wire protocol | already `repeated PlayerState` | — |
-| `cmd/game` room creation | `[2]` tokens/user ids | 30B: roster-shaped room |
-| matchmaker | pairs exactly two entries | 30C: N-way admission |
-| board generator | fixed 12 cells (sized for two) | board sizing rule |
-| elimination | `IsEliminated` always false | a product decision first |
+| `internal/match` | roster-shaped, 2..60 | 30A, replay tests 30E |
+| wire protocol | repeated players, disclosed bots, reconstructable deltas | 32A/32D; protocol compatibility tests |
+| `cmd/game` room creation | roster-shaped tokens/user ids; public roster opt-in gate | 30B/32B, real-socket 60-seat test |
+| matchmaker | N-way admission and human-only short-handed start | 30C/31C; no silent bot backfill under Q5 |
+| board generator | 12 cells in duel, scaling to 60; prefix-stable letters | Q10 / 31A |
+| elimination | deterministic wave cull, cut-line ties retained | Q9 / 31A; minimum 2 survivors, culling only at roster >=4 |
 
-Elimination and board sizing are **product decisions** (PD entries) rather
-than implementation details, and anti-snowball plus bot disclosure depend on
-them; they are not assumed here.
+Elimination, board sizing and bot disclosure have recorded product decisions
+(Q9, Q10, Q5); they are no longer future assumptions. Optional wire savings
+and future product features do not reopen the delivered alpha foundation.
