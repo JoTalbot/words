@@ -1,6 +1,6 @@
 id: M1-batch44d-opaque-repaint
 title: Prevent retained text trails in the camera-less Unity IMGUI prototype
-status: awaiting_device_validation
+status: verified_device
 owner: orchestrator-client
 priority: high
 complexity: small

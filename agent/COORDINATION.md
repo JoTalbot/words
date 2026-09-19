@@ -313,3 +313,12 @@ corrections. Worktree /home/ubuntu/wt/batch44a; historical worktrees untouched.
 Qwen2.5:3b is a read-only bounded documentation reviewer, with output only in
 /home/ubuntu/artifacts-43 (no commit authority). QA workers own only artifacts.
 At most one heavy host job at a time; GitHub emulator is off-host.
+
+### Session 14 handoff (2026-09-19)
+
+44A/44B/44C/44D integrated via PRs #86/#87/#89/#88; 44E existing stage-1
+quick tunnel recovered. No active source workers remain, so session14 file
+claims are released. Hosted Android run 35431164102 and strict browser CI
+passed; visual regression fixed. The isolated test server and SSH QA tunnel
+were stopped. Resume from current.yml, with one B2 release-scope question,
+not the old seven-question gate. No game-service promotion was performed.

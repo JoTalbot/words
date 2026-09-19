@@ -1,6 +1,6 @@
 id: OPS-batch44c-release-evidence
 title: Reconcile roadmap, release scope and actual runtime without inventing approvals
-status: validated_local_pending_ci
+status: merged_green
 owner: orchestrator
 priority: high
 complexity: small
