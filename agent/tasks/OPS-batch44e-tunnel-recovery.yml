@@ -1,0 +1,31 @@
+id: OPS-batch44e-tunnel-recovery
+title: Recover expired approved stage-1 quick tunnel without changing match-service
+  policy
+status: verified_live
+owner: orchestrator-ops
+priority: high
+complexity: small
+inputs:
+- Existing words-tunnel.service active but journal says Unauthorized Tunnel not found
+- Old tunnel hostname fails DNS; Android correctly used runner-local fallback
+dependencies: []
+outputs:
+- One routine quick-tunnel service restart, new working ephemeral URL
+- WORDS_SERVER_URL repository variable updated only after external health checks
+acceptance:
+- External healthz and readyz both HTTP 200 with PostgreSQL ready
+- Game-service PID and binary hash remain unchanged
+- No permanent public port, proxy-trust switch or stage-2 policy change
+- Document that process liveness is not tunnel availability
+validation:
+- curl --fail https://motivated-select-campaigns-statement.trycloudflare.com/healthz
+- curl --fail https://motivated-select-campaigns-statement.trycloudflare.com/readyz
+- systemctl show wordarena.service -p MainPID -p NRestarts
+- sha256sum /opt/words/bin/wordarena-server
+file_ownership:
+- Runtime words-tunnel.service restart only
+- GitHub variable WORDS_SERVER_URL
+- agent/tasks/OPS-batch44e-tunnel-recovery.yml
+- agent/state/current.yml
+risk: low
+escalation: review; temporary exposure already authorized by Q8

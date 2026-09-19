@@ -365,3 +365,9 @@ A milestone is complete when its exit criteria are measurable, not when all plan
   is disabled does not disable the API or remove embedded dictionary data.
   Production readiness is tracked in docs/RELEASE-READINESS.md, not inferred
   from the prototype's green tests.
+
+- 44D fixed retained IMGUI text discovered by screenshot inspection despite a
+  green functional device smoke. Hosted run 35431164102 on b5ac8a8 passed
+  swipe/rollback/full-match plus before/after visual review. 44E recovered an
+  expired stage-1 tunnel and verified it externally; neither changes gameplay
+  or turns the stage-1 developer deployment into a production release.

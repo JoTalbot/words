@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-18 (session 12: 42A multi_signal join + 42B close aggregates + 42C word-length histograms + 43 dict hotfix tooling, live on 3555a82, main 9f5fc6f)
+# Updated: 2026-09-19 (session 14: recover/repair/CI/browser/Android vision/tunnel; B2 release-scope blocker)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "8e5d4cb"
+last_verified_commit: "1589fd5"
 
 session:
   7:
@@ -77,47 +77,66 @@ session:
     next_action: "OWNER DECISION RECORDED 2026-09-18: safe-default bundle approved (Q8 stage-2 deferred, B2 no uk, Q1/Q2 constants unchanged, Q7 single-region, Q6 cross-match parked, Q11 framing unchanged, Q12 guild status quo). No code/live/config changes made. Release gate satisfied for engineering; live promotion/production release remains owner-gated. Resume preserved at b2f07e6+ (next commit after this update)."
 
   14:
-    what: 'Recovered from GitHub main 5663d0f, ahead of clean OCI checkout 3555a82.
-      Container smoke 35406709596 red: 14 shebang scripts lost executable mode in session
-      13; restoring all 15 original script modes including normalize helper. Prior 42C/43
-      work is already integrated and will not be repeated.'
-    batch_44a: 'MERGED PR #86 -> 8e5d4cb. All six core CI checks green on PR and merge,
-      exact 15 executable modes restored. No script content changes or guard weakening.'
-    active_tasks:
-    - 44D Unity repaint build/device/vision validation
-    - 44C release-evidence reconciliation and B2 scope conflict
-    workers:
-    - 'orchestrator: integration/security/contract review'
-    - 'qwen2.5:3b: bounded read-only documentation draft'
-    - 'QA: artifact-only automation'
-    android: 'Run 35430541294 on 238c62f completed SUCCESS on GitHub-hosted emulator;
-      swipe cells=4 TAAN and cells=3 TSO, rollback markers, PARTNER-GATE PASS, REST
-      result MATCH_COMPLETE 11:35. Artifact 10580667677 inspected: functional gate green
-      but visual FAIL due to retained text trails. Batch 44D addresses this before accepting
-      device visual readiness.'
-    resume: 'Complete 44A CI, then reconcile release-readiness against primary contracts.
-      Do not declare production release ready from session-13 text: 50 percent debit
-      contradicts actual 100 percent, LPI is not identity, and uk fully disabled is
-      not implemented.'
-    timestamp: '2026-09-19T07:53:13.033398+00:00'
-    batch_44b: 'MERGED PR #87 -> ea4ce0e, all seven checks including new Browser transport
-      smoke green on PR head. Isolated smoke 27/27, deterministic exit gate 6/6 with
-      baseline 43:45 / 37:60 / 44:40 and equal terminal snapshots/event streams.'
-    tests: Go all-package suite and go vet passed on 8e5d4cb; targeted behavioral/telemetry/ws
-      race suite passed (5.075s), no local PostgreSQL DSN; hosted Go CI covers PostgreSQL
-      integration. Monitoring 11/11 and test assets 6/6.
-    llm: First 51KB prompt exceeded 150s bound; narrowed to 674 bytes / 280 tokens /
-      one thread, completed in 172 tokens. Correct debit and LPI comments reviewed against
-      source. Duplicate suggestion and missing release-scope finding not adopted blindly.
-    batch_44d: Full-screen opaque background per Repaint before controls, no geometry
-      changes. Awaiting new Unity build/device screenshot verification; do not call
-      visually verified from functional smoke alone.
+    what: 'Continued existing project from origin/main 5663d0f after discovering OCI checkout lagged at 3555a82. No
+      completed 42C/43 implementation repeated. Five bounded batches: 44A CI modes, 44B fail-closed browser smoke,
+      44C release-evidence correction, 44D Unity retained-text fix found by vision, 44E expired stage-1 dev tunnel
+      recovery.'
+    batch_44a: 'MERGED PR #86 -> 8e5d4cb. All six core CI checks green on PR and merge, exact 15 executable modes
+      restored. No script content changes or guard weakening.'
+    active_tasks: []
+    workers: []
+    android: 'ANDROID_BACKEND=github-hosted-emulator. No local AVD/device/system images/KVM. Initial run 35430541294
+      functional PASS but vision FAIL (retained text). Repaired run 35431164102 functional + vision PASS: row TAAN
+      cells=4, diagonal TSO cells=3, 46 rollback markers, MATCH_COMPLETE final=13:39 source=result-endpoint, PARTNER-GATE
+      PASS. Screenshots show clear current text and readable authoritative overlay. Runner-local server at 10.0.2.2;
+      artifact 10580609000. No alternative paid/unapproved provider needed.'
+    resume: Fetch origin/main, read current state session 14 and OWNER-GATE-DRAFT. Engineering recovery/repair work
+      is integrated; only B2 scope clarification blocks the affected release lane. Do not reopen seven already-recorded
+      safe defaults or call uk disabled merely from prose. Source client verified at b5ac8a8, integrated tree at 1589fd5;
+      final wrap changes state/docs only.
+    timestamp: '2026-09-19T08:28:01.456806+00:00'
+    batch_44b: 'MERGED PR #87 -> ea4ce0e, all seven checks including new Browser transport smoke green on PR head.
+      Isolated smoke 27/27, deterministic exit gate 6/6 with baseline 43:45 / 37:60 / 44:40 and equal terminal snapshots/event
+      streams.'
+    tests: 'Integrated 1589fd5 CI and Container smoke: all seven checks green. Local Go all-packages and vet passed
+      on 8e5d4cb; targeted race suite passed. Hosted Go CI includes PostgreSQL integration. Isolated API smoke 27/27;
+      exit gate 6/6 with equal streams/terminal snapshots and baseline 43:45 / 37:60 / 44:40. Browser 5/5 + missing-env
+      refusal; monitoring 11/11; test assets 6/6. Android build/device evidence as above.'
+    llm: First 51KB prompt exceeded 150s bound; narrowed to 674 bytes / 280 tokens / one thread, completed in 172
+      tokens. Correct debit and LPI comments reviewed against source. Duplicate suggestion and missing release-scope
+      finding not adopted blindly.
+    batch_44d: 'MERGED PR #88 -> 1589fd5 (seven PR checks green; hosted Unity Android run 35431164102 SUCCESS on exact
+      client-source commit b5ac8a8). Camera-less IMGUI now paints an opaque background before controls on Repaint,
+      restoring GUI.color and preserving layout/swipe geometry. Before/after screenshots inspected: old frame text
+      trails eliminated. No gameplay/protocol change.'
+    batch_44c: 'MERGED PR #89 -> c4015cd (seven PR checks green). Corrected stale M0/architecture facts, 100 percent
+      debit, Q6 cross-language LPI, false release-complete claim. M2 last row closed on existing Q5/31A-32D/39A evidence.
+      ROADMAP/readiness counts compared by script: M0 10/10; M1 7/7; M2 6/6; M3 0/6 + 2 partial; M4/M5 0/6. B2 scope
+      conflict explicitly preserved.'
+    batch_44e: 'Expired quick tunnel diagnosed by DNS failure plus repeated Unauthorized: Tunnel not found in journal
+      while systemd still reported active. One normal restart of existing words-tunnel.service at 2026-09-19 08:22:12
+      UTC created https://motivated-select-campaigns-statement.trycloudflare.com; external Arena healthz/readyz returned
+      200 and repo WORDS_SERVER_URL was updated. Same loopback origin and approved stage-1 policy; no permanent domain/proxy
+      trust/metrics policy change. Match service PID 3565467 and binary hash unchanged.'
+    failed_tasks: []
+    blocked_tasks:
+    - 'B2 release scope: publication hold only versus release-specific full uk exclusion. See docs/OWNER-GATE-DRAFT.md.
+      No new data publication or language-policy change until clarified.'
+    next_tasks:
+    - Record owner B2 clarification in PRODUCT-DECISIONS before implementing the chosen scope
+    - Keep remaining M3/M4/M5 rows open; safe-default approval is not launch completion
+    merges_this_session:
+    - '44A PR #86 -> 8e5d4cb'
+    - '44B PR #87 -> ea4ce0e'
+    - '44C PR #89 -> c4015cd'
+    - '44D PR #88 -> 1589fd5'
+    cleanup: Isolated port-18110 server stopped by exact validated PID 2127520; SSH QA tunnel stopped. LLM and test
+      workers exited. Historical worktrees untouched; own integrated worktrees may be removed after final wrap CI.
+      Live game process not restarted.
 
 m2_remaining:
-  - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
-  - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
-  - "guild product-input items: chat+moderation, invite-only join, co-owners, roster cap number, guild-vs-guild matchmaking and rewards - each has a safe documented default (the shipped status quo), so they are candidates for ONE consolidated owner question at the gate, not stallers"
-  - "60-player row: bot backfill decided NO by the 32D bot policy; the remaining ~27 percent delta saving (stable lock field) is an optional client-contract change"
+- 'No required alpha engineering remains: six ROADMAP rows closed on recorded evidence. Tutorial framing, additional
+  guild features and optional wire savings are future scope, not re-opened blockers.'
 
 facts_non_relitigable:
   - "01-16: see git history of this file (live service owns 127.0.0.1:18080 - load stages MUST pass an explicit port; octopus rewrites ubuntu authorized_keys during recovery ops; port-safety guard in every load script; the simulation is machine-independent so sweeps may run off-host; load tests must stay on the OCI host)"
@@ -130,29 +149,64 @@ facts_non_relitigable:
 
 server:
   host: 129.213.177.56
-  key: "/home/user/.ssh/oci_server_key (works for ubuntu@ AND root@; octopus occasionally rewrites ubuntu authorized_keys - root@ is the fallback)"
-  deploy_checkout: "/opt/words (clean, main 3555a82; main advanced to 9f5fc6f via the 43 dictcompile-only merge, which does not touch the server binary); live binary /opt/words/bin/wordarena-server serves 3555a82 (sha24 860b6e689b1bca8597d8742c, promoted 2026-09-18 ~06:00 UTC, smoke 27/0, exit gate 6/6 with baseline scores)"
-  live_service: "wordarena.service active on 3555a82 (promoted 2026-09-18 ~06:00 UTC), NRestarts=0, /healthz 200; rollback binary kept at /opt/words/bin/wordarena-server.prev"
-  tunnel_url: "2026-09-18 probe: the /var/log/words-tunnel.log names two hostnames - ireland-placement-dot-inner (dead, 000) and hour-define-resistant-loan (200, and the current WORDS_SERVER_URL repo variable). Quick tunnels re-issue URLs; always probe /healthz before trusting a name."
-  worktrees: "wt/batch18 and wt/proto-version remain (historical, untouched)"
-  go: "/home/ubuntu/go-toolchain/bin/go (go1.27.1); GOMODCACHE=/home/ubuntu/gomod-35 GOCACHE=/home/ubuntu/gocache-35. The Arena sandbox has its own go1.27.1 for local build and test."
-  ollama: "qwen2.5:3b on 127.0.0.1:11434 (bounded drafting only)"
-  android: "no local AVD and no emulator/system-images on the host: the device leg is the GitHub-hosted emulator in .github/workflows/unity-android.yml, green 2026-09-17 08:36 UTC on bc0a144e (schedule). The WORDS_SERVER_URL repo variable is an ephemeral quick tunnel, but batch 34D made the full-match leg self-contained (runner-local server reached at 10.0.2.2), so tunnel churn cannot fail it"
-  artifacts: "Host: artifacts-35a/35c/35d/36a/36d/37b/39a/39b/39c/40a/42a (42a holds the reviewed-and-declined qwen2.5:3b docs draft). 42C/43 produced no host artifacts (histograms are in-process /metrics; dictcompile hotfix is a repo tool)."
+  key: Session-authorized SSH credential; never stored in Git/state. Do not assume historical sandbox key paths
+    or an untested root fallback.
+  deploy_checkout: /opt/words; fast-forward to current origin/main at final handoff without resetting dirty work.
+    Source may be newer than the unchanged live binary.
+  live_service: wordarena.service active; PID 3565467 unchanged since 2026-09-18T06:11:30Z, NRestarts=0. Binary
+    VCS 3555a8268bef5572ef670496f7a443b55cc97350, vcs.modified=false; SHA256 860b6e689b1bca8597d8742c40aa7c99fd5b77c6305c697029be532176d94134.
+    PostgreSQL ready; rollback .prev preserved.
+  live_config: Allowlisted process env confirms ADDR=127.0.0.1:18080, ALLOW_BOT_SEATS=true, REQUIRE_READ_CAPABILITY=true.
+    TRUST_PROXY absent (default off), MAX_SEATS absent (default duel). No secret environment values printed.
+  tunnel_url: 'https://motivated-select-campaigns-statement.trycloudflare.com (44E, external healthz/readyz 200
+    on 2026-09-19; repo WORDS_SERVER_URL updated). Ephemeral: re-probe; systemd active alone is insufficient.'
+  worktrees: Historical wt/batch18 and wt/proto-version untouched. Session14 worktrees isolated under /home/ubuntu/wt/batch44*;
+    remove only clean ancestor-of-main worktrees after integration.
+  go: /home/ubuntu/go-toolchain/bin/go go1.27.1; GOMODCACHE=/home/ubuntu/gomod-35; GOCACHE=/home/ubuntu/gocache-35.
+    Heavy local work capped with GOMAXPROCS=2; one LLM thread.
+  ollama: qwen2.5:3b at 127.0.0.1:11434; bounded read-only micro-review completed after large-prompt timeout/reduction.
+  android: GitHub-hosted emulator; run 35431164102 successful (exact Unity source b5ac8a8). No local Android backend.
+    Runner-local match server used, screenshot-verified.
+  artifacts: /home/ubuntu/artifacts-43 contains session14 recovery JSON, go-all44.log/go-race44.log, smoke44.log/exit44.log,
+    android44 before and android44d after screenshots/logs, bounded LLM attempt/results. Never commit raw credentials.
 
 sandbox:
-  note: "fresh Arena sandbox - the workspace started EMPTY, so the repository was cloned from GitHub and the handoff SSH key written from the task message. Nothing sandbox-local is load-bearing."
-  ssh_key: "/home/user/.ssh/oci_server_key (chmod 600)"
+  note: Fresh workspace cloned from existing server Git repository; Python Playwright/Chromium installed for strict
+    browser QA. No persistent Go toolchain needed in Arena. SSH credential under excluded .cache with restrictive
+    permissions, not in snapshots or repository.
+  artifacts: browser44-proof.png, android44-fullmatch.png / android44d-fullmatch.png, corresponding swipe images
+    and test logs; source checkout synchronized to current main at handoff.
 
 resume_from:
-  - "Session 12 merged 42A (multi_signal behavioral join), 42B (close-time longitudinal aggregates), 42C (intent word-length histograms by outcome) and 43 (dictionary hotfix tooling), and promoted live to 3555a82 with smoke 27/0 and exit gate 6/6 on baseline scores. No engineering work is queued or blocked."
-  - "The M3 measurement lane and its tooling are largely instrumented; the remaining M3 rows (seasons/cosmetics/economy, appeals/moderation, uk publication) are pure product/content/owner work. Cross-match per-user aggregation stays parked on identity maturity. The release gate still waits only on the seven owner questions in GitHub issue #1 (Q8 stage-2 domain + /metrics deny + token decision, B2 uk licence, Q1/Q2 prototype constants, Q7 soft-launch geography, Q6 LPI, Q11 PvE tutorial framing, Q12 guild inputs) - each with a safe documented default running."
+- 'Recover current origin/main, inspect session14 and docs/OWNER-GATE-DRAFT.md; no source worker or test server
+  should be left active. Main and live binary are deliberately different: no game-service promotion was needed.'
+- Clarify only B2 publication hold versus release-specific full exclusion, then create/execute a bounded task for
+  that scope. Preserve shipped constants, stage-1 exposure and measurement-only anti-cheat; do not infer M3/M4/M5
+  completion from safe-default approval.
 
 release_scope_recovery:
   session: 14
   batch: 44C
-  status: validated_local_pending_ci
-  changes: "Corrected owner consolidation, roadmap counts, stale M0/architecture blockers, and release-readiness. Safe-default approval does not implement unbuilt milestones. M2 last row closes on prior evidence, not new gameplay."
-  roadmap_counts: "M0 10/10; M1 7/7; M2 6/6; M3 0/6 complete + 2 partial; M4 0/6; M5 0/6. Programmatically compared with readiness table."
-  blocker: "B2: publication hold versus release-specific full uk exclusion. Recorded fully-disabled claim conflicts with PD-008 and actual embedded data/API admission (isolated HTTP 201 uk). No language or live policy changed."
-  resume: "Finish 44D device/vision gate, integrate checked branches, then final state handoff. Ask only the B2 scope question, not all seven already-recorded defaults."
+  status: merged_green
+  merge_commit: c4015cd
+  blocker: B2 scope conflict, not a licence grant or a reason to redo completed work
+  roadmap_counts: M0 10/10; M1 7/7; M2 6/6; M3 0/6 complete + 2 partial; M4 0/6; M5 0/6
+
+
+current_milestone: M3
+status: blocked_release_scope
+completed_tasks:
+- OPS-batch44a-executable-modes
+- M1-batch44b-browser-fail-closed
+- OPS-batch44c-release-evidence
+- M1-batch44d-opaque-repaint
+- OPS-batch44e-tunnel-recovery
+active_tasks: []
+failed_tasks: []
+blocked_tasks:
+- 'B2: owner clarification of publication hold vs full release exclusion'
+next_tasks:
+- Record B2 clarification, then implement the selected release scope with tests
+active_workers: []
+android_backend: github-hosted-emulator
+timestamp: '2026-09-19T08:28:01.468636+00:00'
