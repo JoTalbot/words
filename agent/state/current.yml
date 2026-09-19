@@ -4,7 +4,7 @@
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "9f5fc6f"
+last_verified_commit: "8e5d4cb"
 
 session:
   7:
@@ -81,8 +81,8 @@ session:
       Container smoke 35406709596 red: 14 shebang scripts lost executable mode in session
       13; restoring all 15 original script modes including normalize helper. Prior 42C/43
       work is already integrated and will not be repeated.'
-    batch_44a: Local repair in isolated worktree; validation and CI pending. No server
-      code or live configuration changed.
+    batch_44a: 'MERGED PR #86 -> 8e5d4cb. All six core CI checks green on PR and merge,
+      exact 15 executable modes restored. No script content changes or guard weakening.'
     active_tasks:
     - 44A CI mode repair
     - 44B release-evidence contradictions and owner decision reconciliation
@@ -99,6 +99,18 @@ session:
       contradicts actual 100 percent, LPI is not identity, and uk fully disabled is
       not implemented.'
     timestamp: '2026-09-19T07:53:13.033398+00:00'
+    batch_44b: 'Validated locally: original browser smoke reproduced PASS on WebSocket
+      error; replacement 5/5 including actual nonempty binary frame at explicit isolated
+      port 18110 plus invalid-token, invalid-scheme, unreachable-server, missing-credentials
+      refusals. No-server env exits nonzero. New CI job awaits PR verification. Screenshot
+      inspected: OPEN, 116-byte first frame, no credentials visible.'
+    tests: Go all-package suite and go vet passed on 8e5d4cb; targeted behavioral/telemetry/ws
+      race suite passed (5.075s), no local PostgreSQL DSN; hosted Go CI covers PostgreSQL
+      integration. Monitoring 11/11 and test assets 6/6.
+    llm: First 51KB prompt exceeded 150s bound; narrowed to 674 bytes / 280 tokens /
+      one thread, completed in 172 tokens. Correct debit and LPI comments reviewed against
+      source. Duplicate suggestion and missing release-scope finding not adopted blindly.
+
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"
