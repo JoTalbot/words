@@ -1,0 +1,28 @@
+id: OPS-batch44a-executable-modes
+title: Repair main Container smoke by restoring executable modes lost in session 13
+status: validated_local_pending_ci
+owner: orchestrator
+priority: critical
+complexity: small
+inputs:
+- origin/main 5663d0f
+- Container smoke 35406709596 Repository hygiene failure
+dependencies: []
+outputs:
+- Original executable modes restored on 15 scripts; contents unchanged
+acceptance:
+- Repository hygiene passes without weakening the guard
+- Git diff confirms only original modes restored on the 15 scripts
+- CI and Container smoke pass on the integrated revision
+validation:
+- python3 tools/check-repo-hygiene.py
+- python3 tools/check-task-yaml.py
+- python3 tools/check-state-yaml.py
+- git diff --summary 494dfe9 -- tools infra client/web-m0/test-smoke.py
+file_ownership:
+- 15 executable script modes changed by session 13
+- agent/COORDINATION.md
+- agent/state/current.yml
+- agent/tasks/OPS-batch44a-executable-modes.yml
+risk: low
+escalation: review
