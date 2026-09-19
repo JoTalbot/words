@@ -1,6 +1,6 @@
 id: OPS-batch44a-executable-modes
 title: Repair main Container smoke by restoring executable modes lost in session 13
-status: validated_local_pending_ci
+status: merged_green
 owner: orchestrator
 priority: critical
 complexity: small

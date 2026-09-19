@@ -1,0 +1,36 @@
+id: M1-batch44b-browser-fail-closed
+title: Make browser transport smoke fail closed and honor explicit server selection
+status: validated_local_pending_ci
+owner: orchestrator-browser
+priority: high
+complexity: small
+inputs:
+- Existing web-m0 index.html and test-smoke.py
+- Reproduced old smoke PASS despite WebSocket error
+dependencies:
+- OPS-batch44a-executable-modes
+outputs:
+- Same-origin or explicit server selection with ws/wss validation
+- Strict Playwright positive and four negative checks
+- Pinned Playwright CI job on an isolated same-commit game server
+- Transport-only scope documented; no claim to decode or validate match state
+acceptance:
+- Explicit non-default port receives a real authenticated binary frame
+- Invalid token, unavailable endpoint, invalid scheme and missing credentials cannot
+  report success
+- Missing server configuration causes the smoke process to exit nonzero
+- CI executes the real browser smoke, not an error-tolerant substitute
+- No live service configuration or gameplay rule changed
+validation:
+- WORDARENA_SERVER_URL=http://127.0.0.1:18110 python3 client/web-m0/test-smoke.py
+- env -u WORDARENA_SERVER_URL python3 client/web-m0/test-smoke.py (must fail)
+- python3 tools/check-repo-hygiene.py
+- python3 tools/check-task-yaml.py
+- python3 tools/check-state-yaml.py
+file_ownership:
+- client/web-m0/
+- .github/workflows/ci.yml
+- agent/state/current.yml
+- agent/tasks/M1-batch44b-browser-fail-closed.yml
+risk: low
+escalation: review

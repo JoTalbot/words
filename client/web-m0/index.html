@@ -1,22 +1,46 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Word Arena M0 Web Client</title>
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Word Arena M0 Web Client</title>
 <style>body{font-family:sans-serif;padding:20px;background:#1e1e2e;color:#cdd6f4}
 h1{color:#89b4fa}.status{padding:10px;border-radius:6px;margin:8px 0}
 .ok{background:#a6e3a1;color:#1e1e2e}.err{background:#f38ba8;color:#1e1e2e}</style></head>
-<body><h1>Word Arena M0 — Web Client (release proof)</h1>
-<div id="s" class="status">Connecting...</div>
-<p>Server authority verified; binary protobuf protocol; client never computes scores.</p>
+<body><h1>Word Arena M0 — Web Client (transport proof)</h1>
+<div id="s" class="status" data-state="connecting">Connecting...</div>
+<p id="frames" data-count="0">Binary frames: 0</p>
+<p>Transport diagnostic only. The server computes scores; this page does not decode match state.</p>
 <script>
 const s=document.getElementById("s");
+const frames=document.getElementById("frames");
+function status(state,text){s.dataset.state=state;s.className="status "+(state==="open"?"ok":"err");s.textContent=text;}
 try{
-const q=new URLSearchParams(location.search);
-const mid=q.get("match_id")||"1";
-const tok=q.get("token")||"t";
-const ws=new WebSocket("ws://127.0.0.1:18080/v1/match/ws?match_id="+encodeURIComponent(mid)+"&token="+encodeURIComponent(tok));
-ws.binaryType="arraybuffer";
-ws.onopen=function(){s.innerHTML="<div class=ok>WebSocket OPEN — M0 transport verified</div>";};
-ws.onerror=function(){s.innerHTML="<div class=err>WebSocket error — valid token required</div>";};
-ws.onmessage=function(m){s.innerHTML+="<br>Event bytes: "+(m.data&&m.data.byteLength!==undefined?m.data.byteLength:String(m.data).length);};
-ws.onclose=function(){s.innerHTML+="<br>Closed";};
-}catch(e){s.innerHTML="<div class=err>Exception: "+e+"</div>";}
+  const q=new URLSearchParams(location.search);
+  const mid=q.get("match_id");
+  const tok=q.get("token");
+  if(!mid||!tok) throw new Error("Provide match_id and a valid seat token.");
+  // A served page uses its own origin (also works behind a reverse proxy).
+  // A file:// page has no server origin and must receive an explicit base URL.
+  const base=q.get("server")||location.origin;
+  const endpoint=new URL(base);
+  if(endpoint.protocol==="https:") endpoint.protocol="wss:";
+  else if(endpoint.protocol==="http:") endpoint.protocol="ws:";
+  if(!["ws:","wss:"].includes(endpoint.protocol)||endpoint.username||endpoint.password||
+      endpoint.pathname!=="/"||endpoint.search||endpoint.hash)
+    throw new Error("Server must be an HTTP(S) or WS(S) base URL without credentials, path, query or fragment.");
+  if(location.protocol==="https:"&&endpoint.protocol!=="wss:")
+    throw new Error("An HTTPS page requires a secure WSS server.");
+  endpoint.pathname="/v1/match/ws";
+  endpoint.searchParams.set("match_id",mid);
+  endpoint.searchParams.set("token",tok);
+  const ws=new WebSocket(endpoint.href);
+  ws.binaryType="arraybuffer";
+  let count=0;
+  ws.onopen=()=>status("open","WebSocket OPEN — waiting for binary frames");
+  ws.onerror=()=>status("error","WebSocket error — check server availability, origin policy and seat token");
+  ws.onmessage=(m)=>{
+    if(!(m.data instanceof ArrayBuffer)||m.data.byteLength===0){status("error","Unexpected non-binary frame");ws.close();return;}
+    count++;frames.dataset.count=String(count);
+    frames.textContent="Binary frames: "+count+"; latest: "+m.data.byteLength+" bytes";
+    status("open","WebSocket OPEN — binary transport verified");
+  };
+  ws.onclose=()=>{if(s.dataset.state!=="error")status("closed","WebSocket closed");};
+}catch(e){status("error","Configuration error — "+e.message);}
 </script></body></html>
