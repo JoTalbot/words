@@ -175,6 +175,26 @@ data update that the versioned-snapshot design (PD-004) already supports. No
 engineering work is waiting on it; the only rule is that the licensed data must
 not be committed before it arrives, which is already true.
 
+
+### Session-13 safe-default record and session-14 B2 conflict (2026-09-19)
+
+Commits `6606716` and `5663d0f` record owner approval of the seven-item
+safe-default bundle. Keep shipped rules, region, guild/practice scope and
+stage-1 exposure unchanged; do not infer new launch or enforcement authority.
+The two factual errors in the consolidation are corrected by primary
+contracts: the shipped steal debit is **100%**, not 50%; Q6 is cross-language
+LPI calibration before rewards, not cross-match identity maturity.
+
+**Unresolved B2 scope:** the same record says both "uk fully disabled" and
+"no publication; no code/config changes". PD-008 and the B2 paragraph above
+still permit the development snapshot; the actual API admits uk and
+`snapshot.go` embeds its data (isolated main-build probe: HTTP 201, uk).
+Those are different release scopes. Until the owner clarifies publication
+hold versus release-specific full exclusion, keep development fixtures/live
+configuration unchanged, publish no new uk content, and block the affected
+release decision. See `docs/OWNER-GATE-DRAFT.md`. A runtime flag alone would
+not remove the embedded corpus from distributed binaries.
+
 ### Q7 — Soft-launch geography
 The proposed Poland/Canada/Australia cohort should be treated as a hypothesis. Region selection should consider payment support, language coverage, UA costs, platform review requirements and legal/privacy readiness.
 

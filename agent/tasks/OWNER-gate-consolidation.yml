@@ -1,30 +1,34 @@
 id: OWNER-gate-consolidation
-title: "Consolidate seven owner-blocked questions into a single draft (no autonomous product decision)"
-status: verified_local_pending_ci
+title: Record approved safe defaults, correct factual errors, preserve unresolved
+  B2 release scope
+status: verified_with_scope_conflict
 priority: normal
 complexity: small
 inputs:
-  - agent/state/current.yml (session 12/13 resume notes)
-  - docs/ROADMAP.md (release gate list)
-  - docs/SECURITY-EXPOSURE.md (Q8 evidence)
-  - docs/M3-DICT-HOTFIX.md (B2 evidence)
-  - docs/M2-ANTI-SNOWBALL.md (Q1/Q2 evidence)
-  - docs/M1-OPS.md (Q7 evidence)
-  - docs/M2-PVE.md (Q11 evidence)
-  - docs/M2-GUILDS.md (Q12 evidence)
+- agent/state/current.yml (session 12/13 resume notes)
+- docs/ROADMAP.md (release gate list)
+- docs/SECURITY-EXPOSURE.md (Q8 evidence)
+- docs/M3-DICT-HOTFIX.md (B2 evidence)
+- docs/M2-ANTI-SNOWBALL.md (Q1/Q2 evidence)
+- docs/M1-OPS.md (Q7 evidence)
+- docs/M2-PVE.md (Q11 evidence)
+- docs/M2-GUILDS.md (Q12 evidence)
 dependencies: []
 outputs:
-  - docs/OWNER-GATE-DRAFT.md
-  - agent/tasks/OWNER-gate-consolidation.yml (this file)
+- docs/OWNER-GATE-DRAFT.md
+- agent/tasks/OWNER-gate-consolidation.yml (this file)
 acceptance:
-  - "All seven questions listed with safe default, evidence reference, and explicit 'no autonomous decision made' note"
-  - "No code changes to server binary or live config"
-  - "No secrets or credentials introduced into repo"
+- All seven safe defaults recorded without inventing new owner approval
+- Keep shipped 100 percent debit and distinguish cross-language LPI from identity
+- B2 publication hold versus full release exclusion remains explicitly unresolved;
+  no language or live config change
 validation:
-  - python3 tools/check-task-yaml.py agent/tasks/OWNER-gate-consolidation.yml
-  - python3 tools/check-state-yaml.py agent/state/current.yml
+- python3 tools/check-task-yaml.py
+- python3 tools/check-state-yaml.py
+- Compare docs/OWNER-GATE-DRAFT.md with PRODUCT-DECISIONS Q6/PD-008/B2 and match/boardlevers.go
 file_ownership:
-  - docs/OWNER-GATE-DRAFT.md
-  - agent/tasks/OWNER-gate-consolidation.yml
+- docs/OWNER-GATE-DRAFT.md
+- agent/tasks/OWNER-gate-consolidation.yml
 risk: low
-escalation: human-blocker only if owner requests a different default; engineering is unblocked
+escalation: 'human-blocker: B2 scope clarification before changing language availability
+  or declaring release'

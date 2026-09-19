@@ -80,8 +80,8 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 ## M2 — Alpha Core
 
-- [~] 60-player mode - **rules now decided and implemented**; remaining work is
-  snapshot fan-out, not gameplay. Merged 2026-09-13/14: batches 30A-30F made the
+- [x] 60-player mode - **rules, roster-aware transport and measured fan-out
+  delivered** (row reconciled in batch 44C; no new gameplay change). Merged 2026-09-13/14: batches 30A-30F made the
   whole server stack seat-count agnostic (simulation, room, matchmaker,
   transport), proved it at three layers (8-seat end-to-end over the real
   WebSocket surface, replay determinism at 3/5/8/16 seats) and characterized its
@@ -90,7 +90,7 @@ Exit gate: two remote clients can complete repeated matches with identical final
   1 could not submit a word at all (30D), and could neither steal nor be stolen
   from (31A). Batch 31A then implemented the two product decisions the owner
   delegated on 2026-09-14 - **Q9** per-wave cull to two thirds of the roster
-  (60 -> 40 -> 26, never below 4 seats, ties across the cut line keep everyone,
+  (60 -> 40 -> 26, never below 2 survivors, ties across the cut line keep everyone,
   eliminated seats become logged-but-rejected spectators) and **Q10** a board
   that scales with the roster (12 cells at 1v1 up to a 6x10 grid, with the
   letter at cell i still a function of (seed, language, wave) alone so the 1v1
@@ -119,9 +119,9 @@ Exit gate: two remote clients can complete repeated matches with identical final
   unauthenticated endpoint is 60 tokens and 60 sockets per request and the
   current public exposure was reviewed for a single-developer deployment - one
   environment variable turns it on, and the refusal names it.
-  REMAINING on this row: a decision on bot backfill for under-filled lobbies
-  (belongs with the bot disclosure row; the shipped default is the human-only
-  short-handed start from 31C, so nothing is blocked on it). The largest
+  Bot backfill is already decided NO by Q5 / batch 32D below, not a remaining
+  dependency. Human-only short-handed starts remain the shipped behavior.
+  The optional wire optimization below is not an alpha acceptance blocker. The largest
   remaining wire saving, if ever worth taking, is replacing the per-second lock
   countdown with a stable lock field (~27 % of the delta), which is a
   client-contract change rather than a server optimisation.
@@ -349,3 +349,19 @@ on the live host.
 ## Gate philosophy
 
 A milestone is complete when its exit criteria are measurable, not when all planned code exists. Features may be cut or delayed when experiments show they do not improve player value or operational safety.
+
+
+## Session 14 recovery (2026-09-19, batches 44A–44C)
+
+- M0 10/10; M1 7/7; M2 6/6 top-level rows checked. M2's last partial row
+  was stale bookkeeping: Q5 had already rejected bot backfill and the required
+  fan-out/delta/load work is evidenced above. No completed work was repeated.
+- M3 0/6 checked, 2 partial, 4 unchecked; M4 0/6; M5 0/6. These are scope
+  counts, not an overall completion percentage or production-release approval.
+- 44A repaired the red main Container smoke (lost executable script modes).
+  44B makes browser smoke fail closed and adds real-browser CI validation.
+- The session-13 safe-default bundle remains recorded. Corrections and the
+  one B2 scope conflict are in docs/OWNER-GATE-DRAFT.md; a prose claim that uk
+  is disabled does not disable the API or remove embedded dictionary data.
+  Production readiness is tracked in docs/RELEASE-READINESS.md, not inferred
+  from the prototype's green tests.

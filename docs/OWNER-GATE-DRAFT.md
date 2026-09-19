@@ -1,45 +1,42 @@
-# Owner-Gate Draft — Session 13 (2026-09-18)
+# Owner decisions — safe-default bundle and B2 clarification
 
-DECISION RECORDED 2026-09-18: OWNER APPROVED SAFE-DEFAULT BUNDLE for all 7 items.
-No autonomous product decision made before this point; after approval, safe defaults stay as documented.
+Session 13 (commits `6606716`, `5663d0f`, 2026-09-18) records owner approval
+of the seven-item safe-default bundle. This is retained, not re-requested.
+It does **not** implement unbuilt M3/M4/M5 features or authorize production
+release. Session 14 corrected the factual errors below against primary
+contracts and code; no gameplay or live configuration changed.
 
-Consolidation of the seven owner-blocked items from docs/ROADMAP.md / GitHub #1.
-No autonomous product decision is made; safe defaults remain shipped.
-Evidence references are local to this repo; no new secrets or credentials.
+| Item | Recorded safe default | Evidence / scope |
+|---|---|---|
+| Q8 | Keep stage-1 dev tunnel; defer permanent domain, proxy-trust switch and edge policy | `docs/SECURITY-EXPOSURE.md`; no new production exposure authorized |
+| B2 | Do not publish the unreviewed uk snapshot | `dictionary/NOTICE.md`, `docs/PRODUCT-DECISIONS.md` B2; see unresolved scope below |
+| Q1/Q2 | Keep shipped prototype constants | `DefaultBoardParams()` in `server/internal/match/boardlevers.go`: 90 ticks at 30 Hz (3 s), **100%** steal debit, 12-cell duel; Royale board scales under Q10. The earlier draft's 50% was wrong; no 50% rule was approved by this correction |
+| Q7 | Single-region development; no geography expansion | Soft-launch geography remains a future launch decision, not an engineering hold |
+| Q6 | No competitive rewards tied to uncalibrated cross-language LPI | Q6 in the primary register is about word length, alphabet size and frequency, **not** League/Progression/Identity. Cross-match identity aggregation remains separately parked |
+| Q11 | Shipped practice mode / easy, normal, hard remain unchanged | `docs/M2-PVE.md`; no new tutorial framing without evidence |
+| Q12 | Existing guild foundation remains unchanged | Single owner, open join, placeholder cap 50, no guild matchmaking/rewards/chat; `docs/M2-GUILDS.md` |
 
-## Questions (safe default = shipped status quo)
+## B2 is the one release-scope clarification still needed
 
-1. Q8 — Stage-2 domain / /metrics deny / token decision
-   - Evidence: docs/SECURITY-EXPOSURE.md (batch 37C, PR #59 -> 23e4a03); live config trustProxy=OFF; /metrics deny not yet deployed; token not rotated.
-   - Safe default: keep live as-is (trustProxy off, stage-2 deploy deferred, token unchanged); do NOT flip on production without owner sign-off.
+`5663d0f` says both **“uk fully disabled”** and **“no publication; no code/config
+changes”**. Those are not technically equivalent. Primary PD-008 still requires
+en/ru/uk for development, and B2 permits the pre-production fixture until a
+licensed corpus arrives. The API still admits uk match/queue/profile requests;
+`server/internal/dictionary/snapshot.go` embeds the entire `data` directory.
+Session 14's isolated same-main build returned **HTTP 201, language=uk** when
+creating a match. No such probe was made against the live database.
 
-2. B2 — Ukrainian (uk) dictionary publication
-   - Evidence: docs/M3-DICT-HOTFIX.md; dictcompile supports -parent/-add/-remove deterministically; uk publication requires B2 licence review.
-   - Safe default: do NOT publish uk snapshot; en/ru remain shipped; hotfix tooling stays available.
+Before changing language availability or declaring an artifact releasable,
+confirm which scope the owner intended:
 
-3. Q1 / Q2 — Prototype constants (lock duration / steal debit / board size / difficulty presets)
-   - Evidence: docs/M2-ANTI-SNOWBALL.md; batch 32B/35B; defaults byte-for-byte shipped rules; measurement shows softening debit accelerates snowball (NEGATIVE).
-   - Safe default: keep all shipped constants (lock 3 s, debit 50%, 12-cell board default, difficulty presets as shipped).
+1. **Publication hold only:** retain uk in development/testing, do not publish
+   its snapshot or make a production-release claim without the licence review.
+2. **Full disablement for release:** add a reviewed release-specific exclusion
+   of uk dictionary data, runtime admission and client selection, while retaining
+   clearly separated internal fixtures. A runtime flag alone would not remove
+   the embedded data from a binary.
 
-4. Q7 — Soft-launch geography
-   - Evidence: docs/M1-OPS.md; current tunnel URL ephemeral (trycloudflare); live service at 129.213.177.56.
-   - Safe default: keep single-region deployment; do NOT expand geography until owner approves.
-
-5. Q6 — LPI (League / Progression / Identity maturity)
-   - Evidence: docs/M2-PVE.md; cross-match aggregation stays parked on identity maturity.
-   - Safe default: do NOT enable cross-match aggregation; identity stays anonymous per-match.
-
-6. Q11 — PvE tutorial framing
-   - Evidence: docs/M2-PVE.md; difficulty selection shipped (35B); framing open by name only.
-   - Safe default: keep shipped difficulty names (easy/normal/hard); do NOT change framing without UX evidence.
-
-7. Q12 — Guild product inputs (chat/moderation, invite-only, co-owners, cap, guild-vs-guild, rewards)
-   - Evidence: docs/M2-GUILDS.md (if present); all six items evaluated session 7; safe default = status quo for each.
-   - Safe default: single owner, open-join foundation, cap 50 placeholder, guilds never affect matchmaking, owner token grows later; consolidate into ONE owner question at gate.
-
-## Action recommendation (NOT executed autonomously)
-
-- Owner should review this draft and provide ONE consolidated response per item, or approve the safe-default bundle as-is.
-- Engineering does NOT need answers to continue M3 measurement or maintain live service.
-- If owner approves safe defaults, the release gate is satisfied for engineering and only cosmetic/monetization/enforcement work remains.
-DECISION LOCKED 2026-09-18: Safe bundle (all 7) + B2 uk fully disabled (no publication). No code/config changes.
+Until clarified, the affected release lane is **blocked**. Keep the existing
+development service and fixtures unchanged, publish no new uk content, and do
+not silently resolve the contradictory wording by changing competitive rules.
+This does not block unrelated engineering or revoke the other safe defaults.

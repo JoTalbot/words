@@ -1,0 +1,45 @@
+id: OPS-batch44c-release-evidence
+title: Reconcile roadmap, release scope and actual runtime without inventing approvals
+status: validated_local_pending_ci
+owner: orchestrator
+priority: high
+complexity: small
+inputs:
+- Session-13 safe-default commits 6606716 and 5663d0f
+- PRODUCT-DECISIONS authority order and live/source evidence
+- ROADMAP row histories and session-14 CI/device/browser verification
+dependencies:
+- OPS-batch44a-executable-modes
+- M1-batch44b-browser-fail-closed
+outputs:
+- Corrected owner decision consolidation and explicit B2 scope conflict
+- Release-readiness with exact checkbox counts and evidence classes
+- M0/ARCHITECTURE stale blockers reconciled with delivered hosted-device and roster
+  work
+- M2 last partial row closed on existing Q5/31A-32D/39A evidence
+acceptance:
+- Counts in readiness match actual roadmap markup
+- No claims that safe-default approval implements M3/M4/M5
+- 100 percent steal debit and cross-language Q6 LPI match authoritative contracts
+- uk disabled claim replaced with actual admission/embedded-data evidence and bounded
+  blocker
+- No server/gameplay/data/live policy modified
+validation:
+- python3 tools/check-task-yaml.py
+- python3 tools/check-state-yaml.py
+- python3 tools/check-repo-hygiene.py
+- Parse top-level ROADMAP checkboxes and compare readiness table
+- Isolated POST /v1/matches language=uk returns 201 on 8e5d4cb, credentials omitted
+- Compare hosted Android screenshots and exact CI run results before final handoff
+file_ownership:
+- docs/OWNER-GATE-DRAFT.md
+- docs/RELEASE-READINESS.md
+- docs/ROADMAP.md
+- docs/PRODUCT-DECISIONS.md
+- docs/M0.md
+- docs/ARCHITECTURE.md
+- agent/tasks/OWNER-gate-consolidation.yml
+- agent/tasks/OPS-batch44c-release-evidence.yml
+- agent/state/current.yml
+risk: low
+escalation: 'human-blocker: B2 release-scope conflict'
