@@ -568,6 +568,21 @@ namespace Words.Client
             var width = Screen.width / scale;
             var height = Screen.height / scale;
 
+            // Batch 44D: this minimal scene has no Camera, hence no camera
+            // color clear. IMGUI labels are transparent: without an opaque
+            // repaint, changing status/score text accumulates on prior frames
+            // (device evidence: run 35430541294). Clear the entire scaled
+            // surface BEFORE any controls, without touching layout/input or
+            // introducing a camera into the prototype's rendering contract.
+            if (Event.current.type == EventType.Repaint)
+            {
+                var oldColor = GUI.color;
+                GUI.color = new Color32(30, 30, 30, 255);
+                GUI.DrawTexture(new Rect(0f, 0f, width, height), Texture2D.whiteTexture,
+                    ScaleMode.StretchToFill, false);
+                GUI.color = oldColor;
+            }
+
             GUILayout.BeginArea(new Rect(AreaInset, AreaInset, width - 2f * AreaInset, height - 2f * AreaInset));
             GUILayout.Label("Word Arena", titleStyle, GUILayout.Height(72f));
             GUILayout.Label(BannerText(), bannerStyle, GUILayout.Height(58f));

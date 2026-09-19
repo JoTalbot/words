@@ -1,0 +1,32 @@
+id: M1-batch44d-opaque-repaint
+title: Prevent retained text trails in the camera-less Unity IMGUI prototype
+status: awaiting_device_validation
+owner: orchestrator-client
+priority: high
+complexity: small
+inputs:
+- Android run 35430541294 screenshots show old text retained under changing labels
+- Main.unity has no Camera; OnGUI previously rendered transparent labels only
+dependencies:
+- OPS-batch44a-executable-modes
+outputs:
+- Opaque full-surface background each Repaint before controls, with GUI.color restored
+- Before/after hosted Android screenshots and functional smoke
+acceptance:
+- Unity Android build succeeds
+- Hosted device row and diagonal swipe still pass without changing coordinates
+- Full match reaches authoritative REST result and rollback markers remain present
+- After screenshots show legible current text without old-frame trails
+- No changes to gameplay, server protocol, gesture geometry or language policy
+validation:
+- Unity Android workflow with run_smoke_tests=true on the exact PR head
+- Inspect android-smoke.png and android-fullmatch.png against run 35430541294
+- python3 tools/check-repo-hygiene.py
+- python3 tools/check-task-yaml.py
+- python3 tools/check-state-yaml.py
+file_ownership:
+- client/unity/Assets/Scripts/WordArenaBootstrap.cs
+- agent/tasks/M1-batch44d-opaque-repaint.yml
+- agent/state/current.yml
+risk: low
+escalation: review

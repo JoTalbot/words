@@ -1,6 +1,6 @@
 id: M1-batch44b-browser-fail-closed
 title: Make browser transport smoke fail closed and honor explicit server selection
-status: validated_local_pending_ci
+status: merged_green
 owner: orchestrator-browser
 priority: high
 complexity: small
