@@ -76,6 +76,29 @@ session:
     merges_this_session: []
     next_action: "OWNER DECISION RECORDED 2026-09-18: safe-default bundle approved (Q8 stage-2 deferred, B2 no uk, Q1/Q2 constants unchanged, Q7 single-region, Q6 cross-match parked, Q11 framing unchanged, Q12 guild status quo). No code/live/config changes made. Release gate satisfied for engineering; live promotion/production release remains owner-gated. Resume preserved at b2f07e6+ (next commit after this update)."
 
+  14:
+    what: 'Recovered from GitHub main 5663d0f, ahead of clean OCI checkout 3555a82.
+      Container smoke 35406709596 red: 14 shebang scripts lost executable mode in session
+      13; restoring all 15 original script modes including normalize helper. Prior 42C/43
+      work is already integrated and will not be repeated.'
+    batch_44a: Local repair in isolated worktree; validation and CI pending. No server
+      code or live configuration changed.
+    active_tasks:
+    - 44A CI mode repair
+    - 44B release-evidence contradictions and owner decision reconciliation
+    - QA Android and browser validation
+    workers:
+    - 'orchestrator: integration/security/contract review'
+    - 'qwen2.5:3b: bounded read-only documentation draft'
+    - 'QA: artifact-only automation'
+    android: Local adb has zero devices, AVD directory empty, no emulator/system-images/KVM.
+      Authorized GitHub-hosted emulator available; latest run 35380178730 succeeded
+      on 494dfe97.
+    resume: 'Complete 44A CI, then reconcile release-readiness against primary contracts.
+      Do not declare production release ready from session-13 text: 50 percent debit
+      contradicts actual 100 percent, LPI is not identity, and uk fully disabled is
+      not implemented.'
+    timestamp: '2026-09-19T07:53:13.033398+00:00'
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
   - "PvE: tutorial framing only (difficulty selection shipped in 35B; Q11 leaves framing open by name, nothing blocked on it)"

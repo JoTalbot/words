@@ -303,3 +303,13 @@ Batches on this lane: 42A (multi_signal join of distinct signal families),
 by outcome; adds `wordlenhist.go` + `wordlenhist_test.go` to the owned set).
 Enforcement stays owner-gated per the boundary document; nothing here
 influences admission, scoring or outcome.
+
+## Session 14 — 2026-09-19 recovery / release evidence
+
+Historical sessions A/B/C and 13 are inactive handoffs, not live file locks.
+No active words source worker or open PR was found at recovery.
+Orchestrator owns batch44a executable modes, task/state, then release-evidence
+corrections. Worktree /home/ubuntu/wt/batch44a; historical worktrees untouched.
+Qwen2.5:3b is a read-only bounded documentation reviewer, with output only in
+/home/ubuntu/artifacts-43 (no commit authority). QA workers own only artifacts.
+At most one heavy host job at a time; GitHub emulator is off-host.
