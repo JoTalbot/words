@@ -84,32 +84,34 @@ session:
     batch_44a: 'MERGED PR #86 -> 8e5d4cb. All six core CI checks green on PR and merge,
       exact 15 executable modes restored. No script content changes or guard weakening.'
     active_tasks:
-    - 44A CI mode repair
-    - 44B release-evidence contradictions and owner decision reconciliation
-    - QA Android and browser validation
+    - 44D Unity repaint build/device/vision validation
+    - 44C release-evidence reconciliation and B2 scope conflict
     workers:
     - 'orchestrator: integration/security/contract review'
     - 'qwen2.5:3b: bounded read-only documentation draft'
     - 'QA: artifact-only automation'
-    android: Local adb has zero devices, AVD directory empty, no emulator/system-images/KVM.
-      Authorized GitHub-hosted emulator available; latest run 35380178730 succeeded
-      on 494dfe97.
+    android: 'Run 35430541294 on 238c62f completed SUCCESS on GitHub-hosted emulator;
+      swipe cells=4 TAAN and cells=3 TSO, rollback markers, PARTNER-GATE PASS, REST
+      result MATCH_COMPLETE 11:35. Artifact 10580667677 inspected: functional gate green
+      but visual FAIL due to retained text trails. Batch 44D addresses this before accepting
+      device visual readiness.'
     resume: 'Complete 44A CI, then reconcile release-readiness against primary contracts.
       Do not declare production release ready from session-13 text: 50 percent debit
       contradicts actual 100 percent, LPI is not identity, and uk fully disabled is
       not implemented.'
     timestamp: '2026-09-19T07:53:13.033398+00:00'
-    batch_44b: 'Validated locally: original browser smoke reproduced PASS on WebSocket
-      error; replacement 5/5 including actual nonempty binary frame at explicit isolated
-      port 18110 plus invalid-token, invalid-scheme, unreachable-server, missing-credentials
-      refusals. No-server env exits nonzero. New CI job awaits PR verification. Screenshot
-      inspected: OPEN, 116-byte first frame, no credentials visible.'
+    batch_44b: 'MERGED PR #87 -> ea4ce0e, all seven checks including new Browser transport
+      smoke green on PR head. Isolated smoke 27/27, deterministic exit gate 6/6 with
+      baseline 43:45 / 37:60 / 44:40 and equal terminal snapshots/event streams.'
     tests: Go all-package suite and go vet passed on 8e5d4cb; targeted behavioral/telemetry/ws
       race suite passed (5.075s), no local PostgreSQL DSN; hosted Go CI covers PostgreSQL
       integration. Monitoring 11/11 and test assets 6/6.
     llm: First 51KB prompt exceeded 150s bound; narrowed to 674 bytes / 280 tokens /
       one thread, completed in 172 tokens. Correct debit and LPI comments reviewed against
       source. Duplicate suggestion and missing release-scope finding not adopted blindly.
+    batch_44d: Full-screen opaque background per Repaint before controls, no geometry
+      changes. Awaiting new Unity build/device screenshot verification; do not call
+      visually verified from functional smoke alone.
 
 m2_remaining:
   - "load testing row: CLOSED on 37B/38A/39A evidence; batch 39A published the corrected Royale-sized leg (1x60 seats, full 180 s budget - 422 B/s per client, word_event fan-out about 83 percent of bytes, seats_dropped 0, deltas_stale 0), so the delta-mode caveat is lifted and docs/M2-LOAD-TESTING.md batch 39A carries the royale reference numbers"
