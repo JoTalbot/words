@@ -12,13 +12,13 @@ func TestStreakMaxHistBucketPlacement(t *testing.T) {
 		max  int
 		want string
 	}{
-		{1, "le_2"},   // a single rejection
-		{3, "le_4"},   // human band
-		{7, "le_8"},   //
-		{11, "le_12"}, // deep but below the signal threshold
-		{19, "le_20"}, // just under rejectionStreakSignalAt (20)
-		{20, "le_40"}, // exactly the signal threshold: in le_40, not le_20
-		{31, "le_40"}, //
+		{1, "le_2"},    // a single rejection
+		{3, "le_4"},    // human band
+		{7, "le_8"},    //
+		{11, "le_12"},  // deep but below the signal threshold
+		{19, "le_20"},  // just under rejectionStreakSignalAt (20)
+		{20, "le_40"},  // exactly the signal threshold: in le_40, not le_20
+		{31, "le_40"},  //
 		{40, "le_inf"}, // overflow (>= 40)
 	}
 	for _, tc := range cases {
