@@ -1,6 +1,6 @@
 id: M3-batch45a-streak-max-hist
 title: "Behavioral measurement: per-match maximum rejection-streak histogram (longitudinal delta, measurement only)"
-status: validated_local_pending_ci
+status: merged_green
 priority: normal
 complexity: small
 inputs:
