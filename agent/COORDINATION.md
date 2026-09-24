@@ -322,3 +322,15 @@ claims are released. Hosted Android run 35431164102 and strict browser CI
 passed; visual regression fixed. The isolated test server and SSH QA tunnel
 were stopped. Resume from current.yml, with one B2 release-scope question,
 not the old seven-question gate. No game-service promotion was performed.
+
+## Session 15 — 2026-09-24 recovery + batch 45A
+
+Recovery on a fresh Arena sandbox: main 98a57f5 with all gates green, live
+service active, so nothing redone. Batch 45A (M3 measurement lane, the
+longitudinal delta 42B named) merged as PR #91 -> 4c7b0f2 and LIVE PROMOTED
+(binary 9292b71e; prev 860b6e68 preserved). No active source workers remain;
+session-15 file claims (server/cmd/game/{behaviorsignal,telemetry,api}.go,
+streakmaxhist*.go, monitoring assets, docs/M3-ANTI-CHEAT.md) are released.
+Own worktree /home/ubuntu/wt/batch45a removed; pinned historical wt/ untouched.
+Resume from agent/state/current.yml session 15. B2 remains the only
+release-scope owner question.

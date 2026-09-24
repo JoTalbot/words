@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-19 (session 14: recover/repair/CI/browser/Android vision/tunnel; B2 release-scope blocker)
+# Updated: 2026-09-24 (session 15: recovery green + batch 45A per-match max streak histogram, merged & live-promoted)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "1589fd5"
+last_verified_commit: "4c7b0f2"
 
 session:
   7:
@@ -134,6 +134,17 @@ session:
       workers exited. Historical worktrees untouched; own integrated worktrees may be removed after final wrap CI.
       Live game process not restarted.
 
+  15:
+    what: "Session 15 on a fresh Arena sandbox. Recovery found main 98a57f5 with every gate already green (CI + Container smoke + Unity Android success through 2026-09-24; go vet + go test ./... green on origin/main on the OCI host; live wordarena.service active, PRs open 0) so nothing was redone. The pasted SSH key needed a one-character base64 repair (validated by full RSA math before use) and the server was reached. The documented owner-independent M3 measurement lane was then continued with batch 45A."
+    recovery: "workspace empty at start; rebuilt from GitHub main 98a57f5. Server 129.213.177.56 (arm-server-01 aarch64): live wordarena.service active on 3555a82 (sha 860b6e68, PID 3565467) before promotion; /opt/words at main; tunnel motivated-select-campaigns-statement answered external healthz/readyz 200; task graph 91 files / 0 problems; agent/state/current.yml passes check-state-yaml.py; GitHub Actions latest runs all success."
+    batch_45a: "MERGED PR #91 -> 4c7b0f2 (all seven CI checks green on the PR head). The first longitudinal delta 42B explicitly named: at room close clear() records the per-match MAXIMUM consecutive-rejection streak (deepest any seat reached - a per-seat running max never reset by acceptance, because the reset-on-accept running streak would understate the worst run) into fixed buckets 2,4,8,12,16,20,40 exported as wordarena_behavior_streak_max_per_match. le_20 = matches whose deepest streak stayed below the 40A signal threshold (20); le_40 + overflow = signal-grade depth. Clean matches stay quiet. JSON streak_max_per_match + Grafana panel 14 + monitoring README row. 6 deterministic tests. Measurement only - no signal influences admission, scoring, ordering or outcome."
+    proof_45a: "Isolated in-memory instance on 127.0.0.1:18114 (port guard, nohup, exact-PID teardown; WORDARENA_ADDR). loadtest -submit-invalid drove 979 rejections to one closed match: streak_max_per_match count=1 sum_streaks=119 overflow_over_40=1 le_inf=1 alongside behavior_max_rejection_streak=242 - the histogram populates exactly at room close and the 119-deep max lands in overflow."
+    promotion: "LIVE PROMOTED to main 4c7b0f2 at 2026-09-24 ~23:30 UTC by docs/M1-OPS.md: /opt/words reset to origin/main, go vet clean, build sha 9292b71e09, prev binary preserved (860b6e68 = the pre-45A 3555a82 build), copy-then-rename install, restart. Verified: installed sha equals build, NRestarts=0, /healthz ok, /readyz ready storage=postgres, infra/smoke.sh 27/0 (SMOKE_EXPECT_STORAGE=postgres), deterministic exit gate 6/6 PASS reproducing the baseline scores exactly (43:45 / 37:60 / 44:40, terminal_snapshots_equal and client_streams_equal true), new Prometheus family live, post-gate null behaviour correct (10 finished matches, streak histogram stays zero for clean bot games)."
+    llm_use: "None required - 45A was a small deterministic change executed directly; no local model was invoked this session (qwen2.5:3b remains available via docker on the host if a future bounded review needs it)."
+    android: "Not required for 45A (server metrics only; no client, protocol or gameplay change). ANDROID_BACKEND stays github-hosted-emulator per session 14 evidence; the hosted Unity Android battery on main remained success through 2026-09-24."
+    merges_this_session: ["45A PR #91 -> 4c7b0f2 (CI + Container smoke green on the PR head; main checks re-verified after merge)"]
+    next_action: "Engineering queue empty again. M3 measurement lane continues owner-independently: candidate next signals are per-match maxima for the other families (metronomic/word_probe/flash_path) following the 45A boundary, or cross-match aggregation per user once identity matures. Release gate still waits only on B2 (publication hold vs full uk release exclusion) documented in docs/OWNER-GATE-DRAFT.md."
+
 m2_remaining:
 - 'No required alpha engineering remains: six ROADMAP rows closed on recorded evidence. Tutorial framing, additional
   guild features and optional wire savings are future scope, not re-opened blockers.'
@@ -146,6 +157,7 @@ facts_non_relitigable:
   - "21 (new 2026-09-17): a websocket subscriber in delta mode receives the initial snapshot and then deltas forever - there is no periodic full snapshot to fall back on. Anything that reads state from the wire (client, bot, load harness) must apply deltas or it will fly a frozen board; this is the defect 38C fixed in the load harness"
   - "22 (new 2026-09-17): agent/state/current.yml is load-bearing and was unguarded for most of its life. A rewrite can delete required keys and still parse as valid YAML; the only detector is tools/check-state-yaml.py in Container smoke - run it locally before committing this file instead of trusting that green CI means the gate passed"
   - "23 (new 2026-09-17): fuzzy text replacement can silently corrupt a Go file (one edit attempt in api.go produced two splices - a comment tail and a duplicated function tail at EOF). Diff after every scripted edit; repair is git checkout plus deterministic python replacement with an assertion per replacement"
+  - "24 (new 2026-09-24): an isolated proof instance must bind with WORDARENA_ADDR, not ADDR - the bare ADDR env is ignored and the server falls back to port 8080, which will collide with a co-tenant. Also the Arena-pasted RSA key needed a one-char base64 repair before ssh-keygen accepted it (validate hand-copied keys with full RSA math: p times q equals n and e times d mod lcm equals 1) before trusting a hand-copied credential"
 
 server:
   host: 129.213.177.56
@@ -153,15 +165,12 @@ server:
     or an untested root fallback.
   deploy_checkout: /opt/words; fast-forward to current origin/main at final handoff without resetting dirty work.
     Source may be newer than the unchanged live binary.
-  live_service: wordarena.service active; PID 3565467 unchanged since 2026-09-18T06:11:30Z, NRestarts=0. Binary
-    VCS 3555a8268bef5572ef670496f7a443b55cc97350, vcs.modified=false; SHA256 860b6e689b1bca8597d8742c40aa7c99fd5b77c6305c697029be532176d94134.
-    PostgreSQL ready; rollback .prev preserved.
+  live_service: 'wordarena.service active; PID 56061 (promoted 2026-09-24 ~23:30Z), NRestarts=0. Binary VCS 4c7b0f2 (main after merge PR 91), SHA256 9292b71e093c5ff439302c7140815ff9526c171733c38b7a7b5b6eb1bc01a651. PostgreSQL ready; rollback .prev preserved (SHA256 860b6e68dotdotdot = the pre-45A 3555a82 build).'
   live_config: Allowlisted process env confirms ADDR=127.0.0.1:18080, ALLOW_BOT_SEATS=true, REQUIRE_READ_CAPABILITY=true.
     TRUST_PROXY absent (default off), MAX_SEATS absent (default duel). No secret environment values printed.
   tunnel_url: 'https://motivated-select-campaigns-statement.trycloudflare.com (44E, external healthz/readyz 200
     on 2026-09-19; repo WORDS_SERVER_URL updated). Ephemeral: re-probe; systemd active alone is insufficient.'
-  worktrees: Historical wt/batch18 and wt/proto-version untouched. Session14 worktrees isolated under /home/ubuntu/wt/batch44*;
-    remove only clean ancestor-of-main worktrees after integration.
+  worktrees: 'Historical wt/batch18 and wt/proto-version untouched. Session15 worktree /home/ubuntu/wt/batch45a removed after integration (own worktree only); pinned historical wt/ untouched.'
   go: /home/ubuntu/go-toolchain/bin/go go1.27.1; GOMODCACHE=/home/ubuntu/gomod-35; GOCACHE=/home/ubuntu/gocache-35.
     Heavy local work capped with GOMAXPROCS=2; one LLM thread.
   ollama: qwen2.5:3b at 127.0.0.1:11434; bounded read-only micro-review completed after large-prompt timeout/reduction.
@@ -178,11 +187,13 @@ sandbox:
     and test logs; source checkout synchronized to current main at handoff.
 
 resume_from:
-- 'Recover current origin/main, inspect session14 and docs/OWNER-GATE-DRAFT.md; no source worker or test server
-  should be left active. Main and live binary are deliberately different: no game-service promotion was needed.'
+- 'Recover current origin/main (now 4c7b0f2, merge PR 91), inspect session 15 and docs/OWNER-GATE-DRAFT.md; no source
+  worker or test server should be left active. Live binary (9292b71e) == main: promoted and verified this session.'
 - Clarify only B2 publication hold versus release-specific full exclusion, then create/execute a bounded task for
   that scope. Preserve shipped constants, stage-1 exposure and measurement-only anti-cheat; do not infer M3/M4/M5
   completion from safe-default approval.
+- 'M3 measurement lane stays owner-independent: per-match maxima for the other signal families (metronomic, word_probe,
+  flash_path) follow the 45A boundary file-for-file; cross-match aggregation per user is parked on identity maturity.'
 
 release_scope_recovery:
   session: 14
@@ -201,12 +212,14 @@ completed_tasks:
 - OPS-batch44c-release-evidence
 - M1-batch44d-opaque-repaint
 - OPS-batch44e-tunnel-recovery
+- M3-batch45a-streak-max-hist
 active_tasks: []
 failed_tasks: []
 blocked_tasks:
 - 'B2: owner clarification of publication hold vs full release exclusion'
 next_tasks:
 - Record B2 clarification, then implement the selected release scope with tests
+- Continue M3 measurement lane owner-independently (per-match maxima for the other families, then cross-match aggregation once identity matures)
 active_workers: []
 android_backend: github-hosted-emulator
-timestamp: '2026-09-19T08:28:01.468636+00:00'
+timestamp: '2026-09-24T23:45:00+00:00'
