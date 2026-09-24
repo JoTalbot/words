@@ -1,0 +1,45 @@
+id: M3-batch45a-streak-max-hist
+title: "Behavioral measurement: per-match maximum rejection-streak histogram (longitudinal delta, measurement only)"
+status: validated_local_pending_ci
+priority: normal
+complexity: small
+inputs:
+  - "docs/M3-ANTI-CHEAT.md 42B section ('These aggregates are what future per-signal longitudinal deltas build on - per-match maxima alongside the process-lifetime maxima') and Known limits ('longitudinal deltas of the signals this file already produces')"
+  - "docs/RELEASE-READINESS.md + docs/ROADMAP.md M3 anti-cheat row (the lane that stays owner-independent)"
+  - "server/cmd/game/behaviorsignal.go (behaviorTracker.clear room-close path, per-seat seatBehavior fields, process-lifetime maxRejectionStreak), streakmaxhist.go pattern from wordlenhist.go/intenthist.go"
+  - "server/cmd/game/telemetry.go (apiMetricsSnapshot + Prometheus exporter), api.go (/metrics JSON + clearSeatWindows call site), infra/monitoring/grafana/dashboards/wordarena.json (stat-panel schema of panel 12)"
+outputs:
+  - "server/cmd/game/streakmaxhist.go - fixed-bucket histogram (bounds 2,4,8,12,16,20,40) of the per-match maximum consecutive-rejection streak"
+  - "seatBehavior.maxStreak running max (never resets on acceptance); behaviorTracker.streakMax histogram; clear() records the match max only when non-zero"
+  - "JSON streak_max_per_match + Prometheus wordarena_behavior_streak_max_per_match histogram family + Grafana panel 14 (the drift gate requires every emitted metric be plotted)"
+  - "docs/M3-ANTI-CHEAT.md 'Per-match maximum streak (45A)' section; infra/monitoring/README.md metric row; 6 deterministic tests"
+acceptance:
+  - "a 25-streak followed by acceptance followed by a 3-streak closes as one match at depth 25 (deepest reached, not final)"
+  - "a clean match (accepted-only) does not advance the histogram"
+  - "two seats rejecting to 6 and 19 close at depth 19"
+  - "le_20 counts only matches whose max stayed under the 20-rejection signal threshold; a max of exactly 20 lands in le_40"
+  - "prometheusLines renders exactly len(streakMaxBounds)+3 lines with the documented name"
+  - "no signal influences admission, scoring, ordering or outcome (measurement only, M3 boundary)"
+validation:
+  - "go test ./cmd/game/ -run 'StreakMax'"
+  - "go test ./cmd/game/ -run 'Behavior|Behaviorsignal'"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with panel 14)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/game/streakmaxhist.go (new)"
+  - "server/cmd/game/streakmaxhist_test.go (new)"
+  - "server/cmd/game/behaviorsignal.go (seatBehavior.maxStreak + tracker.streakMax + clear)"
+  - "server/cmd/game/behaviorsignal_test.go (three close-path tests)"
+  - "server/cmd/game/telemetry.go (snapshot field + prometheus lines)"
+  - "server/cmd/game/api.go (/metrics JSON key)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (panel 14)"
+  - "infra/monitoring/README.md"
+  - "docs/M3-ANTI-CHEAT.md"
+  - "docs/RELEASE-READINESS.md"
+  - "docs/ROADMAP.md"
+escalation: none
+notes: "45A is the first longitudinal delta 42B explicitly named. The per-match max is computed from a per-seat running max (maxStreak), NOT the final streak, because an accepted word resets the running streak and would understate the worst run the match showed. Fixed buckets keep scrapes comparable; the metric joins the wordarena_behavior_* family."

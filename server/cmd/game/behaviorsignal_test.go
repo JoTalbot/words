@@ -427,3 +427,71 @@ func TestFlashPathIgnoresShortPathsAndSlowSubmits(t *testing.T) {
 		t.Fatalf("flash path counter: want 0, got %d", tr.flashPathEvents.Load())
 	}
 }
+
+// ---- 45A: per-match maximum streak longitudinal delta ----
+
+// driveStreak walks a seat's streak up to a target depth (all rejections,
+// distinct words so the probe detector stays quiet, jittered times so the
+// cadence detector stays quiet) and returns the deepest streak the seat
+// reached without resetting it via acceptance.
+func driveStreak(t *testing.T, tr *behaviorTracker, key seatWindowKey, base time.Time, depth int) {
+	t.Helper()
+	gaps := []time.Duration{220, 480, 310, 750, 260, 540, 330, 690, 415, 285}
+	clock := base
+	for i := 1; i <= depth; i++ {
+		clock = clock.Add(gaps[i%len(gaps)]*time.Millisecond + time.Duration(i%7)*time.Millisecond)
+		tr.observe(key, clock, match.ResultRejectedNotInDict, fmt.Sprintf("qzx%d", i), 1)
+	}
+}
+
+func TestStreakMaxPerMatchRecordsDeepestReachedStreak(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	// seat 0: a 25-streak, then an acceptance (reset), then a 3-streak.
+	k0 := seatWindowKey{matchID: 7001, seat: 0}
+	driveStreak(t, &tr, k0, base, 25)
+	tr.observe(k0, base.Add(40*time.Minute), match.ResultAccepted, "word", 1)
+	driveStreak(t, &tr, k0, base.Add(41*time.Minute), 3)
+	// seat 1: clean.
+	tr.clear(7001, 2)
+
+	s := tr.streakMax.snapshot()
+	if s.Count != 1 {
+		t.Fatalf("streak-max count: want 1 match, got %d", s.Count)
+	}
+	// Deepest reached streak across the match is 25, not the final 3.
+	if s.SumStreaks != 25 {
+		t.Fatalf("streak-max sum: want 25 (deepest reached, not final), got %d", s.SumStreaks)
+	}
+}
+
+func TestStreakMaxPerMatchQuietForCleanMatch(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	gaps := []time.Duration{180, 320, 540, 260, 710, 410, 230, 640, 390, 505}
+	for seat := 0; seat < 2; seat++ {
+		key := seatWindowKey{matchID: 7002, seat: seat}
+		clock := base
+		for i := 0; i < 15; i++ {
+			clock = clock.Add(gaps[i%len(gaps)] * time.Millisecond)
+			tr.observe(key, clock, match.ResultAccepted, "word", 1)
+		}
+	}
+	tr.clear(7002, 2)
+	if s := tr.streakMax.snapshot(); s.Count != 0 || s.SumStreaks != 0 {
+		t.Fatalf("clean match must not advance the streak-max histogram: %+v", s)
+	}
+}
+
+func TestStreakMaxPerMatchUsesMaxAcrossSeats(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	// Two seats reject up to different depths; the match max is the larger.
+	driveStreak(t, &tr, seatWindowKey{matchID: 7003, seat: 0}, base, 6)
+	driveStreak(t, &tr, seatWindowKey{matchID: 7003, seat: 1}, base, 19)
+	tr.clear(7003, 2)
+	s := tr.streakMax.snapshot()
+	if s.Count != 1 || s.SumStreaks != 19 {
+		t.Fatalf("streak-max: want one match at depth 19, got count=%d sum=%d", s.Count, s.SumStreaks)
+	}
+}

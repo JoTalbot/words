@@ -1,5 +1,5 @@
 {
-  "title": "Word Arena — Match Service",
+  "title": "Word Arena \u2014 Match Service",
   "uid": "wordarena-m1",
   "schemaVersion": 39,
   "timezone": "utc",
@@ -179,7 +179,7 @@
       "id": 9,
       "type": "stat",
       "title": "Matches created (process total)",
-      "description": "Raw counter. Resets when the service restarts — use the rate panel for trending.",
+      "description": "Raw counter. Resets when the service restarts \u2014 use the rate panel for trending.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -224,7 +224,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "µs"
+          "unit": "\u00b5s"
         },
         "overrides": []
       },
@@ -398,6 +398,52 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Per-match max rejection streak (measurement only)",
+      "description": "M3 batch 45A longitudinal delta alongside behavior_max_rejection_streak: the distribution of the per-match maximum consecutive-rejection streak, recorded at room close. Count = closed matches that had at least one rejection; le=20 cumulative = matches whose deepest streak stayed below the 40A signal threshold; le=40 + overflow = matches that exhibited signal-grade streak depth. Measurement only: nothing here influences admission, scoring or outcome.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "wordarena_behavior_streak_max_per_match_count",
+          "legendFormat": "matches with rejections",
+          "refId": "A"
+        },
+        {
+          "expr": "wordarena_behavior_streak_max_per_match_bucket{le=\"20\"}",
+          "legendFormat": "max below signal threshold",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       }

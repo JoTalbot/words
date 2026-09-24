@@ -653,6 +653,11 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"behavior_closed_family_seats":     m.ClosedFamilySeats,
 		"intent_rate_limited_total":        m.IntentRateLimited,
 		"behavior_max_rejection_streak":    m.BehaviorMaxRejectionStreak,
+
+		// Per-match max rejection-streak distribution (M3 batch 45A,
+		// measurement only): the longitudinal delta alongside
+		// behavior_max_rejection_streak.
+		"streak_max_per_match": m.StreakMax,
 	})
 }
 
