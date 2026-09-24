@@ -252,6 +252,12 @@ type apiMetricsSnapshot struct {
 	ClosedWithSignals          uint64
 	ClosedFlaggedSeats         uint64
 	ClosedFamilySeats          uint64
+
+	// StreakMax is the M3 batch 45A per-match maximum consecutive-rejection
+	// streak histogram (the longitudinal delta 42B named): the distribution
+	// of the per-match max, alongside the process-lifetime
+	// BehaviorMaxRejectionStreak gauge.
+	StreakMax streakMaxHistSnapshot
 }
 
 func (a *API) metricsSnapshot() apiMetricsSnapshot {
@@ -283,6 +289,7 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		ClosedWithSignals:          a.behavior.closedWithSignals.Load(),
 		ClosedFlaggedSeats:         a.behavior.closedFlaggedSeats.Load(),
 		ClosedFamilySeats:          a.behavior.closedFamilySeats.Load(),
+		StreakMax:                  a.behavior.streakMax.snapshot(),
 	}
 }
 
@@ -351,4 +358,9 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeMetric("wordarena_behavior_closed_family_seats_total", "Behavioral signal: (seat, family) incidences summed over closed matches (42B longitudinal aggregate, measurement only).", "counter", m.ClosedFamilySeats)
 	writeMetric("wordarena_intent_rate_limited_total", "WebSocket connections closed by the per-seat intent rate limit.", "counter", m.IntentRateLimited)
 	writeMetric("wordarena_behavior_max_rejection_streak", "Longest consecutive-rejection streak observed on any seat this process.", "gauge", uint64(m.BehaviorMaxRejectionStreak))
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_behavior_streak_max_per_match Per-match maximum consecutive-rejection streak (histogram, measurement only, M3 batch 45A).\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_behavior_streak_max_per_match histogram\n")
+	for _, line := range a.behavior.streakMax.prometheusLines("wordarena_behavior_streak_max_per_match") {
+		_, _ = fmt.Fprintln(w, line)
+	}
 }

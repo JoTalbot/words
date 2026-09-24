@@ -56,7 +56,8 @@ already measures it and it reflects the server, not the player).
   `behavior_flash_path_events`, `behavior_multi_signal_events`,
   `behavior_closed_with_signals`, `behavior_closed_flagged_seats`,
   `behavior_closed_family_seats`, `intent_rate_limited_total`,
-  `behavior_max_rejection_streak` (running max, process lifetime).
+  `behavior_max_rejection_streak` (running max, process lifetime),
+  `streak_max_per_match` (per-match maximum streak histogram, 45A).
 - `/metrics/prometheus`: `wordarena_behavior_metronomic_events_total`,
   `wordarena_behavior_rejection_streak_events_total`,
   `wordarena_behavior_word_probe_events_total`,
@@ -65,6 +66,8 @@ already measures it and it reflects the server, not the player).
   `wordarena_behavior_closed_with_signals_total`,
   `wordarena_behavior_closed_flagged_seats_total`,
   `wordarena_behavior_closed_family_seats_total`,
+  `wordarena_behavior_streak_max_per_match` (histogram family:
+  `_bucket`/`_sum`/`_count`, 45A),
   `wordarena_intent_rate_limited_total`,
   `wordarena_behavior_max_rejection_streak`.
 - JSONL telemetry: `behavior_signal` events carrying `signal`, `match_id`,
@@ -95,6 +98,34 @@ fires one family twice closes with one incidence. These aggregates are what
 future per-signal longitudinal deltas build on (per-match maxima alongside
 the process-lifetime maxima), and they stay measurement-only like everything
 else in this file.
+
+## Per-match maximum streak (45A)
+
+The first of those longitudinal deltas, the one 42B already named: the
+`behavior_max_rejection_streak` gauge is a process-lifetime fact ("deepest
+streak this process ever saw"), which answers the worst case but not the
+distribution. A policy day that wants to calibrate the `rejectionStreakSignalAt`
+threshold must know what depth of streak matches actually exhibit: how many
+closed matches never came close to the threshold, how many reached it, and
+how the mass is distributed in between.
+
+At room close `clear` now records, into a fixed-bucket histogram
+(`streak_max_per_match`, measurement only):
+
+- the **per-match maximum** consecutive-rejection streak — the deepest streak
+  any seat reached in that match, not its final streak (an accepted word
+  resets the running streak, so the final value understates the worst run);
+- only for matches with a **non-zero** maximum — a clean match, like a clean
+  match in 42B, stays quiet and does not inflate the count.
+
+Buckets are fixed at `2, 4, 8, 12, 16, 20, 40` (exclusive upper, cumulative):
+the human band (le_2..le_16), `le_20` (matches whose deepest streak stayed
+**below** the signal threshold — i.e. where no seat fired the streak signal),
+and `le_40` + overflow (matches that exhibited signal-grade streak depth,
+exactly `rejectionStreakSignalAt`=20 and up). `_count` is the number of closed
+matches with at least one rejection, and `_sum/_count` is the average
+per-match maximum streak depth. Two scrapes days apart stay comparable
+because the bounds are fixed, exactly like the other histograms.
 
 ## Cell-path length measurement (42C)
 
@@ -143,8 +174,10 @@ change with a test update, not a config knob.
   deterministic, zero-risk signals, not a detection ceiling. The natural next
   candidates reuse this file's boundary and export paths: cross-match
   aggregation per user (needs the identity layer to mature, see below),
-  cell-path geometry vs dictionary structure, and longitudinal deltas of the
-  signals this file already produces.
+  cell-path geometry vs dictionary structure (measured as distributions by
+  42C), and longitudinal deltas of the signals this file already produces
+  (started by 45A with the per-match maximum streak histogram; per-match
+  maxima for the other families follow the same boundary).
 - The gap ring may be read mid-write by a scrape (single-writer ring, atomic
   slots): a scrape can see a slightly mixed window. Nothing consumes these
   values authoritatively, so the race is benign by construction.

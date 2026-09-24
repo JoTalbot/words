@@ -126,6 +126,7 @@ const (
 type seatBehavior struct {
 	lastSubmit atomic.Int64                  // unix nanos of the last observed intent (0 = none)
 	streak     atomic.Int64                  // consecutive rejected intents (accepted resets)
+	maxStreak  atomic.Int64                  // deepest streak this seat reached this match (never resets)
 	flagged    atomic.Bool                   // metronomic signal already fired for this seat
 	flashFlag  atomic.Bool                   // flash-path signal already fired for this seat
 	gaps       [cadenceRingSize]atomic.Int64 // most recent inter-submit gaps, nanos
@@ -170,6 +171,14 @@ type behaviorTracker struct {
 	closedWithSignals  atomic.Uint64 // matches closed with >= 1 flagged seat
 	closedFlaggedSeats atomic.Uint64 // flagged seats summed over closed matches
 	closedFamilySeats  atomic.Uint64 // (seat, family) incidences over closed matches
+
+	// streakMax is the M3 batch 45A longitudinal delta: the distribution of
+	// the per-match maximum consecutive-rejection streak. The process-lifetime
+	// gauge behavior_max_rejection_streak answers "deepest streak this
+	// process ever saw"; this histogram answers "what depth of streak do
+	// matches actually exhibit", including how many closed matches never
+	// reached the signal threshold at all. Measurement only.
+	streakMax streakMaxHist
 }
 
 // observe records one submitted intent for a seat and returns the names of
@@ -223,6 +232,15 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 		for {
 			cur := t.maxRejectionStreak.Load()
 			if n <= cur || t.maxRejectionStreak.CompareAndSwap(cur, n) {
+				break
+			}
+		}
+		// Per-seat running max: the final streak resets on acceptance, but
+		// the deepest streak the seat reached is the longitudinal fact clear()
+		// reports at room close (45A).
+		for {
+			cur := b.maxStreak.Load()
+			if n <= cur || b.maxStreak.CompareAndSwap(cur, n) {
 				break
 			}
 		}
@@ -320,20 +338,32 @@ func cadenceStats(b *seatBehavior) (mean float64, cv float64) {
 // aggregated here (per-match denominators for the event-time counters).
 func (t *behaviorTracker) clear(matchID uint64, seats int) {
 	var flaggedSeats, familyIncidences int
+	maxStreak := 0
 	for seat := 0; seat < seats; seat++ {
 		v, ok := t.seats.LoadAndDelete(seatWindowKey{matchID: matchID, seat: seat})
 		if !ok {
 			continue
 		}
-		fam := int(v.(*seatBehavior).multiFam.Load())
+		b := v.(*seatBehavior)
+		fam := int(b.multiFam.Load())
 		if fam != 0 {
 			flaggedSeats++
 			familyIncidences += bits.OnesCount(uint(fam))
+		}
+		// Per-match maximum consecutive-rejection streak (45A): the deepest
+		// streak any seat reached, not the final one (which an accepted word
+		// resets). Only non-zero maxima are recorded, and only matches that
+		// had at least one rejection contribute a point to the histogram.
+		if s := int(b.maxStreak.Load()); s > maxStreak {
+			maxStreak = s
 		}
 	}
 	if flaggedSeats > 0 {
 		t.closedWithSignals.Add(1)
 		t.closedFlaggedSeats.Add(uint64(flaggedSeats))
 		t.closedFamilySeats.Add(uint64(familyIncidences))
+	}
+	if maxStreak > 0 {
+		t.streakMax.record(maxStreak)
 	}
 }
