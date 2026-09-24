@@ -19,7 +19,7 @@ func TestStreakMaxHistBucketPlacement(t *testing.T) {
 		{19, "le_20"}, // just under rejectionStreakSignalAt (20)
 		{20, "le_40"}, // exactly the signal threshold: in le_40, not le_20
 		{31, "le_40"}, //
-		{40, "le_inf"} // overflow (>= 40)
+		{40, "le_inf"}, // overflow (>= 40)
 	}
 	for _, tc := range cases {
 		h.record(tc.max)
