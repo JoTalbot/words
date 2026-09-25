@@ -658,6 +658,11 @@ func (a *API) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// measurement only): the longitudinal delta alongside
 		// behavior_max_rejection_streak.
 		"streak_max_per_match": m.StreakMax,
+
+		// M3 batch 46A longitudinal deltas (measurement only): the per-match
+		// maximum word-probe episode depth and distinct signal-family count.
+		"probe_max_per_match":   m.ProbeMax,
+		"families_max_per_match": m.FamiliesMax,
 	})
 }
 

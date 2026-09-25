@@ -295,7 +295,7 @@ Exit gate: two remote clients can complete repeated matches with identical final
 
 - [ ] seasons and battle pass
 - [ ] cosmetics
-- [~] behavioral anti-cheat signals — measurement layer live (40A rejection_streak + metronomic_cadence, 41A word_probe + flash_path, 42A multi_signal join of distinct families, 42B close-time longitudinal aggregates, 42C intent word-length histograms by outcome, 45A per-match maximum rejection-streak histogram, plus the intent_rate_limited counter); enforcement stays owner-gated per docs/M3-ANTI-CHEAT.md boundary, so the row cannot close until the owner opens that gate
+- [~] behavioral anti-cheat signals — measurement layer live (40A rejection_streak + metronomic_cadence, 41A word_probe + flash_path, 42A multi_signal join of distinct families, 42B close-time longitudinal aggregates, 42C intent word-length histograms by outcome, 45A per-match maximum rejection-streak histogram, 46A per-match maximum probe depth + family count histograms, plus the intent_rate_limited counter); enforcement stays owner-gated per docs/M3-ANTI-CHEAT.md boundary, so the row cannot close until the owner opens that gate
 - [~] dictionary hotfix pipeline — deterministic hotfix tooling in dictcompile (batch 43: -parent/-add/-remove with parent-sha + added/removed provenance, pinned by determinism tests); publishing an en/ru hotfix or shipping uk stays owner-gated (B2 licence, content review)
 - [ ] appeals/moderation tooling
 - [ ] economy simulation

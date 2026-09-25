@@ -495,3 +495,102 @@ func TestStreakMaxPerMatchUsesMaxAcrossSeats(t *testing.T) {
 		t.Fatalf("streak-max: want one match at depth 19, got count=%d sum=%d", s.Count, s.SumStreaks)
 	}
 }
+
+// ---- 46A: per-match probe-depth and family-count longitudinal deltas ----
+
+func TestProbeMaxPerMatchRecordsDeepestEpisode(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	key := seatWindowKey{matchID: 8001, seat: 0}
+	// One word hammered 7 times (episode depth 7), another hammered 3 times.
+	triggerProbe(t, &tr, key, base, "QWERTZ", 7)
+	triggerProbe(t, &tr, key, base.Add(20*time.Minute), "ASDFGH", 3)
+	tr.clear(8001, 1)
+	s := tr.probeMax.snapshot()
+	if s.Count != 1 || s.SumDepth != 7 {
+		t.Fatalf("probe-max: want one match at depth 7, got count=%d sum=%d", s.Count, s.SumDepth)
+	}
+}
+
+func TestProbeMaxPerMatchQuietForCleanMatch(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	gaps := []time.Duration{180, 320, 540, 260, 710, 410, 230, 640, 390, 505}
+	for seat := 0; seat < 2; seat++ {
+		key := seatWindowKey{matchID: 8002, seat: seat}
+		clock := base
+		for i := 0; i < 15; i++ {
+			clock = clock.Add(gaps[i%len(gaps)] * time.Millisecond)
+			tr.observe(key, clock, match.ResultAccepted, "word", 1)
+		}
+	}
+	tr.clear(8002, 2)
+	if s := tr.probeMax.snapshot(); s.Count != 0 || s.SumDepth != 0 {
+		t.Fatalf("clean match must not advance probe-max: %+v", s)
+	}
+}
+
+func TestProbeMaxPerMatchIgnoresNeutralOutcomes(t *testing.T) {
+	// Accepted and MATCH_NOT_ACTIVE outcomes are neutral for the probe
+	// episode: they neither advance it (the counter increments only on the
+	// three rejection classes) nor reset it (like the event-time episode,
+	// a word's count is cumulative over the match). A 4-deep episode stays
+	// 4 through both neutral outcomes.
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	key := seatWindowKey{matchID: 8003, seat: 0}
+	triggerProbe(t, &tr, key, base, "QWERTZ", 4)
+	tr.observe(key, base.Add(10*time.Minute), match.ResultAccepted, "QWERTZ", 2)
+	tr.observe(key, base.Add(11*time.Minute), match.ResultMatchNotActive, "QWERTZ", 2)
+	tr.clear(8003, 1)
+	if s := tr.probeMax.snapshot(); s.SumDepth != 4 {
+		t.Fatalf("probe-max: neutral outcomes must not advance the episode; want max 4, got %d", s.SumDepth)
+	}
+}
+
+func TestFamiliesMaxPerMatchRecordsMaxAcrossSeats(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	// seat 0: one family (streak). seat 1: three families.
+	multiFires(t, &tr, seatWindowKey{matchID: 9001, seat: 0}, base, signalRejectionStreak)
+	k1 := seatWindowKey{matchID: 9001, seat: 1}
+	multiFires(t, &tr, k1, base, signalRejectionStreak)
+	multiFires(t, &tr, k1, base.Add(time.Minute), signalMetronomic)
+	multiFires(t, &tr, k1, base.Add(2*time.Minute), signalWordProbe)
+	tr.clear(9001, 2)
+	s := tr.familiesMax.snapshot()
+	if s.Count != 1 || s.SumFamilies != 3 {
+		t.Fatalf("families-max: want one match at family count 3, got count=%d sum=%d", s.Count, s.SumFamilies)
+	}
+}
+
+func TestFamiliesMaxPerMatchQuietForCleanMatch(t *testing.T) {
+	var tr behaviorTracker
+	base := time.Unix(1700000000, 0)
+	gaps := []time.Duration{180, 320, 540, 260, 710, 410, 230, 640, 390, 505}
+	for seat := 0; seat < 2; seat++ {
+		key := seatWindowKey{matchID: 9002, seat: seat}
+		clock := base
+		for i := 0; i < 15; i++ {
+			clock = clock.Add(gaps[i%len(gaps)] * time.Millisecond)
+			tr.observe(key, clock, match.ResultAccepted, "word", 1)
+		}
+	}
+	tr.clear(9002, 2)
+	if s := tr.familiesMax.snapshot(); s.Count != 0 || s.SumFamilies != 0 {
+		t.Fatalf("clean match must not advance families-max: %+v", s)
+	}
+}
+
+// triggerProbe drives one seat through depth identical rejections of the
+// same word with jittered single-cell times so only the probe episode
+// changes; it is the probe counterpart of multiFires driveStreak.
+func triggerProbe(t *testing.T, tr *behaviorTracker, key seatWindowKey, base time.Time, word string, depth int) {
+	t.Helper()
+	gaps := []time.Duration{220, 480, 310, 750, 260, 540, 330, 690, 415, 285}
+	clock := base
+	for i := 1; i <= depth; i++ {
+		clock = clock.Add(gaps[i%len(gaps)]*time.Millisecond + time.Duration(i%7)*time.Millisecond)
+		tr.observe(key, clock, match.ResultRejectedNotInDict, word, 1)
+	}
+}
