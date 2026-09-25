@@ -18,7 +18,7 @@ func TestProbeMaxHistBucketPlacement(t *testing.T) {
 		{5, "le_6"},   // exactly at wordProbeRepeatAt
 		{7, "le_8"},   //
 		{9, "le_10"},  //
-		{10, "le_inf"} // overflow
+		{10, "le_inf"}, // overflow
 	}
 	for _, tc := range cases {
 		h.record(tc.depth)
