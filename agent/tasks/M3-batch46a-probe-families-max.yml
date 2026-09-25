@@ -1,0 +1,46 @@
+id: M3-batch46a-probe-families-max
+title: "Behavioral measurement: per-match maximum probe-depth and family-count histograms (longitudinal deltas, measurement only)"
+status: validated_local_pending_ci
+priority: normal
+complexity: small
+inputs:
+  - "docs/M3-ANTI-CHEAT.md 45A section (per-match maxima boundary), 42B note and Known limits (longitudinal deltas of the signals the file already produces)"
+  - "server/cmd/game/behaviorsignal.go (seatBehavior probeCounts/multiFam, behaviorTracker clear, 45A streakMax pattern); streakmaxhist.go (fixed-bucket histogram pattern)"
+  - "server/cmd/game/telemetry.go + api.go exporters; infra/monitoring/grafana/dashboards/wordarena.json stat-panel schema"
+outputs:
+  - "server/cmd/game/probemaxhist.go + familiesmaxhist.go - fixed-bucket histograms of the per-match max word-probe episode depth (2,3,4,5,6,8,10) and per-match max distinct signal-family count (2,3,4)"
+  - "seatBehavior.probeMaxDep + multiFamCount (single-writer per seat, atomics for the close scan); behaviorTracker.probeMax + familiesMax; clear() records non-zero maxima"
+  - "JSON probe_max_per_match + families_max_per_match + Prometheus wordarena_behavior_{probe,families}_max_per_match + Grafana panel 15"
+  - "docs/M3-ANTI-CHEAT.md 46A section; infra/monitoring/README.md rows; 9 deterministic tests"
+acceptance:
+  - "a 7-deep episode and a 3-deep episode close as one match at depth 7"
+  - "neutral outcomes (accepted, MATCH_NOT_ACTIVE) neither advance nor reset the episode"
+  - "a clean match does not advance either histogram"
+  - "families-max closes at the maximum over seats (seat A one family, seat B three -> 3)"
+  - "le_5 counts only matches whose deepest probe episode stayed under the threshold; le_3 counts matches whose deepest seat reached the multi_signal join"
+  - "prometheusLines renders exactly len(bounds)+3 lines with the documented names"
+  - "no signal influences admission, scoring, ordering or outcome (measurement only, M3 boundary)"
+validation:
+  - "go test ./cmd/game/ -run 'ProbeMax|FamiliesMax'"
+  - "go test ./cmd/game/ -run 'Behavior|StreakMax'"
+  - "go test ./..."
+  - "go vet ./..."
+  - "gofmt -l (empty)"
+  - "python3 tools/check-monitoring-assets.py (drift gate must pass with panel 15)"
+  - "python3 tools/check-task-yaml.py"
+risk: low
+file_ownership:
+  - "server/cmd/game/probemaxhist.go (new)"
+  - "server/cmd/game/familiesmaxhist.go (new)"
+  - "server/cmd/game/probefamilies_test.go (new)"
+  - "server/cmd/game/behaviorsignal.go (seatBehavior fields + tracker fields + clear)"
+  - "server/cmd/game/behaviorsignal_test.go (close-path tests)"
+  - "server/cmd/game/telemetry.go (snapshot fields + prometheus lines)"
+  - "server/cmd/game/api.go (/metrics JSON keys)"
+  - "infra/monitoring/grafana/dashboards/wordarena.json (panel 15)"
+  - "infra/monitoring/README.md"
+  - "docs/M3-ANTI-CHEAT.md"
+  - "docs/RELEASE-READINESS.md"
+  - "docs/ROADMAP.md"
+escalation: none
+notes: "46A applies the 45A per-match-maxima boundary to the two other families with a natural maximum. probeMaxDep is the max over words of probeCounts (accepted/MATCH_NOT_ACTIVE never advance or reset it - matching the 41A episode semantics). multiFamCount is the popcount of the final family mask, so it is the same single source of truth 42B uses. Bounds are FIXED so scrapes stay comparable."

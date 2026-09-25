@@ -136,6 +136,21 @@ type seatBehavior struct {
 	// map is safe here; it dies with the seat state on clear().
 	probeCounts map[string]int
 
+	// probeMaxDep is the deepest word-probe episode this seat reached this
+	// match (max over words of probeCounts). Written only by the seat's
+	// reader goroutine; read by the room-close scan, so atomic for the same
+	// cross-goroutine reason as multiFam.
+	probeMaxDep atomic.Int64
+
+	// famEver is a bitmask of every distinct signal family this seat has
+	// fired this match, capped by nothing. multiFam (below) deliberately
+	// stops growing once the multi_signal join fires, so a popcount of
+	// multiFam can never exceed multiSignalArity; the 46A families-max
+	// histogram needs the uncapped count, which famEver provides. Written
+	// only by the seat's reader goroutine; read by the room-close scan, so
+	// atomic.
+	famEver atomic.Int64
+
 	// multiFam is a bitmask of the signal families this seat has fired in
 	// the current match. The seat's reader goroutine is the only WRITER,
 	// but closeScan reads the mask from the room-close path, so it is
@@ -179,6 +194,15 @@ type behaviorTracker struct {
 	// matches actually exhibit", including how many closed matches never
 	// reached the signal threshold at all. Measurement only.
 	streakMax streakMaxHist
+
+	// probeMax / familiesMax are the 46A longitudinal deltas: the same
+	// per-match-maximum distributions for the other two families with a
+	// natural maximum - word-probe episode depth and the number of distinct
+	// signal families a seat fired. They calibrate wordProbeRepeatAt and
+	// multiSignalArity exactly the way streakMax calibrates
+	// rejectionStreakSignalAt. Measurement only.
+	probeMax    probeMaxHist
+	familiesMax familiesMaxHist
 }
 
 // observe records one submitted intent for a seat and returns the names of
@@ -251,6 +275,11 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 		// Word probe: the same string failing over and over in one match.
 		if word != "" {
 			b.probeCounts[word]++
+			// Per-seat probe-depth maximum (46A): the deepest episode this
+			// seat reached, for clear() to report the match maximum at close.
+			if c := b.probeCounts[word]; int64(c) > b.probeMaxDep.Load() {
+				b.probeMaxDep.Store(int64(c))
+			}
 			if b.probeCounts[word] == wordProbeRepeatAt {
 				t.wordProbeEvents.Add(1)
 				signals = append(signals, signalWordProbe)
@@ -280,6 +309,15 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 				t.multiSignalEvents.Add(1)
 				signals = append(signals, signalMulti)
 			}
+		}
+	}
+	// Ever-fired family mask (46A): distinct families across the whole
+	// match, INCLUDING any fired after the multi_signal join. multiFam
+	// stops at the join by 42A design, so the close-time families-max
+	// histogram reads this uncapped mask instead. Single-writer per seat.
+	if fam != 0 {
+		if added := fam &^ int(b.famEver.Load()); added != 0 {
+			b.famEver.Store(b.famEver.Load() | int64(added))
 		}
 	}
 	return signals
@@ -339,6 +377,8 @@ func cadenceStats(b *seatBehavior) (mean float64, cv float64) {
 func (t *behaviorTracker) clear(matchID uint64, seats int) {
 	var flaggedSeats, familyIncidences int
 	maxStreak := 0
+	maxProbeDep := 0
+	maxFamilies := 0
 	for seat := 0; seat < seats; seat++ {
 		v, ok := t.seats.LoadAndDelete(seatWindowKey{matchID: matchID, seat: seat})
 		if !ok {
@@ -350,12 +390,23 @@ func (t *behaviorTracker) clear(matchID uint64, seats int) {
 			flaggedSeats++
 			familyIncidences += bits.OnesCount(uint(fam))
 		}
+		// Distinct-family count for this seat (46A): the popcount of the
+		// ever-fired mask, which unlike multiFam keeps growing after the
+		// multi_signal join. This is the per-match maximum over seats.
+		if fc := bits.OnesCount(uint(b.famEver.Load())); fc > maxFamilies {
+			maxFamilies = fc
+		}
 		// Per-match maximum consecutive-rejection streak (45A): the deepest
 		// streak any seat reached, not the final one (which an accepted word
 		// resets). Only non-zero maxima are recorded, and only matches that
 		// had at least one rejection contribute a point to the histogram.
 		if s := int(b.maxStreak.Load()); s > maxStreak {
 			maxStreak = s
+		}
+		// Per-match maximum word-probe episode depth (46A): the deepest
+		// same-word rejection episode any seat reached.
+		if p := int(b.probeMaxDep.Load()); p > maxProbeDep {
+			maxProbeDep = p
 		}
 	}
 	if flaggedSeats > 0 {
@@ -365,5 +416,11 @@ func (t *behaviorTracker) clear(matchID uint64, seats int) {
 	}
 	if maxStreak > 0 {
 		t.streakMax.record(maxStreak)
+	}
+	if maxProbeDep > 0 {
+		t.probeMax.record(maxProbeDep)
+	}
+	if maxFamilies > 0 {
+		t.familiesMax.record(maxFamilies)
 	}
 }

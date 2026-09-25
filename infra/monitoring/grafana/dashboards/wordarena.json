@@ -447,6 +447,62 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Per-match probe depth & family count (measurement only)",
+      "description": "M3 batch 46A longitudinal deltas: the per-match maximum word-probe episode depth (le_5 = deep episode reached the 41A word_probe threshold) and the per-match maximum distinct signal-family count (le_3 = a seat reached the 42A multi_signal join). Measurement only: nothing here influences admission, scoring or outcome.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "wordarena_behavior_probe_max_per_match_count",
+          "legendFormat": "matches with probe episodes",
+          "refId": "A"
+        },
+        {
+          "expr": "wordarena_behavior_probe_max_per_match_bucket{le=\"5\"}",
+          "legendFormat": "deepest episode at the threshold",
+          "refId": "B"
+        },
+        {
+          "expr": "wordarena_behavior_families_max_per_match_count",
+          "legendFormat": "matches with flagged seats",
+          "refId": "C"
+        },
+        {
+          "expr": "wordarena_behavior_families_max_per_match_bucket{le=\"3\"}",
+          "legendFormat": "seats reached the join",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      }
     }
   ]
 }

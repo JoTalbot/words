@@ -15,7 +15,7 @@ claim that every historical test was rerun this session.
 | M0 | 10 | 0 | 0 | Prototype scope; historical server and hosted-device evidence linked in roadmap |
 | M1 | 7 | 0 | 0 | Vertical slice, not a production-launch approval |
 | M2 | 6 | 0 | 0 | Alpha foundation; 60-player row bookkeeping reconciled with already merged 31A–32D and 39A evidence |
-| M3 | 0 | 2 | 4 | Dictionary hotfix tooling and behavioral measurement (40A/41A/42A/42B/42C/45A) partial; seasons/battle pass, cosmetics, moderation, economy simulation not done |
+| M3 | 0 | 2 | 4 | Dictionary hotfix tooling and behavioral measurement (40A/41A/42A/42B/42C/45A/46A) partial; seasons/battle pass, cosmetics, moderation, economy simulation not done |
 | M4 | 0 | 0 | 6 | Soft launch not complete |
 | M5 | 0 | 0 | 6 | Global launch not complete |
 

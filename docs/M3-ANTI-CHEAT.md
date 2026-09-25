@@ -57,7 +57,9 @@ already measures it and it reflects the server, not the player).
   `behavior_closed_with_signals`, `behavior_closed_flagged_seats`,
   `behavior_closed_family_seats`, `intent_rate_limited_total`,
   `behavior_max_rejection_streak` (running max, process lifetime),
-  `streak_max_per_match` (per-match maximum streak histogram, 45A).
+  `streak_max_per_match` (per-match maximum streak histogram, 45A),
+  `probe_max_per_match` (per-match maximum probe-depth histogram, 46A),
+  `families_max_per_match` (per-match maximum family-count histogram, 46A).
 - `/metrics/prometheus`: `wordarena_behavior_metronomic_events_total`,
   `wordarena_behavior_rejection_streak_events_total`,
   `wordarena_behavior_word_probe_events_total`,
@@ -68,6 +70,8 @@ already measures it and it reflects the server, not the player).
   `wordarena_behavior_closed_family_seats_total`,
   `wordarena_behavior_streak_max_per_match` (histogram family:
   `_bucket`/`_sum`/`_count`, 45A),
+  `wordarena_behavior_probe_max_per_match` (histogram family, 46A),
+  `wordarena_behavior_families_max_per_match` (histogram family, 46A),
   `wordarena_intent_rate_limited_total`,
   `wordarena_behavior_max_rejection_streak`.
 - JSONL telemetry: `behavior_signal` events carrying `signal`, `match_id`,
@@ -127,6 +131,31 @@ matches with at least one rejection, and `_sum/_count` is the average
 per-match maximum streak depth. Two scrapes days apart stay comparable
 because the bounds are fixed, exactly like the other histograms.
 
+## Per-match maxima for probe depth and family count (46A)
+
+The same longitudinal-delta boundary, applied to the two other families that
+have a natural per-match maximum:
+
+- **`probe_max_per_match`** — the per-match maximum word-probe episode depth
+  (the deepest same-word rejection episode any seat reached). Fixed buckets
+  `2,3,4,5,6,8,10`: `le_5` counts matches whose deepest episode stayed
+  **below** the `wordProbeRepeatAt` (5) signal threshold, and `le_6` up counts
+  the matches whose deepest episode reached or exceeded it. This calibrates
+  the probe threshold the way `streak_max_per_match` calibrates the streak
+  threshold: how many matches come close, how many sit at the line, how many
+  blow past it.
+- **`families_max_per_match`** — the per-match maximum number of distinct
+  signal families a seat fired. Fixed buckets `2,3,4`: `le_2` counts matches
+  whose deepest seat fired exactly one family (flagged but never joined),
+  `le_3` the matches whose deepest seat reached the `multiSignalArity` join,
+  and `le_4` + overflow the matches whose deepest seat fired three or more
+  families — the heaviest co-occurrence evidence a policy day could weigh.
+
+Both are recorded only for matches with a non-zero maximum (clean matches
+stay quiet), both are bucketed on FIXED bounds so scrapes stay comparable,
+and nothing consumes either authoritatively — measurement only, the M3
+boundary unchanged.
+
 ## Cell-path length measurement (42C)
 
 The "cell-path geometry vs dictionary structure" candidate is the one Known
@@ -176,8 +205,9 @@ change with a test update, not a config knob.
   aggregation per user (needs the identity layer to mature, see below),
   cell-path geometry vs dictionary structure (measured as distributions by
   42C), and longitudinal deltas of the signals this file already produces
-  (started by 45A with the per-match maximum streak histogram; per-match
-  maxima for the other families follow the same boundary).
+  (started by 45A with the per-match maximum streak histogram; 46A adds the
+  per-match maximum probe depth and family count; the remaining families
+  follow the same boundary when they need calibrating).
 - The gap ring may be read mid-write by a scrape (single-writer ring, atomic
   slots): a scrape can see a slightly mixed window. Nothing consumes these
   values authoritatively, so the race is benign by construction.

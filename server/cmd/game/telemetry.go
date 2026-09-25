@@ -258,6 +258,12 @@ type apiMetricsSnapshot struct {
 	// of the per-match max, alongside the process-lifetime
 	// BehaviorMaxRejectionStreak gauge.
 	StreakMax streakMaxHistSnapshot
+
+	// ProbeMax / FamiliesMax are the 46A longitudinal deltas: the per-match
+	// maximum word-probe episode depth and the per-match maximum distinct
+	// signal-family count.
+	ProbeMax    probeMaxHistSnapshot
+	FamiliesMax familiesMaxHistSnapshot
 }
 
 func (a *API) metricsSnapshot() apiMetricsSnapshot {
@@ -290,6 +296,8 @@ func (a *API) metricsSnapshot() apiMetricsSnapshot {
 		ClosedFlaggedSeats:         a.behavior.closedFlaggedSeats.Load(),
 		ClosedFamilySeats:          a.behavior.closedFamilySeats.Load(),
 		StreakMax:                  a.behavior.streakMax.snapshot(),
+		ProbeMax:                   a.behavior.probeMax.snapshot(),
+		FamiliesMax:                a.behavior.familiesMax.snapshot(),
 	}
 }
 
@@ -361,6 +369,16 @@ func (a *API) handlePrometheusMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "# HELP wordarena_behavior_streak_max_per_match Per-match maximum consecutive-rejection streak (histogram, measurement only, M3 batch 45A).\n")
 	_, _ = fmt.Fprintf(w, "# TYPE wordarena_behavior_streak_max_per_match histogram\n")
 	for _, line := range a.behavior.streakMax.prometheusLines("wordarena_behavior_streak_max_per_match") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_behavior_probe_max_per_match Per-match maximum word-probe episode depth (histogram, measurement only, M3 batch 46A).\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_behavior_probe_max_per_match histogram\n")
+	for _, line := range a.behavior.probeMax.prometheusLines("wordarena_behavior_probe_max_per_match") {
+		_, _ = fmt.Fprintln(w, line)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP wordarena_behavior_families_max_per_match Per-match maximum distinct signal-family count (histogram, measurement only, M3 batch 46A).\n")
+	_, _ = fmt.Fprintf(w, "# TYPE wordarena_behavior_families_max_per_match histogram\n")
+	for _, line := range a.behavior.familiesMax.prometheusLines("wordarena_behavior_families_max_per_match") {
 		_, _ = fmt.Fprintln(w, line)
 	}
 }
