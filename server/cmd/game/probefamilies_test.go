@@ -12,12 +12,12 @@ func TestProbeMaxHistBucketPlacement(t *testing.T) {
 		depth int
 		want  string
 	}{
-		{1, "le_2"},   // a single identical rejection (retype), below threshold
-		{2, "le_3"},   //
-		{4, "le_5"},   // deepest episode just under the signal threshold
-		{5, "le_6"},   // exactly at wordProbeRepeatAt
-		{7, "le_8"},   //
-		{9, "le_10"},  //
+		{1, "le_2"},    // a single identical rejection (retype), below threshold
+		{2, "le_3"},    //
+		{4, "le_5"},    // deepest episode just under the signal threshold
+		{5, "le_6"},    // exactly at wordProbeRepeatAt
+		{7, "le_8"},    //
+		{9, "le_10"},   //
 		{10, "le_inf"}, // overflow
 	}
 	for _, tc := range cases {

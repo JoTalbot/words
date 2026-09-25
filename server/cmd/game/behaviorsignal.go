@@ -142,10 +142,14 @@ type seatBehavior struct {
 	// cross-goroutine reason as multiFam.
 	probeMaxDep atomic.Int64
 
-	// multiFamCount is the number of distinct signal families this seat has
-	// fired this match (popcount of multiFam). Written only by the seat's
-	// reader goroutine; read by the room-close scan, so atomic.
-	multiFamCount atomic.Int64
+	// famEver is a bitmask of every distinct signal family this seat has
+	// fired this match, capped by nothing. multiFam (below) deliberately
+	// stops growing once the multi_signal join fires, so a popcount of
+	// multiFam can never exceed multiSignalArity; the 46A families-max
+	// histogram needs the uncapped count, which famEver provides. Written
+	// only by the seat's reader goroutine; read by the room-close scan, so
+	// atomic.
+	famEver atomic.Int64
 
 	// multiFam is a bitmask of the signal families this seat has fired in
 	// the current match. The seat's reader goroutine is the only WRITER,
@@ -301,11 +305,19 @@ func (t *behaviorTracker) observe(key seatWindowKey, now time.Time, res match.Wo
 		if added := fam &^ int(b.multiFam.Load()); added != 0 {
 			mask := b.multiFam.Load() | int64(added)
 			b.multiFam.Store(mask)
-			b.multiFamCount.Store(int64(bits.OnesCount(uint(mask))))
 			if bits.OnesCount(uint(mask)) >= multiSignalArity && b.multiFlag.CompareAndSwap(false, true) {
 				t.multiSignalEvents.Add(1)
 				signals = append(signals, signalMulti)
 			}
+		}
+	}
+	// Ever-fired family mask (46A): distinct families across the whole
+	// match, INCLUDING any fired after the multi_signal join. multiFam
+	// stops at the join by 42A design, so the close-time families-max
+	// histogram reads this uncapped mask instead. Single-writer per seat.
+	if fam != 0 {
+		if added := fam &^ int(b.famEver.Load()); added != 0 {
+			b.famEver.Store(b.famEver.Load() | int64(added))
 		}
 	}
 	return signals
@@ -377,12 +389,12 @@ func (t *behaviorTracker) clear(matchID uint64, seats int) {
 		if fam != 0 {
 			flaggedSeats++
 			familyIncidences += bits.OnesCount(uint(fam))
-			// Distinct-family count for this seat: the popcount of its mask,
-			// for the per-match maximum over seats (46A). Kept as its own
-			// atomic so the final mask is the single source of truth.
-			if fc := int(b.multiFamCount.Load()); fc > maxFamilies {
-				maxFamilies = fc
-			}
+		}
+		// Distinct-family count for this seat (46A): the popcount of the
+		// ever-fired mask, which unlike multiFam keeps growing after the
+		// multi_signal join. This is the per-match maximum over seats.
+		if fc := bits.OnesCount(uint(b.famEver.Load())); fc > maxFamilies {
+			maxFamilies = fc
 		}
 		// Per-match maximum consecutive-rejection streak (45A): the deepest
 		// streak any seat reached, not the final one (which an accepted word
