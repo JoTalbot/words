@@ -1,6 +1,6 @@
 id: M3-batch46a-probe-families-max
 title: "Behavioral measurement: per-match maximum probe-depth and family-count histograms (longitudinal deltas, measurement only)"
-status: validated_local_pending_ci
+status: merged_green
 priority: normal
 complexity: small
 inputs:

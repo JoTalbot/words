@@ -334,3 +334,13 @@ streakmaxhist*.go, monitoring assets, docs/M3-ANTI-CHEAT.md) are released.
 Own worktree /home/ubuntu/wt/batch45a removed; pinned historical wt/ untouched.
 Resume from agent/state/current.yml session 15. B2 remains the only
 release-scope owner question.
+
+## Session 16 — 2026-09-25 batch 46A
+
+46A (per-match max probe-depth + family-count histograms) merged as PR #93 ->
+851f33e and LIVE PROMOTED (binary c02019da; prev 9292b71e preserved). Test
+caught the multiFam-caps-at-join issue before merge; fixed with famEver.
+No active source workers remain; session-16 file claims (behaviorsignal,
+probemaxhist/familiesmaxhist, telemetry, api, monitoring assets) released.
+Own worktree /home/ubuntu/wt/batch46a removed; pinned historical wt/ untouched.
+Resume from agent/state/current.yml session 16.

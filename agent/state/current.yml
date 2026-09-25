@@ -1,10 +1,10 @@
 # Session state — words project. Source of truth for continuation.
-# Updated: 2026-09-24 (session 15: recovery green + batch 45A per-match max streak histogram, merged & live-promoted)
+# Updated: 2026-09-25 (session 16: batch 46A per-match probe-depth + family-count histograms, merged & live-promoted)
 # This file is machine-checked in CI (tools/check-state-yaml.py): it must parse,
 # carry the six keys a resume reader needs, and have no key repeated inside one
 # mapping. Quote any value containing ": ".
 
-last_verified_commit: "4c7b0f2"
+last_verified_commit: "851f33e"
 
 session:
   7:
@@ -145,6 +145,16 @@ session:
     merges_this_session: ["45A PR #91 -> 4c7b0f2 (CI + Container smoke green on the PR head; main checks re-verified after merge)"]
     next_action: "Engineering queue empty again. M3 measurement lane continues owner-independently: candidate next signals are per-match maxima for the other families (metronomic/word_probe/flash_path) following the 45A boundary, or cross-match aggregation per user once identity matures. Release gate still waits only on B2 (publication hold vs full uk release exclusion) documented in docs/OWNER-GATE-DRAFT.md."
 
+  16:
+    what: "Session 16 continued the documented owner-independent M3 measurement lane with batch 46A: the per-match-maxima boundary from 45A applied to the two other families with a natural maximum (word-probe episode depth and distinct signal-family count). A test caught a real design defect before merge: multiFam stops growing once the multi_signal join fires, so its popcount can never exceed 2 - the le_3/le_4 buckets would have been unreachable - fixed with a separate ever-fired mask (famEver) that keeps growing past the join."
+    batch_46a: "MERGED PR #93 -> 851f33e (all seven CI checks green on the PR head). probemaxhist.go (bounds 2,3,4,5,6,8,10) records the per-match max word-probe episode depth (calibrates wordProbeRepeatAt); familiesmaxhist.go (bounds 2,3,4) records the per-match max distinct signal-family count (calibrates multiSignalArity). seatBehavior.probeMaxDep (max over words of probeCounts; accepted/MATCH_NOT_ACTIVE neither advance nor reset) + seatBehavior.famEver. clear() records only non-zero maxima; clean matches stay quiet. JSON probe_max_per_match + families_max_per_match + Prometheus families + Grafana panel 15. 9 deterministic tests. Measurement only."
+    promotion: "LIVE PROMOTED to main 851f33e at 2026-09-25 ~07:20 UTC by docs/M1-OPS.md: /opt/words reset to origin/main, go vet clean, build sha c02019da, prev binary preserved (9292b71e), copy-then-rename install, restart. Verified: installed sha equals build, NRestarts=0, /healthz ok, /readyz ready storage=postgres, infra/smoke.sh 27/0 (SMOKE_EXPECT_STORAGE=postgres), deterministic exit gate 6/6 PASS reproducing the baseline scores exactly (43:45 / 37:60 / 44:40, terminal_snapshots_equal and client_streams_equal true), both new Prometheus families live, post-gate null behaviour correct (histograms stay zero for clean bot games)."
+    defects_found_by_tests: "TestFamiliesMaxPerMatchRecordsMaxAcrossSeats failed on first run because multiFam (42A) deliberately stops growing at the join, so close-time popcount was capped at arity - the same class of reasoning that led 42A to decline the cell-path candidate (a signal that can never fire measures nothing). famEver is the uncapped ever-fired mask; 42A/42B semantics untouched."
+    llm_use: "None required - 46A was a small deterministic change executed directly."
+    android: "Not required for 46A (server metrics only). ANDROID_BACKEND stays github-hosted-emulator."
+    merges_this_session: ["46A PR #93 -> 851f33e (CI + Container smoke green on the PR head; main checks re-verified after merge)"]
+    next_action: "Engineering queue empty again. M3 measurement lane continues owner-independently when a family needs calibrating: per-match maxima are now covered for streak/probe/families; the remaining edge-triggered families (metronomic/flash_path are boolean once-per-seat with no natural maximum) and cross-match aggregation per user remain parked on identity maturity. Release gate still waits only on B2 (publication hold vs full uk release exclusion)."
+
 m2_remaining:
 - 'No required alpha engineering remains: six ROADMAP rows closed on recorded evidence. Tutorial framing, additional
   guild features and optional wire savings are future scope, not re-opened blockers.'
@@ -158,6 +168,7 @@ facts_non_relitigable:
   - "22 (new 2026-09-17): agent/state/current.yml is load-bearing and was unguarded for most of its life. A rewrite can delete required keys and still parse as valid YAML; the only detector is tools/check-state-yaml.py in Container smoke - run it locally before committing this file instead of trusting that green CI means the gate passed"
   - "23 (new 2026-09-17): fuzzy text replacement can silently corrupt a Go file (one edit attempt in api.go produced two splices - a comment tail and a duplicated function tail at EOF). Diff after every scripted edit; repair is git checkout plus deterministic python replacement with an assertion per replacement"
   - "24 (new 2026-09-24): an isolated proof instance must bind with WORDARENA_ADDR, not ADDR - the bare ADDR env is ignored and the server falls back to port 8080, which will collide with a co-tenant. Also the Arena-pasted RSA key needed a one-char base64 repair before ssh-keygen accepted it (validate hand-copied keys with full RSA math: p times q equals n and e times d mod lcm equals 1) before trusting a hand-copied credential"
+  - "25 (new 2026-09-25): the Arena workspace snapshot does not persist .git/config, so the origin remote disappears between sessions - git fetch origin must be preceded by git remote add origin https://github.com/JoTalbot/words.git (public repo, no credential needed for READ) and the per-push inline token URL is safest for WRITE"
 
 server:
   host: 129.213.177.56
@@ -165,12 +176,12 @@ server:
     or an untested root fallback.
   deploy_checkout: /opt/words; fast-forward to current origin/main at final handoff without resetting dirty work.
     Source may be newer than the unchanged live binary.
-  live_service: 'wordarena.service active; PID 56061 (promoted 2026-09-24 ~23:30Z), NRestarts=0. Binary VCS 4c7b0f2 (main after merge PR 91), SHA256 9292b71e093c5ff439302c7140815ff9526c171733c38b7a7b5b6eb1bc01a651. PostgreSQL ready; rollback .prev preserved (SHA256 860b6e68dotdotdot = the pre-45A 3555a82 build).'
+  live_service: 'wordarena.service active; PID 1824645 (promoted 2026-09-25 ~07:20Z), NRestarts=0. Binary VCS 851f33e (main after merge PR 93), SHA256 c02019da0667be2935738ea20b0f49e9ebc3c88aea3a172b4b906c8d15188ed7. PostgreSQL ready; rollback .prev preserved (SHA256 9292b71e = the 45A build).'
   live_config: Allowlisted process env confirms ADDR=127.0.0.1:18080, ALLOW_BOT_SEATS=true, REQUIRE_READ_CAPABILITY=true.
     TRUST_PROXY absent (default off), MAX_SEATS absent (default duel). No secret environment values printed.
   tunnel_url: 'https://motivated-select-campaigns-statement.trycloudflare.com (44E, external healthz/readyz 200
     on 2026-09-19; repo WORDS_SERVER_URL updated). Ephemeral: re-probe; systemd active alone is insufficient.'
-  worktrees: 'Historical wt/batch18 and wt/proto-version untouched. Session15 worktree /home/ubuntu/wt/batch45a removed after integration (own worktree only); pinned historical wt/ untouched.'
+  worktrees: 'Historical wt/batch18 and wt/proto-version untouched. Session16 worktree /home/ubuntu/wt/batch46a removed after integration (own worktree only); pinned historical wt/ untouched.'
   go: /home/ubuntu/go-toolchain/bin/go go1.27.1; GOMODCACHE=/home/ubuntu/gomod-35; GOCACHE=/home/ubuntu/gocache-35.
     Heavy local work capped with GOMAXPROCS=2; one LLM thread.
   ollama: qwen2.5:3b at 127.0.0.1:11434; bounded read-only micro-review completed after large-prompt timeout/reduction.
@@ -187,13 +198,14 @@ sandbox:
     and test logs; source checkout synchronized to current main at handoff.
 
 resume_from:
-- 'Recover current origin/main (now 4c7b0f2, merge PR 91), inspect session 15 and docs/OWNER-GATE-DRAFT.md; no source
-  worker or test server should be left active. Live binary (9292b71e) == main: promoted and verified this session.'
+- 'Recover current origin/main (now 851f33e, merge PR 93), inspect session 16 and docs/OWNER-GATE-DRAFT.md; no source
+  worker or test server should be left active. Live binary (c02019da) == main: promoted and verified this session.'
 - Clarify only B2 publication hold versus release-specific full exclusion, then create/execute a bounded task for
   that scope. Preserve shipped constants, stage-1 exposure and measurement-only anti-cheat; do not infer M3/M4/M5
   completion from safe-default approval.
-- 'M3 measurement lane stays owner-independent: per-match maxima for the other signal families (metronomic, word_probe,
-  flash_path) follow the 45A boundary file-for-file; cross-match aggregation per user is parked on identity maturity.'
+- 'M3 measurement lane stays owner-independent: per-match maxima exist now for streak (45A), probe and families (46A);
+  the remaining edge-triggered families have no natural maximum; cross-match aggregation per user is parked on identity
+  maturity.'
 
 release_scope_recovery:
   session: 14
@@ -213,13 +225,14 @@ completed_tasks:
 - M1-batch44d-opaque-repaint
 - OPS-batch44e-tunnel-recovery
 - M3-batch45a-streak-max-hist
+- M3-batch46a-probe-families-max
 active_tasks: []
 failed_tasks: []
 blocked_tasks:
 - 'B2: owner clarification of publication hold vs full release exclusion'
 next_tasks:
 - Record B2 clarification, then implement the selected release scope with tests
-- Continue M3 measurement lane owner-independently (per-match maxima for the other families, then cross-match aggregation once identity matures)
+- Continue M3 measurement lane owner-independently (cross-match aggregation once identity matures)
 active_workers: []
 android_backend: github-hosted-emulator
-timestamp: '2026-09-24T23:45:00+00:00'
+timestamp: '2026-09-25T07:25:00+00:00'
